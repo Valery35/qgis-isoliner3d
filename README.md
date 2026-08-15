@@ -29,7 +29,7 @@
 | **1.04** Поверхности в 3D (меши) | экспорт гридов в 2DM (MDAL) |
 | **1.05** Домены в канал пласта | код домена отдельным каналом грида |
 | **1.06** Разность запасов | списание как разность двух блочных моделей |
-| **1.07** Создать пример полиэдра | демонстрационные тела с Z |
+| **1.07** Создать пример данных (демо) | тела с Z и проверочная карта для текстуры |
 
 ## Установка / Installation
 
@@ -60,11 +60,16 @@ python isoliner3d/tests/test_viewer3d.py
 python isoliner3d/tests/test_viewer3d_static.py
 python isoliner3d/tests/test_i18n.py
 python isoliner3d/tests/test_algorithms_static.py
+python isoliner3d/tests/test_prof.py
+python isoliner3d/tests/test_cache.py
+python isoliner3d/tests/test_texmesh.py
 ```
 
 Сборка руководства / building the manual: `manual/build_pdf.sh` (pandoc, xelatex, ghostscript).
 
-Ядро (`mesh3d.py`, `polyhedral.py`) это чистый NumPy без импорта QGIS. `viewer3d.py` импортирует Qt/pyqtgraph лениво, поэтому модуль грузится headless.
+Ядро (`mesh3d.py`, `polyhedral.py`, `demo_map.py`) это чистый NumPy без импорта QGIS. `viewer3d.py` и `texmesh.py` импортируют Qt, QGIS и pyqtgraph лениво, поэтому модули грузятся headless. `algorithms.py` тянет QGIS на верхнем уровне и проверяется статически, разбором AST.
+
+Правила работы над модулем в [AGENTS.md](AGENTS.md).
 
 ## Лицензия / License
 
