@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Виртуальные окружения / virtual envs
+.venv/
+venv/
+env/
+
+# QGIS
+*.qgs~
+*.qgz~
+
+# Редакторы и IDE / editors
+.idea/
+.vscode/
+*.swp
+*~
+
+# ОС / OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Сборочные артефакты / build artifacts
+/dist/
+*.zip
