@@ -1,0 +1,124 @@
+{
+ "PyOpenGL": {
+  "changed": {
+   "GL/ARB/vboimplementation.py": {
+    "kind": "nosec",
+    "lines": 2
+   },
+   "GL/pointers.py": {
+    "kind": "nosec",
+    "lines": 2
+   },
+   "GL/vboimplementation.py": {
+    "kind": "nosec",
+    "lines": 2
+   },
+   "GLU/glunurbs.py": {
+    "kind": "nosec",
+    "lines": 6
+   },
+   "arrays/arraydatatype.py": {
+    "kind": "nosec",
+    "lines": 2
+   },
+   "arrays/numpymodule.py": {
+    "kind": "nosec",
+    "lines": 2
+   },
+   "arrays/vbo.py": {
+    "kind": "nosec",
+    "lines": 8
+   },
+   "constant.py": {
+    "kind": "patch",
+    "lines": 7
+   },
+   "lazywrapper.py": {
+    "kind": "nosec",
+    "lines": 12
+   },
+   "platform/egl.py": {
+    "kind": "nosec",
+    "lines": 2
+   },
+   "raw/GL/_types.py": {
+    "kind": "nosec",
+    "lines": 4
+   },
+   "wrapper.py": {
+    "kind": "nosec",
+    "lines": 10
+   }
+  },
+  "extra": [],
+  "removed": 1115,
+  "version": "3.1.10"
+ },
+ "pyqtgraph": {
+  "changed": {
+   "Qt/__init__.py": {
+    "kind": "patch",
+    "lines": 85
+   },
+   "SignalProxy.py": {
+    "kind": "nosec",
+    "lines": 6
+   },
+   "__init__.py": {
+    "kind": "patch",
+    "lines": 5
+   },
+   "debug.py": {
+    "kind": "patch",
+    "lines": 9
+   },
+   "dockarea/Container.py": {
+    "kind": "nosec",
+    "lines": 2
+   },
+   "dockarea/Dock.py": {
+    "kind": "patch",
+    "lines": 3
+   },
+   "functions_qimage.py": {
+    "kind": "nosec",
+    "lines": 2
+   },
+   "graphicsItems/GraphicsItem.py": {
+    "kind": "nosec",
+    "lines": 2
+   },
+   "graphicsItems/ScatterPlotItem.py": {
+    "kind": "nosec",
+    "lines": 2
+   },
+   "graphicsItems/ViewBox/ViewBox.py": {
+    "kind": "nosec",
+    "lines": 2
+   },
+   "opengl/MeshData.py": {
+    "kind": "patch",
+    "lines": 9
+   },
+   "parametertree/SystemSolver.py": {
+    "kind": "nosec",
+    "lines": 2
+   },
+   "parametertree/parameterTypes/pen.py": {
+    "kind": "nosec",
+    "lines": 2
+   },
+   "widgets/DiffTreeWidget.py": {
+    "kind": "nosec",
+    "lines": 18
+   },
+   "widgets/ScatterPlotWidget.py": {
+    "kind": "nosec",
+    "lines": 2
+   }
+  },
+  "extra": [],
+  "removed": 165,
+  "version": "0.14.0"
+ }
+}
