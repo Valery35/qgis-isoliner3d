@@ -440,7 +440,7 @@ def render_project_map(extent, width, height, crs, layers, prof=None):
         from qgis.core import (QgsMapSettings, QgsMapRendererParallelJob,
                                QgsRectangle)
         from qgis.PyQt.QtCore import QSize
-        from qgis.PyQt.QtGui import QColor, QImage
+        from qgis.PyQt.QtGui import QColor
     except Exception:
         return None
     xmin, xmax, ymin, ymax = extent

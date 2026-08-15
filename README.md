@@ -113,6 +113,7 @@ python isoliner3d/tests/test_algorithms_static.py
 python isoliner3d/tests/test_prof.py
 python isoliner3d/tests/test_cache.py
 python isoliner3d/tests/test_texmesh.py
+python isoliner3d/tests/test_flakes.py
 ```
 
 Ядро (`mesh3d.py`, `polyhedral.py`, `demo_map.py`) это чистый NumPy без

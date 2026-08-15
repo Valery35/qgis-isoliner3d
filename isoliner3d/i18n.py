@@ -255,6 +255,7 @@ TRANSLATIONS = {
     'Плотность': 'Density',
     'Плотность руды, т/м³': 'Ore density, t/m³',
     'Площадь подсчёта': 'Computed area',
+    'Поверхности 3D': '3D surfaces',
     'Поверхности-гриды': 'Surface grids',
     'Поверхность': 'Surface',
     'Подошва (растр)': 'Bottom (raster)',

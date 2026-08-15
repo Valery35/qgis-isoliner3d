@@ -16,7 +16,6 @@ ALGORITHMS.
 """
 import ast
 import os
-import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PKG = os.path.dirname(HERE)

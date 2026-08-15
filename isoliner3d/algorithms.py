@@ -30,12 +30,14 @@ import os
 import numpy as np
 from osgeo import gdal
 
-from qgis.PyQt.QtCore import QUrl
+from qgis.PyQt.QtCore import QUrl, QVariant
 
 from .i18n import tr as _tr   # нужен до констант уровня модуля
 
 from qgis.core import (
     QgsProcessing,
+    QgsProcessingLayerPostProcessorInterface,
+    QgsRasterLayer,
     QgsProcessingAlgorithm,
     QgsProcessingException,
     QgsProcessingContext,
@@ -69,6 +71,58 @@ from .mesh3d import grid_to_2dm, polygon_mask, sample_bilinear
 
 GROUP4 = _tr("Пласт и блочная модель")
 GROUP4_ID = "bed_block_model"
+GRP_MESH3D = _tr("Поверхности 3D")
+
+# держим пост-процессоры живыми, иначе их соберёт сборщик мусора Python
+_KEEP_ALIVE = []
+
+
+def _finalize_layer(layer, history):
+    """Свернуть узел растра в дереве и записать историю создания.
+
+    Стопка гридов иначе раздувает панель слоёв, а история нужна, чтобы
+    через полгода было видно, каким инструментом и когда сделан слой.
+    """
+    try:
+        if isinstance(layer, QgsRasterLayer):
+            node = QgsProject.instance().layerTreeRoot().findLayer(
+                layer.id())
+            if node is not None:
+                node.setExpanded(False)
+    except Exception:  # nosec
+        pass
+    try:
+        if history:
+            md = layer.metadata()
+            for line in history:
+                md.addHistoryItem(line)
+            layer.setMetadata(md)
+    except Exception:  # nosec
+        pass
+
+
+class _Mesh3DPostProcessor(QgsProcessingLayerPostProcessorInterface):
+    """Включает mesh-слою 3D-отображение, если сборка QGIS его поддерживает.
+
+    `qgis._3d` импортируется лениво и под защитой: в headless и в сборках
+    без 3D пост-процессор просто ничего не делает.
+    """
+
+    def postProcessLayer(self, layer, context, feedback):
+        try:
+            from qgis._3d import QgsMeshLayer3DRenderer, QgsMesh3DSymbol
+            sym = QgsMesh3DSymbol()
+            try:
+                sym.setSmoothedTriangles(True)
+            except Exception:  # nosec
+                pass
+            r = QgsMeshLayer3DRenderer(sym)
+            r.setLayer(layer)
+            layer.set3DRenderer(r)
+        except Exception:  # nosec
+            pass
+        _finalize_layer(layer, getattr(self, "history", None) or [])
+
 
 _VERSION_CACHE = None
 
@@ -1234,7 +1288,7 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
         загрузки возвращает False - вызывающий пишет свиту одним слоем."""
         try:
             from . import polyhedral as poly
-            from qgis.core import QgsVectorLayer, QgsProcessingContext
+            from qgis.core import QgsProcessingContext
             authid = crs.authid() if crs is not None else ""
             uri = "MultiPolygonZ" + (("?crs=%s" % authid) if authid else "")
             store = context.temporaryLayerStore()
