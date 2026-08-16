@@ -120,6 +120,86 @@ def test_no_kriging_dependency():
     assert not bad, "лишние зависимости: %s" % ", ".join(sorted(bad))
 
 
+def _enum_options(cls, key_name):
+    """Число вариантов в QgsProcessingParameterEnum по имени ключа."""
+    for node in ast.walk(cls):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = getattr(node.func, "attr", None) or getattr(node.func, "id", "")
+        if "ParameterEnum" not in str(fn):
+            continue
+        arg = node.args[0] if node.args else None
+        if getattr(arg, "attr", None) != key_name:
+            continue
+        for kw in node.keywords:
+            if kw.arg == "options":
+                return len(kw.value.elts)
+    return None
+
+
+def _tuple_len(cls, name):
+    """Длина кортежа-константы класса."""
+    for node in cls.body:
+        if (isinstance(node, ast.Assign)
+                and getattr(node.targets[0], "id", "") == name):
+            return len(node.value.elts)
+    return None
+
+
+def test_demo_variants_match_options():
+    """Каждый вариант в _KINDS обязан быть виден в списке диалога.
+
+    Ловит потерю правки: в 0.5.2 вариант «Карта» жил в _KINDS и имел свой
+    метод рисования, но в список параметра не попал, и выбрать его было
+    нельзя вовсе.
+    """
+    cls = _classes(_tree("algorithms.py"))["PolyhedralDemoAlgorithm"]
+    kinds = _tuple_len(cls, "_KINDS")
+    options = _enum_options(cls, "EXAMPLE")
+    assert kinds is not None and options is not None, (kinds, options)
+    assert kinds == options, (
+        "вариантов в _KINDS %d, а в списке диалога %d: часть недостижима"
+        % (kinds, options))
+
+
+def test_declared_parameter_keys_are_registered():
+    """Ключ параметра, объявленный в классе, должен быть добавлен.
+
+    Иначе parameterAs* обращается к незарегистрированному ключу
+    и инструмент падает при запуске.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"), encoding="utf-8").read()
+    tree = ast.parse(src)
+    bad = []
+    for cls in _classes(tree).values():
+        declared = set()
+        for node in cls.body:
+            if not isinstance(node, ast.Assign):
+                continue
+            for target in node.targets:
+                if isinstance(target, ast.Tuple):
+                    names = [getattr(e, "id", "") for e in target.elts]
+                else:
+                    names = [getattr(target, "id", "")]
+                for nm in names:
+                    if nm.isupper() and nm not in ("OUTPUT",):
+                        declared.add(nm)
+        if not declared:
+            continue
+        body = ast.get_source_segment(src, cls) or ""
+        if "addParameter" not in body:
+            continue
+        for name in sorted(declared):
+            used = "self.%s" % name
+            if body.count(used) and "self.%s," % name not in body:
+                continue
+            registered = ("addParameter" in body
+                          and body.count("self.%s" % name) > 0)
+            if not registered:
+                bad.append("%s.%s" % (cls.name, name))
+    assert not bad, "ключи без регистрации: %s" % ", ".join(bad)
+
+
 if __name__ == "__main__":
     ok = 0
     for nm, fn in sorted(globals().items()):

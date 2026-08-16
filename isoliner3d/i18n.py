@@ -112,8 +112,13 @@ TRANSLATIONS = {
         'The section definition has no ox and oy fields: there is nothing to '
         'drape the drawing by. Build the section with the current version of '
         'Isoliner.',
-    'Векторы': 'Vectors',
+    'В слое %s объектов %d, показаны первые %d.':
+        'The layer %s holds %d features, the first %d are shown.',
     'Вертикальное преувеличение': 'Vertical exaggeration',
+    'Вложенные контуры уровней осмысленно смотреть линиями. Заливка нужна '
+    'телам пласта и полиэдрам.':
+        'Nested level contours make sense as lines. The fill is for bed '
+        'bodies and polyhedra.',
     'Все': 'All',
     'Выдать как TIN (триангулировать)': 'Output as TIN (triangulate)',
     'Граней: %d.': 'Patches: %d.',
@@ -143,6 +148,8 @@ TRANSLATIONS = {
     'Запасы металла': 'Metal reserves',
     'Запасы руды': 'Ore reserves',
     'Инструмент: %s': 'Tool: %s',
+    'Источник высоты': 'Elevation source',
+    'Как есть': 'As is',
     'Калькулятор пласта': 'Bed calculator',
     'Канал атрибута': 'Attribute band',
     'Канал высот (Z)': 'Elevation band (Z)',
@@ -165,9 +172,15 @@ TRANSLATIONS = {
     'Карта: сторона картинки, пикселей': 'Map: image side, pixels',
     'Контур подсчёта (полигоны, необязательно)':
         'Reserve contour (polygons, optional)',
+    'Контуром': 'As outlines',
     'Кровля (растр)': 'Roof (raster)',
     'Куб': 'Cube',
     'Куб (демо)': 'Cube (demo)',
+    'Линий: %d.': 'Lines: %d.',
+    'Линия становится вертикальной лентой от zmin до zmax из полей '
+    'определения разреза.':
+        'The line becomes a vertical ribbon from zmin to zmax taken from the '
+        'section definition fields.',
     'Масштаб Z (вертикальное преувеличение)':
         'Z scale (vertical exaggeration)',
     'Меш записан: %s (узлов %d, треугольников %d).':
@@ -176,6 +189,7 @@ TRANSLATIONS = {
     'Модель «стало» (центроиды)': 'The "after" model (centroids)',
     'Мощность средняя / мин / макс': 'Thickness mean / min / max',
     'Мощность, ед. карты': 'Thickness, map units',
+    'Наклонно': 'Angled',
     'Нативный тип {0} на этой сборке недоступен - вывод как MultiPolygon Z. '
     'Нативный PolyhedralSurface / TIN и QSFCGAL доступны с QGIS 3.40.':
         'The native {0} type is unavailable on this build, output as '
@@ -204,8 +218,9 @@ TRANSLATIONS = {
     'Окраска: %s [%.4g … %.4g].': 'Colour: %s [%.4g … %.4g].',
     'Отметка залегания (подошва), ед. карты':
         'Base elevation (floor), map units',
-    'Отметьте растр на вкладке «Слои» или тело на вкладке «Тела».':
-        'Tick a raster on the «Layers» tab or a body on the «Bodies» tab.',
+    'Отметка из поля': 'Elevation from a field',
+    'Отметьте слой на вкладке «Слои» или «Векторы».':
+        'Tick a layer on the «Layers» or the «Vectors» tab.',
     'Отчёт (HTML)': 'Report (HTML)',
     'Охват (окно вида) - размещение и размер':
         'Extent (map view) - placement and size',
@@ -244,14 +259,15 @@ TRANSLATIONS = {
         'the number above or, if a "Density band" is set, from that grid '
         'band per cell - for an areally variable ore density.',
     'Перестройка сцены: всего %.2f с (%s). Треугольников %s, вершин %s, '
-    'объектов %d, прочитано гридов %d, взято из кэша %d.':
+    'объектов %d, память около %.0f МБ, прочитано гридов %d, взято из кэша '
+    '%d.':
         'Scene rebuild: %.2f s in total (%s). Triangles %s, vertices %s, '
-        'items %d, grids read %d, taken from cache %d.',
+        'items %d, memory about %.0f MB, grids read %d, taken from cache %d.',
     'Пласт (демо)': 'Bed (demo)',
     'Пласт и блочная модель': 'Bed and block model',
     'Пластов в свите': 'Beds in the suite',
+    'Плоско, на нуле': 'Flat, at zero',
     'Плоскостей разреза: %d.': 'Section planes: %d.',
-    'Плоскость разреза (линия)': 'Section plane (line)',
     'Плотность': 'Density',
     'Плотность руды, т/м³': 'Ore density, t/m³',
     'Площадь подсчёта': 'Computed area',
@@ -260,16 +276,20 @@ TRANSLATIONS = {
     'Поверхность': 'Surface',
     'Подошва (растр)': 'Bottom (raster)',
     'Показано поверхностей: %d.': 'Surfaces shown: %d.',
+    'Показывать плоскостью разреза': 'Show as a section plane',
+    'Поле верха призмы': 'Prism top field',
+    'Поле верха призмы. Поле низа задаётся строкой «Поле отметки».':
+        'The top field of the prism. The bottom is set by the «Elevation '
+        'field» row.',
     'Поле запаса': 'Reserve field',
     'Поле кода домена (число, необязательно)':
         'Domain code field (numeric, optional)',
+    'Поле отметки': 'Elevation field',
     'Поле подписи скважин': 'Borehole label field',
-    'Полигональные слои с Z (полиэдр, TIN, MultiPolygon Z). Отметьте тела '
-    'для показа и нажмите «Обновить сцену».':
-        'Polygon layers with Z (polyhedral, TIN, MultiPolygon Z). Tick the '
-        'bodies to show and press «Rebuild scene».',
+    'Полигональный слой': 'Polygon layer',
     'Полигоны доменов': 'Domain polygons',
     'Поля отметок': 'Elevation fields',
+    'Призмой (от поля до поля)': 'As a prism (from field to field)',
     'Пример': 'Example',
     'Прозрачность поверхностей (процентов)': 'Surface transparency (percent)',
     'Пропущено: %s': 'Skipped: %s',
@@ -280,6 +300,7 @@ TRANSLATIONS = {
     'Разнос по Z (шаг на каждый следующий грид)':
         'Z spacing (step per next grid)',
     'Разность (центроиды)': 'Difference (centroids)',
+    'Разрез': 'Section',
     'Растеризует полигоны доменов в добавочный канал грида пласта: каждой '
     'ячейке присваивается код домена, в который она попадает (0 - вне '
     'доменов). Код берётся из числового поля слоя или, если поле не задано, '
@@ -312,14 +333,26 @@ TRANSLATIONS = {
     'Свита: пласт %d': 'Suite: bed %d',
     'Свой цвет': 'Custom colour',
     'Свой цвет слоя': 'Custom layer colour',
+    'Свойства': 'Properties',
+    'Свойства слоя: %s': 'Layer properties: %s',
+    'Свойства сцены': 'Scene properties',
+    'Свойства сцены: двойной клик': 'Scene properties: double-click',
+    'Свойства…': 'Properties…',
+    'Своя высота геометрии (Z)': 'The geometry\'s own elevation (Z)',
     'Скважин: %d.': 'Boreholes: %d.',
-    'Скважины (точки)': 'Boreholes (points)',
-    'Слои': 'Layers',
+    'Скважины (стволы по отметкам)': 'Boreholes (stems by elevations)',
+    'Слой %s: все %d объектов плоские, отметки от %.1f до %.1f. Объёма в '
+    'геометрии нет, для ступеней возьмите показ призмой.':
+        'The layer %s: all %d features are flat, elevations from %.1f to '
+        '%.1f. There is no volume in the geometry, use the prism display for '
+        'steps.',
+    'Слой %s: у %d объектов нет отметок низа или верха.':
+        'The layer %s: %d features have no bottom or top elevation.',
     'Слой меша не загрузился: %s': 'Mesh layer failed to load: %s',
     'Слоёв по вертикали (деление колонки)': 'Vertical layers (column split)',
     'Смещение Z': 'Z offset',
-    'Снимок PNG…': 'PNG snapshot…',
     'Снимок сохранён: %s': 'Snapshot saved: %s',
+    'Снимок…': 'Snapshot…',
     'Собирает многоканальный грид пласта по конвенции плагина: канал 1 - '
     'кровля, канал 2 - подошва, каналы 3 и далее - параметры (содержание, '
     'минтип и любые другие). Кровля задаёт сетку результата; подошва и '
@@ -417,6 +450,8 @@ TRANSLATIONS = {
         'square. The extent for the map is best set by the «Map: by the '
         'extent of a grid» field: it will land exactly on the surface '
         'bounds.',
+    'Сохранить кадр сцены в файл PNG':
+        'Save a frame of the scene to a PNG file',
     'Сохранить снимок': 'Save the snapshot',
     'Справка (руководство PDF)…': 'Help (PDF manual)…',
     'Сторона текстуры (пикселей)': 'Texture side (pixels)',
@@ -427,6 +462,7 @@ TRANSLATIONS = {
         'memory.',
     'Суммарное списание по полю %s: %.6g.':
         'Total write-off by the %s field: %.6g.',
+    'Сцена': 'Scene',
     'Сцена: %s треугольников, объектов %d, %.2f с.':
         'Scene: %s triangles, %d items, %.2f s.',
     'Считает по многоканальному гриду пласта (канал 1 - кровля, канал 2 - '
@@ -467,22 +503,30 @@ TRANSLATIONS = {
     'Текстура: %s': 'Texture: %s',
     'Тел пластов: %d.': 'Bed bodies: %d.',
     'Тел: %d.': 'Bodies: %d.',
-    'Тела': 'Bodies',
     'Тело (демо)': 'Body (demo)',
     'Тело пласта': 'Bed body',
+    'Телом (заливка)': 'As a body (filled)',
     'Тетраэдр': 'Tetrahedron',
     'Тетраэдр (демо)': 'Tetrahedron (demo)',
     'Тип геометрии: %s Z.': 'Geometry type: %s Z.',
+    'Точек: %d.': 'Points: %d.',
+    'Точечный слой': 'Point layer',
+    'Триангуляций из кэша: %d.': 'Triangulations from cache: %d.',
+    'У слоя %s не выбрано поле отметки.':
+        'No elevation field is chosen for the layer %s.',
+    'У слоя %s нет высоты Z, выберите отметку из поля.':
+        'The layer %s has no Z elevation, choose an elevation field.',
     'Укажите файл для карты в поле «Карта (демо)».':
         'Give a file for the map in the «Map (demo)» field.',
     'Файл руководства не найден: %s': 'The manual file was not found: %s',
     'Фильтр слоёв…': 'Filter layers…',
+    'Цвет': 'Colour',
     'Чертежа для разреза %d в выбранных слоях нет: похоже, чертёж и '
     'определение из разных построений.':
         'There is no drawing for section %d in the chosen layers: the '
         'drawing and the definition appear to come from different builds.',
     'Чертежи: %s.': 'Drawings: %s.',
-    'Чертёж разреза (слой или группа)': 'Section drawing (layer or group)',
+    'Чертёж разреза': 'Section drawing',
     'Чертёж разреза в координатах «расстояние вдоль линии на отметку». '
     'Ложится текстурой на ленту разреза. Годится группа слоёв целиком.':
         'The section drawing in «distance along the line by elevation» '
@@ -520,10 +564,14 @@ TRANSLATIONS = {
     'запасы руды, т/ячейку': 'ore, t/cell',
     'канал %d': 'band %d',
     'кровля': 'roof',
+    'линии': 'lines',
     'меши': 'meshes',
     'мощность': 'thickness',
     'окраска': 'colouring',
     'подошва': 'bottom',
+    'полигоны': 'polygons',
+    'растр': 'raster',
     'сцена': 'scene',
+    'точки': 'points',
     'чтение': 'reading',
 }

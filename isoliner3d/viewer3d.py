@@ -21,6 +21,9 @@ from .i18n import tr
 from .mesh3d import (grid_to_mesh_arrays, bed_to_mesh_arrays,
                      sample_bilinear, thin_labels_xy, cylinder)
 
+# закреплённая строка «Сцена» в списке слоёв
+_SCENE_KEY = "__scene__"
+
 # опорные цвета шкалы (тёмно-синий -> бирюза -> жёлтый, а-ля viridis)
 _CMAP = [(0.267, 0.005, 0.329), (0.229, 0.322, 0.546),
          (0.128, 0.567, 0.551), (0.369, 0.789, 0.383),
@@ -77,7 +80,13 @@ def _import_gl():
     return gl
 
 
-MAX_VERTS = 60000  # автопрореживание крупных гридов
+# Бюджет вершин на всю сцену, а не на слой. Раньше потолок был
+# персональным, и одиночная поверхность получала столько же, сколько
+# каждый слой из десятка: детали не хватало там, где она была бесплатна,
+# и было слишком много там, где сцена и так тяжёлая.
+MAX_VERTS_SCENE = 600000
+MIN_VERTS_LAYER = 30000    # ниже прореживать бессмысленно, форма пропадёт
+MAX_VERTS = 60000          # запасной потолок, если слоёв не сосчитать
 
 PALETTE = [
     (0.85, 0.55, 0.10, 1.0),
@@ -91,14 +100,494 @@ PALETTE = [
 ]
 
 
-def _auto_step(arr):
-    """Шаг прореживания, чтобы вершин было не больше MAX_VERTS."""
+def _layer_budget(n_layers):
+    """Сколько вершин достаётся одному слою при данном их числе."""
+    n = max(1, int(n_layers))
+    return max(MIN_VERTS_LAYER, MAX_VERTS_SCENE // n)
+
+
+def _auto_step(arr, budget=None):
+    """Шаг прореживания, чтобы вершин было не больше бюджета слоя."""
     ny, nx = arr.shape
     total = ny * nx
-    if total <= MAX_VERTS:
+    cap = int(budget or MAX_VERTS)
+    if total <= cap:
         return 1
     import math
-    return int(math.ceil(math.sqrt(total / float(MAX_VERTS))))
+    return int(math.ceil(math.sqrt(total / float(cap))))
+
+
+# потолок объектов на слой. Раньше он стоял на пятистах, и слой поясов
+# в 1174 объекта показывался меньше чем наполовину. Основной сдержкой
+# теперь служит бюджет вершин (_body_budget), а этот потолок остаётся
+# против разрастания числа мешей в сцене
+_MAX_BODIES = 2000
+
+# линии дешевле тел, но контуры рельефа идут тысячами: на 2349 контурах
+# получалось полтора миллиона вершин и нечитаемая паутина
+_MAX_LINES = 1500
+
+
+def _body_budget(feats, n_layers=1):
+    """Какие объекты слоя берём в сцену.
+
+    Считать объекты неправильно: тысяча мелких поясов дешевле десятка
+    кадастровых кварталов с миллионом вершин. Поэтому копим вершины и
+    останавливаемся по бюджету слоя, а число объектов держим потолком
+    от разрастания самих мешей.
+    """
+    budget = _layer_budget(n_layers)
+    out, total = [], 0
+    for ft in feats:
+        try:
+            n = ft.geometry().constGet().nCoordinates()
+        except Exception:
+            n = 0
+        if out and (total + n > budget or len(out) >= _MAX_BODIES):
+            break
+        out.append(ft)
+        total += n
+    return out
+
+
+def _tri_rings(tri):
+    """Результат триангуляции как список троек (x, y, z).
+
+    Отметка берётся из вершины и может оказаться NaN: GEOS третью
+    координату через триангуляцию проносит не во всех сборках. Поэтому
+    здесь она только читается, а решение о ней принимает `_fill_z`.
+    """
+    out = []
+    try:
+        parts = list(tri.constParts())
+    except Exception:
+        try:
+            parts = [tri.constGet()]
+        except Exception:
+            return out
+    for part in parts:
+        ext = getattr(part, "exteriorRing", None)
+        ring = ext() if ext is not None else part
+        if ring is None:
+            continue
+        try:
+            vs = list(ring.vertices())
+        except Exception:
+            continue
+        pts = []
+        for v in vs[:3]:
+            try:
+                z = float(v.z())
+            except Exception:
+                z = float("nan")
+            pts.append((v.x(), v.y(), z))
+        if len(pts) == 3:
+            out.append(pts)
+    return out
+
+
+def _inside_only(geom, tris):
+    """Отсев треугольников, попавших вне фигуры.
+
+    Триангуляция Делоне без ограничений заполняет выпуклую оболочку и на
+    вогнутом контуре затягивает заливом заливы, а дыры закрывает вовсе.
+    Пояс между изолиниями вогнут почти весь, поэтому лишнее убираем по
+    центру треугольника подготовленной геометрией.
+    """
+    try:
+        from qgis.core import QgsGeometry, QgsPointXY
+        eng = QgsGeometry.createGeometryEngine(geom.constGet())
+        eng.prepareGeometry()
+    except Exception:
+        return tris
+    out = []
+    for t in tris:
+        cx = (t[0][0] + t[1][0] + t[2][0]) / 3.0
+        cy = (t[0][1] + t[1][1] + t[2][1]) / 3.0
+        try:
+            ok = eng.contains(
+                QgsGeometry.fromPointXY(QgsPointXY(cx, cy)).constGet())
+        except Exception:
+            return tris
+        if ok:
+            out.append(t)
+    return out or tris
+
+
+def _fill_z(tris, src, nd=6):
+    """Отметки вершинам триангуляции по вершинам исходной геометрии.
+
+    Триангуляция с ограничениями своих точек не добавляет, поэтому почти
+    всякая вершина находится в исходной по координатам. Оставшиеся редкие
+    берут отметку ближайшей исходной вершины.
+
+    Возвращает (вершины (N,3), число отметок, найденных поиском).
+    """
+    import numpy as np
+    zmap = {}
+    for x, y, z in src:
+        zmap.setdefault((round(x, nd), round(y, nd)), z)
+    verts, miss = [], []
+    for t in tris:
+        for x, y, z in t:
+            zz = zmap.get((round(x, nd), round(y, nd)))
+            if zz is None:
+                if z == z:               # своя отметка из триангуляции
+                    zz = z
+                else:
+                    zz = float("nan")
+                    miss.append(len(verts))
+            verts.append((x, y, zz))
+    v = np.asarray(verts, dtype=float) if verts else np.zeros((0, 3))
+    if miss and len(src):
+        arr = np.asarray(src, dtype=float)
+        idx = np.asarray(miss, dtype=np.int64)
+        if len(idx) * len(arr) > 50000000:
+            # искать ближайшую для каждой было бы дороже самой сцены
+            v[idx, 2] = float(np.mean(arr[:, 2]))
+        else:
+            for i0 in range(0, len(idx), 256):
+                ch = idx[i0:i0 + 256]
+                d = ((arr[None, :, 0] - v[ch, 0][:, None]) ** 2
+                     + (arr[None, :, 1] - v[ch, 1][:, None]) ** 2)
+                v[ch, 2] = arr[np.argmin(d, axis=1), 2]
+    return v, len(miss)
+
+
+def _tessellate(geom, zfix=None):
+    """Полигон в треугольники честно, с учётом вогнутости и дыр.
+
+    Веерная триангуляция `polyhedral.wkt_to_tris` рассчитана на выпуклые
+    грани полиэдров и на произвольном контуре даёт лучи через всю фигуру.
+    Поэтому здесь просим QGIS о триангуляции Делоне с ограничениями,
+    и только если её нет в сборке, откатываемся на веер.
+
+    `zfix` задаёт единую отметку всей фигуре. При `zfix=None` отметки
+    остаются вершинными: у пояса между изолиниями одна граница идёт по
+    нижнему уровню, другая по верхнему, и поверхность выходит скатом.
+
+    Возвращает (verts (N,3), faces (M,3)) или пустые массивы.
+    """
+    import numpy as np
+    tri, strict = None, False
+    for name, flag in (("constrainedDelaunayTriangulation", True),
+                       ("delaunayTriangulation", False)):
+        fn = getattr(geom, name, None)
+        if fn is None:
+            continue
+        try:
+            res = fn()
+        except Exception:
+            continue
+        if res is not None and not res.isEmpty():
+            tri, strict = res, flag
+            break
+    if tri is None:
+        from . import polyhedral as poly
+        try:
+            v, f = poly.wkt_to_tris(geom.asWkt())
+        except Exception:
+            return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+        if zfix is not None and len(v):
+            v = v.copy()
+            v[:, 2] = zfix
+        return v, f.astype(np.int64)
+
+    tris = _tri_rings(tri)
+    if not strict:
+        tris = _inside_only(geom, tris)
+    if not tris:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+    if zfix is None:
+        src = []
+        for part in _parts_xyz(geom):
+            src.extend(part)
+        verts, _n = _fill_z(tris, src)
+    else:
+        verts = np.asarray(
+            [(x, y, zfix) for t in tris for x, y, _z in t], dtype=float)
+    faces = np.arange(len(verts), dtype=np.int64).reshape(-1, 3)
+    return verts, faces
+
+
+_TRI_CACHE = {}        # ключ -> (вершины, треугольники)
+_TRI_ORDER = []
+_TRI_BYTES = 0
+_TRI_LIMIT = 128 * 1024 * 1024   # потолок кэша триангуляции, байт
+
+
+def _tri_key(lyr, ft, geom, zfix):
+    """Ключ кэша триангуляции.
+
+    Считается дёшево: слой, номер объекта, число вершин, охват
+    и отметка. Правка геометрии почти наверняка меняет число вершин
+    или охват, поэтому обесценивание срабатывает. Хешировать саму
+    геометрию дороже, чем она того стоит.
+    """
+    try:
+        n = geom.constGet().nCoordinates()
+    except Exception:
+        n = -1
+    try:
+        b = geom.boundingBox()
+        box = (round(b.xMinimum(), 3), round(b.yMinimum(), 3),
+               round(b.xMaximum(), 3), round(b.yMaximum(), 3))
+    except Exception:
+        box = None
+    z = None if zfix is None else round(float(zfix), 6)
+    return (lyr.id(), int(ft.id()), n, box, z)
+
+
+def _tri_cached(lyr, ft, geom, zfix, prof=None):
+    """Триангуляция с кэшем: геометрия между сборками не меняется.
+
+    Разбивка пятисот контуров занимала шесть секунд и повторялась
+    на каждое нажатие «Обновить сцену», хотя объекты те же самые.
+    """
+    global _TRI_BYTES
+    key = _tri_key(lyr, ft, geom, zfix)
+    hit = _TRI_CACHE.get(key)
+    if hit is not None:
+        if prof is not None:
+            prof.count("trihits")
+        return hit
+    if prof is not None:
+        prof.count("tess")
+    v, f = _tessellate(geom, zfix)
+    nbytes = int(getattr(v, "nbytes", 0)) + int(getattr(f, "nbytes", 0))
+    if nbytes <= _TRI_LIMIT:
+        while _TRI_ORDER and _TRI_BYTES + nbytes > _TRI_LIMIT:
+            old = _TRI_ORDER.pop(0)
+            prev = _TRI_CACHE.pop(old, None)
+            if prev is not None:
+                _TRI_BYTES -= (int(getattr(prev[0], "nbytes", 0))
+                               + int(getattr(prev[1], "nbytes", 0)))
+        _TRI_CACHE[key] = (v, f)
+        _TRI_ORDER.append(key)
+        _TRI_BYTES += nbytes
+    return v, f
+
+
+def tri_cache_clear():
+    """Сбросить кэш триангуляции (для тестов и на закрытие окна)."""
+    global _TRI_BYTES
+    _TRI_CACHE.clear()
+    del _TRI_ORDER[:]
+    _TRI_BYTES = 0
+
+
+def tri_cache_size():
+    return len(_TRI_CACHE), _TRI_BYTES
+
+
+def _prism(geom, cap_v, cap_f, zbot, ztop):
+    """Призма из плоского контура: две крышки и боковые стенки.
+
+    Контур с полями низа и верха описывает не плиту, а объём: ступень
+    рельефа, уступ карьера, подсчётный блок с кровлей и подошвой.
+    Крышки берутся из готовой триангуляции контура (она уже в кэше),
+    стенки строятся по кольцам между отметками.
+    """
+    import numpy as np
+    if not len(cap_f):
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+    top = np.asarray(cap_v, dtype=float).copy()
+    top[:, 2] = ztop
+    bot = top.copy()
+    bot[:, 2] = zbot
+    n = len(top)
+    faces = [np.asarray(cap_f, dtype=np.int64),
+             np.asarray(cap_f, dtype=np.int64)[:, ::-1] + n]
+    verts = [top, bot]
+    base = 2 * n
+    for ring in _parts_xyz(geom, 0.0):
+        pts = np.asarray([(x, y) for x, y, _z in ring], dtype=float)
+        if len(pts) < 2:
+            continue
+        if not np.allclose(pts[0], pts[-1]):
+            pts = np.vstack([pts, pts[:1]])
+        m = len(pts)
+        wall_top = np.column_stack([pts, np.full(m, ztop)])
+        wall_bot = np.column_stack([pts, np.full(m, zbot)])
+        verts.append(wall_top)
+        verts.append(wall_bot)
+        idx_t = base + np.arange(m)
+        idx_b = idx_t + m
+        for i in range(m - 1):
+            faces.append(np.array([[idx_t[i], idx_b[i], idx_b[i + 1]],
+                                   [idx_t[i], idx_b[i + 1], idx_t[i + 1]]],
+                                  dtype=np.int64))
+        base += 2 * m
+    return np.vstack(verts), np.vstack(faces)
+
+
+def _flat_z(geom, tol=1e-6):
+    """Отметка плоского объекта или None, если Z меняется.
+
+    Плоский контур (ступень рельефа, подсчётный блок, плита на отметке)
+    надо разбивать честной триангуляцией: веер даёт лучи через фигуру.
+    Обход идёт по всем вершинам с выходом на первом же расхождении.
+    Прежний потолок в 4096 вершин судил о фигуре по началу контура: у
+    пояса между изолиниями обход идёт сначала по одной границе, и первые
+    тысячи вершин лежат на одном уровне. Пояс в двадцать пять тысяч
+    вершин объявлялся плоским, и скат превращался в плиту.
+    """
+    lo = hi = None
+    for v in _all_vertices(geom):
+        try:
+            z = float(v.z())
+        except Exception:
+            continue
+        if z != z:
+            continue
+        if lo is None:
+            lo = hi = z
+            continue
+        if z < lo:
+            lo = z
+        elif z > hi:
+            hi = z
+        if (hi - lo) > tol:
+            return None
+    if lo is None:
+        return None
+    return lo
+
+
+def _layer_has_z(lyr):
+    """Есть ли у геометрии слоя высота."""
+    try:
+        from qgis.core import QgsWkbTypes
+        return bool(QgsWkbTypes.hasZ(lyr.wkbType()))
+    except Exception:
+        return False
+
+
+def _parts_xyz(geom, zfix=None):
+    """Части геометрии как списки (x, y, z).
+
+    `asPolyline` и `asPoint` возвращают QgsPointXY, у которых высоты нет
+    вовсе: линия со своей Z превращалась в пустоту и в сцену не попадала.
+    Поэтому идём по настоящим вершинам через constParts.
+
+    `zfix` задаёт отметку из поля: тогда весь объект лежит на одной
+    высоте, как и положено изолинии.
+    """
+    out = []
+    try:
+        parts = list(geom.constParts())
+    except Exception:
+        parts = []
+    if not parts:
+        try:
+            parts = [geom.constGet()]
+        except Exception:
+            return out
+    rings = []
+    for part in parts:
+        # у полигона внутри части кольца идут подряд, и обход всех вершин
+        # склеивает внешнее кольцо с дырой в одну ломаную: через фигуру
+        # тянется прямой штрих. Поэтому разбираем кольца по отдельности.
+        ext = getattr(part, "exteriorRing", None)
+        if ext is not None:
+            ring = ext()
+            if ring is not None:
+                rings.append(ring)
+            n_int = getattr(part, "numInteriorRings", None)
+            for i in range(n_int() if n_int else 0):
+                inner = part.interiorRing(i)
+                if inner is not None:
+                    rings.append(inner)
+        else:
+            rings.append(part)
+    for part in rings:
+        pts = []
+        try:
+            vertices = list(part.vertices())
+        except Exception:
+            continue
+        for v in vertices:
+            z = zfix
+            if z is None:
+                try:
+                    z = v.z()
+                except Exception:
+                    z = None
+            if z is None or z != z:
+                continue
+            pts.append((v.x(), v.y(), float(z)))
+        if pts:
+            out.append(pts)
+    return out
+
+
+def _all_vertices(geom):
+    """Все вершины геометрии подряд, без склейки колец в списки.
+
+    Нужен обход с ранним выходом: у пояса в двадцать пять тысяч вершин
+    собирать их все ради проверки отметок незачем.
+    """
+    it = None
+    try:
+        it = geom.constGet().vertices()
+    except Exception:
+        it = None
+    if it is not None:
+        for v in it:
+            yield v
+        return
+    try:
+        parts = list(geom.constParts())
+    except Exception:
+        return
+    for part in parts:
+        rings = []
+        ext = getattr(part, "exteriorRing", None)
+        if ext is not None:
+            r = ext()
+            if r is not None:
+                rings.append(r)
+            n_int = getattr(part, "numInteriorRings", None)
+            for i in range(n_int() if n_int else 0):
+                inner = part.interiorRing(i)
+                if inner is not None:
+                    rings.append(inner)
+        else:
+            rings.append(part)
+        for ring in rings:
+            try:
+                vs = list(ring.vertices())
+            except Exception:
+                continue
+            for v in vs:
+                yield v
+
+
+def _css_rgba(css, alpha=1.0):
+    """Цвет вида #rrggbb в кортеж долей единицы."""
+    s = str(css or "").lstrip("#")
+    if len(s) != 6:
+        return (0.55, 0.60, 0.66, alpha)
+    try:
+        r, g, b = (int(s[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+    except ValueError:
+        return (0.55, 0.60, 0.66, alpha)
+    return (r, g, b, alpha)
+
+
+def _find_data(combo, want):
+    """Индекс пункта с такими данными или -1.
+
+    Штатный `findData` сравнивает через QVariant и на кортежах Python
+    не срабатывает: возвращает -1 даже когда пункт есть. Из-за этого
+    выбранная окраска не восстанавливалась при переходе на другой слой
+    и подменялась палитрой, хотя в сцене оставалась прежней. Сравниваем
+    сами, как обычные объекты Python.
+    """
+    for i in range(combo.count()):
+        if combo.itemData(i) == want:
+            return i
+    return -1
 
 
 def _fmt_n(n):
@@ -146,6 +635,19 @@ class _Prof:
     def total(self):
         return time.perf_counter() - self._t0
 
+    def megabytes(self):
+        """Оценка занятой видеопамяти, МБ.
+
+        Вершина это три числа по четыре байта плюс цвет и нормаль,
+        треугольник это три индекса по четыре байта, текстура четыре
+        байта на пиксель. Оценка грубая, но она ловит порядок, а именно
+        порядок и объясняет, почему сцена вдруг не влезла.
+        """
+        verts = self.counts.get("verts", 0)
+        tris = self.counts.get("tris", 0)
+        texpx = self.counts.get("texpx", 0)
+        return (verts * 40 + tris * 12 + texpx * 4) / (1024.0 * 1024.0)
+
     def brief(self):
         """Короткая строка для окна: три числа, которые смотрят чаще всего."""
         return tr("Сцена: %s треугольников, объектов %d, %.2f с.") % (
@@ -160,13 +662,13 @@ class _Prof:
         parts = ["%s %.2f" % (name, self.phases.get(key, 0.0))
                  for key, name in order if self.phases.get(key)]
         return tr("Перестройка сцены: всего %.2f с (%s). Треугольников %s, "
-                  "вершин %s, объектов %d, прочитано гридов %d, "
-                  "взято из кэша %d.") % (
+                  "вершин %s, объектов %d, память около %.0f МБ, "
+                  "прочитано гридов %d, взято из кэша %d.") % (
             self.total(), ", ".join(parts),
             _fmt_n(self.counts.get("tris", 0)),
             _fmt_n(self.counts.get("verts", 0)),
-            self.counts.get("items", 0), self.counts.get("reads", 0),
-            self.counts.get("hits", 0))
+            self.counts.get("items", 0), self.megabytes(),
+            self.counts.get("reads", 0), self.counts.get("hits", 0))
 
 
 def _log(msg):
@@ -347,13 +849,16 @@ def _build_dialog(parent):
     from qgis.PyQt.QtWidgets import (
         QDialog, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
         QDoubleSpinBox, QPushButton, QLabel, QFormLayout, QSplitter, QWidget,
-        QComboBox, QLineEdit, QTabWidget, QGroupBox, QSpinBox)
+        QComboBox, QLineEdit, QGroupBox, QSpinBox,
+        QFrame, QMenu, QCheckBox)
 
     # Qt5/Qt6: enum'ы либо плоские, либо в scoped-подклассах
     _CHECKED = getattr(getattr(Qt, "CheckState", Qt), "Checked")
     _UNCHECKED = getattr(getattr(Qt, "CheckState", Qt), "Unchecked")
     _USER_ROLE = getattr(getattr(Qt, "ItemDataRole", Qt), "UserRole")
-    _CHECKABLE = getattr(getattr(Qt, "ItemFlag", Qt), "ItemIsUserCheckable")
+    _CHECKABLE = getattr(getattr(Qt, "ItemFlag", Qt),
+                         "ItemIsUserCheckable")
+    _ENABLED = getattr(getattr(Qt, "ItemFlag", Qt), "ItemIsEnabled")
 
     class _PickView(gl.GLViewWidget):
         """GLViewWidget с колбэком на клик без перетаскивания."""
@@ -389,10 +894,13 @@ def _build_dialog(parent):
             except Exception:  # nosec
                 pass
 
+            self._warnings = []      # что сказать человеку после сборки
             self._opts = {}          # id слоя -> персональные настройки
+            self._vopts = {}         # id векторного слоя -> его настройки
             self._loading_opts = False
+            self._props = None       # окно свойств, создаётся по требованию
 
-            # --- общие настройки сцены
+            # --- настройки сцены (живут в свойствах строки «Сцена»)
             self.vex = QDoubleSpinBox()
             self.vex.setRange(0.01, 10000.0)
             self.vex.setValue(5.0)
@@ -412,18 +920,14 @@ def _build_dialog(parent):
             self.texside.setToolTip(tr(
                 "Сторона текстуры по длинной оси охвата. Больше значение - "
                 "детальнее карта на поверхности и больше видеопамяти."))
-            self.btn = QPushButton(tr("Обновить сцену"))
-            self.btn.clicked.connect(self.rebuild)
-            btn_top = QPushButton(tr("Сверху"))
-            btn_top.clicked.connect(lambda: self._set_view(90, -90))
-            btn_side = QPushButton(tr("Сбоку"))
-            btn_side.clicked.connect(lambda: self._set_view(8, -90))
-            btn_png = QPushButton(tr("Снимок PNG…"))
-            btn_png.clicked.connect(self._save_png)
-            views = QHBoxLayout()
-            views.addWidget(btn_top)
-            views.addWidget(btn_side)
-            views.addWidget(btn_png)
+            self.scene_box = QGroupBox(tr("Сцена"))
+            sf = QFormLayout(self.scene_box)
+            sf.addRow(tr("Вертикальное преувеличение"), self.vex)
+            sf.addRow(tr("Разнос по Z (шаг вниз)"), self.spacing)
+            sf.addRow(tr("Прозрачность поверхностей (процентов)"),
+                      self.opacity)
+            sf.addRow(tr("Сторона текстуры (пикселей)"), self.texside)
+
             self.legend_pix = QLabel()
             self.legend_txt = QLabel("")
             self.legend_pix.hide()
@@ -431,7 +935,7 @@ def _build_dialog(parent):
             self.info = QLabel("")
             self.info.setWordWrap(True)
 
-            # --- вкладка «Слои»: список + редактор параметров слоя
+            # --- вкладка «Слои»: растры проекта плюс закреплённая «Сцена»
             self.layer_list = QListWidget()
             self.filter_edit = QLineEdit()
             self.filter_edit.setPlaceholderText(tr("Фильтр слоёв…"))
@@ -445,6 +949,7 @@ def _build_dialog(parent):
             fl.addWidget(b_all)
             fl.addWidget(b_none)
 
+            # параметры растра: живут в окне свойств, не на главном окне
             self.opt_box = QGroupBox(tr("Параметры слоя"))
             self.mode_combo = QComboBox()
             for label, key in ((tr("Авто"), "auto"),
@@ -470,65 +975,97 @@ def _build_dialog(parent):
                 w.currentIndexChanged.connect(self._save_opts)
             self.color_combo.currentIndexChanged.connect(self._color_changed)
 
-            tab_layers = QWidget()
-            tl = QVBoxLayout(tab_layers)
-            tl.addLayout(fl)
-            tl.addWidget(self.layer_list, 1)
-            tl.addWidget(self.opt_box)
             self.layer_list.itemChanged.connect(self._item_toggled)
-            self.layer_list.currentItemChanged.connect(self._load_opts)
+            self.layer_list.currentItemChanged.connect(self._load_props)
+            self._wire_props(self.layer_list)
 
-            # --- вкладка «Векторы»
-            self.plane_combo = QComboBox()
-            self.wells_combo = QComboBox()
-            self.wells_combo.currentIndexChanged.connect(self._wells_changed)
-            self.wells_fields = QListWidget()
+            # --- вкладка «Векторы»: любые векторные слои проекта
+            # параметры векторного слоя: тоже в окне свойств
+            self.vec_box = QGroupBox(tr("Параметры слоя"))
+            self.vec_zsrc = QComboBox()
+            for label, key in ((tr("Своя высота геометрии (Z)"), "geom"),
+                               (tr("Отметка из поля"), "field"),
+                               (tr("Плоско, на нуле"), "flat")):
+                self.vec_zsrc.addItem(label, key)
+            self.vec_zfield = QComboBox()
+            self.vec_poly = QComboBox()
+            for label, key in ((tr("Контуром"), "outline"),
+                               (tr("Телом (заливка)"), "solid"),
+                               (tr("Призмой (от поля до поля)"), "prism")):
+                self.vec_poly.addItem(label, key)
+            self.vec_poly.setToolTip(tr(
+                "Вложенные контуры уровней осмысленно смотреть линиями. "
+                "Заливка нужна телам пласта и полиэдрам."))
+            self.vec_ztop = QComboBox()
+            self.vec_ztop.setToolTip(tr(
+                "Поле верха призмы. Поле низа задаётся строкой "
+                "«Поле отметки»."))
+            self.vec_kind = QComboBox()
+            for label, key in ((tr("Как есть"), "plain"),
+                               (tr("Скважины (стволы по отметкам)"),
+                                "wells")):
+                self.vec_kind.addItem(label, key)
+            self.vec_color_btn = QPushButton()
+            self.vec_color_btn.setFixedSize(46, 22)
+            self.vec_color_btn.setToolTip(tr("Задать свой цвет"))
+            self.vec_color_btn.clicked.connect(self._pick_vec_color)
             self.wells_label = QComboBox()
-            vform = QFormLayout()
-            vform.addRow(tr("Плоскость разреза (линия)"), self.plane_combo)
+            self.wells_fields = QListWidget()
+            self.wells_fields.setMaximumHeight(150)
+            vf = QFormLayout(self.vec_box)
+            vf.addRow(tr("Точечный слой"), self.vec_kind)
+            vf.addRow(tr("Полигональный слой"), self.vec_poly)
+            vf.addRow(tr("Источник высоты"), self.vec_zsrc)
+            vf.addRow(tr("Поле отметки"), self.vec_zfield)
+            vf.addRow(tr("Поле верха призмы"), self.vec_ztop)
+            vf.addRow(tr("Цвет"), self.vec_color_btn)
+            vf.addRow(tr("Поле подписи скважин"), self.wells_label)
+            vf.addRow(tr("Поля отметок"), self.wells_fields)
+            for w in (self.vec_kind, self.vec_poly, self.vec_zsrc,
+                      self.vec_zfield, self.vec_ztop, self.wells_label):
+                w.currentIndexChanged.connect(self._save_vec_opts)
+            self.wells_fields.itemChanged.connect(self._save_vec_opts)
+
+            # --- разрез: свойство линейного слоя, а не отдельная вкладка
+            self.sec_box = QGroupBox(tr("Разрез"))
+            self.sec_on = QCheckBox(tr("Показывать плоскостью разреза"))
+            self.sec_on.setToolTip(tr(
+                "Линия становится вертикальной лентой от zmin до zmax "
+                "из полей определения разреза."))
             self.draw_combo = QComboBox()
             self.draw_combo.setToolTip(tr(
                 "Чертёж разреза в координатах «расстояние вдоль линии на "
                 "отметку». Ложится текстурой на ленту разреза. Годится "
                 "группа слоёв целиком."))
-            vform.addRow(tr("Чертёж разреза (слой или группа)"),
-                         self.draw_combo)
-            vform.addRow(tr("Скважины (точки)"), self.wells_combo)
-            vform.addRow(tr("Поле подписи скважин"), self.wells_label)
-            vform.addRow(tr("Поля отметок"), self.wells_fields)
-            tab_vec = QWidget()
-            tv = QVBoxLayout(tab_vec)
-            tv.addLayout(vform)
-            tv.addStretch(1)
+            sf2 = QFormLayout(self.sec_box)
+            sf2.addRow(self.sec_on)
+            sf2.addRow(tr("Чертёж разреза"), self.draw_combo)
+            self.sec_on.stateChanged.connect(self._save_vec_opts)
+            self.draw_combo.currentIndexChanged.connect(self._save_vec_opts)
 
-            # --- вкладка «Тела»: полигональные слои с Z
-            # (полиэдр/TIN/MultiPolygon)
-            self.body_list = QListWidget()
-            body_hint = QLabel(tr(
-                "Полигональные слои с Z (полиэдр, TIN, MultiPolygon Z). "
-                "Отметьте тела для показа и нажмите «Обновить сцену»."))
-            body_hint.setWordWrap(True)
-            tab_body = QWidget()
-            tbl = QVBoxLayout(tab_body)
-            tbl.addWidget(body_hint)
-            tbl.addWidget(self.body_list, 1)
-
-            tabs = QTabWidget()
-            tabs.addTab(tab_layers, tr("Слои"))
-            tabs.addTab(tab_vec, tr("Векторы"))
-            tabs.addTab(tab_body, tr("Тела"))
-
-            gform = QFormLayout()
-            gform.addRow(tr("Вертикальное преувеличение"), self.vex)
-            gform.addRow(tr("Разнос по Z (шаг вниз)"), self.spacing)
-            gform.addRow(tr("Прозрачность поверхностей (процентов)"),
-                         self.opacity)
-            gform.addRow(tr("Сторона текстуры (пикселей)"), self.texside)
+            # --- кнопки снизу: вид сцены отдельной строкой, сборка крупно
+            btn_top = QPushButton(tr("Сверху"))
+            btn_top.clicked.connect(lambda: self._set_view(90, -90))
+            btn_side = QPushButton(tr("Сбоку"))
+            btn_side.clicked.connect(lambda: self._set_view(8, -90))
+            btn_iso = QPushButton(tr("Наклонно"))
+            btn_iso.clicked.connect(lambda: self._set_view(35, -60))
+            btn_png = QPushButton(tr("Снимок…"))
+            btn_png.setToolTip(tr("Сохранить кадр сцены в файл PNG"))
+            btn_png.clicked.connect(self._save_png)
+            views = QHBoxLayout()
+            views.setSpacing(4)
+            for b in (btn_top, btn_side, btn_iso, btn_png):
+                views.addWidget(b)
+            self.btn = QPushButton(tr("Обновить сцену"))
+            self.btn.setMinimumHeight(30)
+            self.btn.setDefault(True)
+            self.btn.clicked.connect(self.rebuild)
 
             left = QWidget()
             lv = QVBoxLayout(left)
-            lv.addWidget(tabs, 1)
-            lv.addLayout(gform)
+            lv.addLayout(fl)
+            lv.addWidget(self.layer_list, 1)
             lv.addLayout(views)
             lv.addWidget(self.btn)
             lv.addWidget(self.legend_pix)
@@ -540,14 +1077,90 @@ def _build_dialog(parent):
             self.view.pick_cb = self._pick_at
             self._pick = None
             self._pick_marker = None
+            # тонкая тёмная рамка вокруг сцены, как у холста карты QGIS
+            frame = QFrame()
+            frame.setFrameShape(QFrame.Shape.Box
+                                if hasattr(QFrame, "Shape")
+                                else QFrame.Box)
+            frame.setLineWidth(1)
+            frame.setStyleSheet("QFrame { border: 1px solid #7a7a7a; }")
+            fv = QVBoxLayout(frame)
+            fv.setContentsMargins(1, 1, 1, 1)
+            fv.addWidget(self.view)
 
             split = QSplitter()
             split.addWidget(left)
-            split.addWidget(self.view)
+            split.addWidget(frame)
             split.setStretchFactor(1, 1)
             root = QHBoxLayout(self)
             root.addWidget(split)
             self._items = []
+
+        def _wire_props(self, widget):
+            """Свойства по двойному клику и по правой кнопке.
+
+            Пользователь пришёл из QGIS и ждёт свойств именно там,
+            поэтому главное окно оставлено под список, а все настройки
+            живут в отдельном немодальном окне.
+            """
+            widget.itemDoubleClicked.connect(
+                lambda *_a: self._open_props())
+            policy = getattr(getattr(Qt, "ContextMenuPolicy", Qt),
+                             "CustomContextMenu")
+            widget.setContextMenuPolicy(policy)
+            widget.customContextMenuRequested.connect(
+                lambda pos, w=widget: self._context_menu(w, pos))
+
+        def _context_menu(self, widget, pos):
+            item = widget.itemAt(pos)
+            if item is not None:
+                widget.setCurrentItem(item)
+            menu = QMenu(self)
+            act = menu.addAction(tr("Свойства…"))
+            act.triggered.connect(self._open_props)
+            menu.exec(widget.mapToGlobal(pos)) if hasattr(menu, "exec") \
+                else menu.exec_(widget.mapToGlobal(pos))
+
+        def _open_props(self, *_a):
+            """Открыть окно свойств для выделенной строки."""
+            if self._props is None:
+                dlg = QDialog(self)
+                dlg.setWindowTitle(tr("Свойства"))
+                lay = QVBoxLayout(dlg)
+                lay.addWidget(self.scene_box)
+                lay.addWidget(self.opt_box)
+                lay.addWidget(self.vec_box)
+                lay.addWidget(self.sec_box)
+                lay.addStretch(1)
+                dlg.resize(430, 420)
+                self._props = dlg
+            self._sync_props()
+            self._props.show()
+            self._props.raise_()
+
+        def _sync_props(self):
+            """Показать в окне свойств то, что относится к выделенному.
+
+            Список один, поэтому набор свойств выбирается по типу слоя:
+            растру каналы и окраска, вектору источник высоты и цвет,
+            линейному слою вдобавок разрез.
+            """
+            if self._props is None:
+                return
+            item = self.layer_list.currentItem()
+            lyr = self._current_layer()
+            scene = item is None or item.data(_USER_ROLE) == _SCENE_KEY
+            raster = isinstance(lyr, QgsRasterLayer)
+            vector = isinstance(lyr, QgsVectorLayer)
+            line = vector and self._geom_kind(lyr) == "line"
+            self.scene_box.setVisible(scene)
+            self.opt_box.setVisible(raster)
+            self.vec_box.setVisible(vector)
+            self.sec_box.setVisible(line)
+            title = tr("Свойства сцены")
+            if lyr is not None:
+                title = tr("Свойства слоя: %s") % lyr.name()
+            self._props.setWindowTitle(title)
 
         def _set_view(self, elevation, azimuth):
             self.view.opts['elevation'] = elevation
@@ -584,193 +1197,554 @@ def _build_dialog(parent):
             self.legend_txt.hide()
 
         def refresh_layers(self):
-            """Пересобирает списки слоёв, сохраняя отметки и выбор."""
+            """Пересобирает список, сохраняя отметки и выбор.
+
+            Список один: растры и векторы вместе, как в дереве QGIS. Тип
+            слоя виден пометкой в строке, потому что от него зависит,
+            какие свойства человек увидит.
+            """
+            proj = QgsProject.instance()
             checked = {self.layer_list.item(i).data(_USER_ROLE)
                        for i in range(self.layer_list.count())
                        if self.layer_list.item(i).checkState() == _CHECKED}
+            current = None
+            if self.layer_list.currentItem() is not None:
+                current = self.layer_list.currentItem().data(_USER_ROLE)
+
+            self.layer_list.blockSignals(True)
             self.layer_list.clear()
-            for lyr in QgsProject.instance().mapLayers().values():
-                if not isinstance(lyr, QgsRasterLayer):
+            head = QListWidgetItem(tr("Сцена"))
+            head.setData(_USER_ROLE, _SCENE_KEY)
+            font = head.font()
+            font.setBold(True)
+            head.setFont(font)
+            head.setToolTip(tr("Свойства сцены: двойной клик"))
+            self.layer_list.addItem(head)
+
+            marks = {"raster": tr("растр"), "point": tr("точки"),
+                     "line": tr("линии"), "polygon": tr("полигоны")}
+            for lyr in proj.mapLayers().values():
+                if isinstance(lyr, QgsRasterLayer):
+                    kind = "raster"
+                elif isinstance(lyr, QgsVectorLayer):
+                    kind = self._geom_kind(lyr)
+                else:
                     continue
-                it = QListWidgetItem(lyr.name())
+                it = QListWidgetItem("%s  ·  %s" % (lyr.name(),
+                                                    marks.get(kind, "")))
                 it.setData(_USER_ROLE, lyr.id())
                 it.setFlags(it.flags() | _CHECKABLE)
                 it.setCheckState(_CHECKED if lyr.id() in checked
                                  else _UNCHECKED)
                 self.layer_list.addItem(it)
-            prev_pl = self.plane_combo.currentData()
-            self.plane_combo.blockSignals(True)
-            self.plane_combo.clear()
-            self.plane_combo.addItem(tr("(нет)"), None)
-            for lyr in QgsProject.instance().mapLayers().values():
-                if not isinstance(lyr, QgsVectorLayer):
-                    continue
-                gt_ = lyr.geometryType()
-                if gt_ == _LINE_GT or getattr(gt_, "name", "") == "Line":
-                    self.plane_combo.addItem(lyr.name(), lyr.id())
-            ip = self.plane_combo.findData(prev_pl)
-            self.plane_combo.setCurrentIndex(max(ip, 0))
-            self.plane_combo.blockSignals(False)
+            self.layer_list.blockSignals(False)
+
+            if current is not None:
+                for i in range(self.layer_list.count()):
+                    if self.layer_list.item(i).data(_USER_ROLE) == current:
+                        self.layer_list.setCurrentRow(i)
+                        break
 
             prev_dr = self.draw_combo.currentData()
             self.draw_combo.blockSignals(True)
             self.draw_combo.clear()
             self.draw_combo.addItem(tr("(нет)"), None)
-            root = QgsProject.instance().layerTreeRoot()
-            for grp in root.findGroups():
+            for grp in proj.layerTreeRoot().findGroups():
                 if grp.findLayers():
                     self.draw_combo.addItem(tr("Группа: %s") % grp.name(),
                                             ("group", grp.name()))
-            for lyr in QgsProject.instance().mapLayers().values():
+            for lyr in proj.mapLayers().values():
                 self.draw_combo.addItem(lyr.name(), ("layer", lyr.id()))
-            idr = self.draw_combo.findData(prev_dr)
+            idr = _find_data(self.draw_combo, prev_dr)
             self.draw_combo.setCurrentIndex(max(idr, 0))
             self.draw_combo.blockSignals(False)
-            prev = self.wells_combo.currentData()
-            self.wells_combo.blockSignals(True)
-            self.wells_combo.clear()
-            self.wells_combo.addItem(tr("(нет)"), None)
-            for lyr in QgsProject.instance().mapLayers().values():
-                if not isinstance(lyr, QgsVectorLayer):
-                    continue
-                gt = lyr.geometryType()
-                if gt == _POINT_GT or getattr(gt, "name", "") == "Point":
-                    self.wells_combo.addItem(lyr.name(), lyr.id())
-            i = self.wells_combo.findData(prev)
-            self.wells_combo.setCurrentIndex(max(i, 0))
-            self.wells_combo.blockSignals(False)
-            # полигональные слои с Z для вкладки «Тела»
-            checked_b = {self.body_list.item(i).data(_USER_ROLE)
-                         for i in range(self.body_list.count())
-                         if self.body_list.item(i).checkState() == _CHECKED}
-            self.body_list.clear()
-            for lyr in QgsProject.instance().mapLayers().values():
-                if not isinstance(lyr, QgsVectorLayer):
-                    continue
-                gt = lyr.geometryType()
-                if gt == _POLYGON_GT or getattr(gt, "name", "") == "Polygon":
-                    it = QListWidgetItem(lyr.name())
-                    it.setData(_USER_ROLE, lyr.id())
-                    it.setFlags(it.flags() | _CHECKABLE)
-                    it.setCheckState(_CHECKED if lyr.id() in checked_b
-                                     else _UNCHECKED)
-                    self.body_list.addItem(it)
-            self._wells_changed()
-            self._load_opts(self.layer_list.currentItem())
 
-        def _wells_changed(self):
-            """Заполняет список числовых полей отметок, h* отмечены сразу."""
-            import re
-            self.wells_fields.clear()
-            self.wells_label.blockSignals(True)
-            self.wells_label.clear()
-            self.wells_label.addItem(tr("(нет)"), None)
-            lyr = QgsProject.instance().mapLayer(
-                self.wells_combo.currentData() or "")
+            self._load_props()
+
+        def _current_layer(self):
+            """Слой выделенной строки или None для «Сцены»."""
+            item = self.layer_list.currentItem()
+            if item is None:
+                return None
+            key = item.data(_USER_ROLE)
+            if key == _SCENE_KEY:
+                return None
+            return QgsProject.instance().mapLayer(key)
+
+        def _load_props(self, *_a):
+            """Показать свойства выделенной строки по её типу."""
+            lyr = self._current_layer()
+            if isinstance(lyr, QgsRasterLayer):
+                self._load_opts(self.layer_list.currentItem())
+            elif isinstance(lyr, QgsVectorLayer):
+                self._load_vec_opts()
+            self._sync_props()
+
+        def _vec_layer(self, item=None):
+            """Векторный слой выделенной строки списка векторов."""
+            lyr = self._current_layer()
+            return lyr if isinstance(lyr, QgsVectorLayer) else None
+
+        @staticmethod
+        def _geom_kind(lyr):
+            """point, line, polygon или пусто."""
+            gt = lyr.geometryType()
+            name = getattr(gt, "name", "")
+            if gt == _POINT_GT or name == "Point":
+                return "point"
+            if gt == _LINE_GT or name == "Line":
+                return "line"
+            if gt == _POLYGON_GT or name == "Polygon":
+                return "polygon"
+            return ""
+
+        def _default_vopts(self, lyr):
+            """Разумные умолчания по типу геометрии.
+
+            Полигоны с Z раньше жили на вкладке «Тела» и рисовались телом
+            по своей геометрии, поэтому для них источник высоты - своя Z.
+            Точечный слой по умолчанию рисуется как есть, скважины
+            включаются явно.
+            """
+            has_z = _layer_has_z(lyr)
+            return {"kind": "plain", "as_section": False, "draw": None,
+                    "zsrc": "geom" if has_z else "field",
+                    "poly": "solid" if has_z else "outline",
+                    "ztop": None,
+                    "zfield": None, "color": None,
+                    "wells_label": None, "wells_fields": []}
+
+        def _opts_of(self, lyr):
+            """Настройки слоя, с умолчаниями по типу геометрии.
+
+            Раньше рисование читало словарь напрямую, и слой, свойства
+            которого ни разу не открывали, получал пустые настройки:
+            полигоны с Z уходили в линии вместо тела. Умолчания заводятся
+            здесь же, чтобы показ и диалог видели одно и то же.
+            """
             if lyr is None:
-                self.wells_label.blockSignals(False)
+                return {}
+            return self._vopts.setdefault(lyr.id(), self._default_vopts(lyr))
+
+        def _load_vec_opts(self, *_a):
+            """Показать в свойствах настройки выделенного слоя."""
+            import re
+            lyr = self._vec_layer()
+            if lyr is None:
                 return
-            guess = -1
-            for f in lyr.fields():
-                self.wells_label.addItem(f.name(), f.name())
-                if guess < 0 and f.name().lower() in ("name", "well",
-                                                      "скв", "имя"):
-                    guess = self.wells_label.count() - 1
-            self.wells_label.setCurrentIndex(max(guess, 0))
-            self.wells_label.blockSignals(False)
-            for f in lyr.fields():
-                if not f.isNumeric():
+            self._loading_opts = True
+            try:
+                o = self._vopts.setdefault(lyr.id(),
+                                           self._default_vopts(lyr))
+                i = _find_data(self.vec_kind, o.get("kind", "plain"))
+                self.vec_kind.setCurrentIndex(max(i, 0))
+                i = _find_data(self.vec_poly, o.get("poly", "outline"))
+                self.vec_poly.setCurrentIndex(max(i, 0))
+                self.sec_on.setChecked(bool(o.get("as_section")))
+                i = _find_data(self.draw_combo, o.get("draw"))
+                self.draw_combo.setCurrentIndex(max(i, 0))
+                self.vec_kind.setCurrentIndex(max(i, 0))
+                i = _find_data(self.vec_zsrc, o.get("zsrc", "geom"))
+                self.vec_zsrc.setCurrentIndex(max(i, 0))
+
+                self.vec_zfield.blockSignals(True)
+                self.vec_zfield.clear()
+                self.vec_zfield.addItem(tr("(нет)"), None)
+                self.vec_ztop.blockSignals(True)
+                self.vec_ztop.clear()
+                self.vec_ztop.addItem(tr("(нет)"), None)
+                self.wells_label.blockSignals(True)
+                self.wells_label.clear()
+                self.wells_label.addItem(tr("(нет)"), None)
+                guess = -1
+                for f in lyr.fields():
+                    self.wells_label.addItem(f.name(), f.name())
+                    if guess < 0 and f.name().lower() in ("name", "well",
+                                                          "скв", "имя"):
+                        guess = self.wells_label.count() - 1
+                    if f.isNumeric():
+                        self.vec_zfield.addItem(f.name(), f.name())
+                        self.vec_ztop.addItem(f.name(), f.name())
+                iz = _find_data(self.vec_zfield, o.get("zfield"))
+                self.vec_zfield.setCurrentIndex(max(iz, 0))
+                it_ = _find_data(self.vec_ztop, o.get("ztop"))
+                self.vec_ztop.setCurrentIndex(max(it_, 0))
+                self.vec_ztop.blockSignals(False)
+                il = _find_data(self.wells_label, o.get("wells_label"))
+                self.wells_label.setCurrentIndex(
+                    il if il >= 0 else max(guess, 0))
+                self.vec_zfield.blockSignals(False)
+                self.wells_label.blockSignals(False)
+
+                self.wells_fields.blockSignals(True)
+                self.wells_fields.clear()
+                saved = o.get("wells_fields")
+                for f in lyr.fields():
+                    if not f.isNumeric():
+                        continue
+                    it = QListWidgetItem(f.name())
+                    it.setFlags(it.flags() | _CHECKABLE)
+                    if saved:
+                        on = f.name() in saved
+                    else:
+                        on = bool(re.match(r"^[hz]\d*$", f.name(), re.I))
+                    it.setCheckState(_CHECKED if on else _UNCHECKED)
+                    self.wells_fields.addItem(it)
+                self.wells_fields.blockSignals(False)
+                self._sync_vec_swatch()
+                self._sync_vec_enabled()
+                self._sync_props()
+            finally:
+                self._loading_opts = False
+
+        def _sync_vec_enabled(self):
+            """Погасить то, что к выделенному слою не относится.
+
+            Несовместимые сочетания не должны быть доступны вовсе: иначе
+            человек выбирает поле отметки при высоте из геометрии и ждёт
+            результата, которого не будет.
+            """
+            lyr = self._vec_layer()
+            if lyr is None:
+                return
+            kind = self._geom_kind(lyr)
+            is_point = kind == "point"
+            wells = is_point and (self.vec_kind.currentData() == "wells")
+            zsrc = self.vec_zsrc.currentData() or "geom"
+
+            self.vec_kind.setEnabled(is_point)
+            self.vec_poly.setEnabled(kind == "polygon")
+            prism = (kind == "polygon"
+                     and self.vec_poly.currentData() == "prism")
+            self.vec_ztop.setEnabled(prism)
+            if prism:
+                # призме нужны оба поля, отметка низа обязательна
+                self.vec_zfield.setEnabled(True)
+            self.draw_combo.setEnabled(self.sec_on.isChecked())
+            # у скважин отметки берутся из отмеченных полей, источник
+            # высоты к ним отношения не имеет
+            self.vec_zsrc.setEnabled(not wells)
+            self.vec_zfield.setEnabled(not wells and zsrc == "field")
+            self.wells_label.setEnabled(wells)
+            self.wells_fields.setEnabled(wells)
+
+            # «Своя высота геометрии» недоступна слою без Z
+            has_z = _layer_has_z(lyr)
+            model = self.vec_zsrc.model()
+            for i in range(self.vec_zsrc.count()):
+                item = model.item(i) if hasattr(model, "item") else None
+                if item is None:
                     continue
-                it = QListWidgetItem(f.name())
-                it.setFlags(it.flags() | _CHECKABLE)
-                auto = bool(re.match(r"^[hz]\d*$", f.name(), re.I))
-                it.setCheckState(_CHECKED if auto else _UNCHECKED)
-                self.wells_fields.addItem(it)
+                ok = has_z if self.vec_zsrc.itemData(i) == "geom" else True
+                flags = item.flags()
+                if ok:
+                    item.setFlags(flags | _ENABLED)
+                else:
+                    item.setFlags(flags & ~_ENABLED)
+            if not has_z and zsrc == "geom":
+                i = _find_data(self.vec_zsrc, "field")
+                if i >= 0:
+                    self.vec_zsrc.setCurrentIndex(i)
+
+        def _save_vec_opts(self, *_a):
+            if self._loading_opts:
+                self._sync_vec_enabled()
+                return
+            lyr = self._vec_layer()
+            if lyr is None:
+                return
+            o = self._vopts.setdefault(lyr.id(), self._default_vopts(lyr))
+            o["kind"] = self.vec_kind.currentData() or "plain"
+            o["poly"] = self.vec_poly.currentData() or "outline"
+            o["ztop"] = self.vec_ztop.currentData()
+            o["as_section"] = bool(self.sec_on.isChecked())
+            o["draw"] = self.draw_combo.currentData()
+            o["zsrc"] = self.vec_zsrc.currentData() or "geom"
+            o["zfield"] = self.vec_zfield.currentData()
+            o["wells_label"] = self.wells_label.currentData()
+            o["wells_fields"] = [
+                self.wells_fields.item(i).text()
+                for i in range(self.wells_fields.count())
+                if self.wells_fields.item(i).checkState() == _CHECKED]
+            self._sync_vec_enabled()
+
+        def _sync_vec_swatch(self):
+            lyr = self._vec_layer()
+            o = self._opts_of(lyr)
+            css = o.get("color") or "#8899aa"
+            self.vec_color_btn.setStyleSheet(
+                "QPushButton { background: %s; border: 1px solid #888; }"
+                % css)
+
+        def _pick_vec_color(self):
+            lyr = self._vec_layer()
+            if lyr is None:
+                return
+            from qgis.PyQt.QtWidgets import QColorDialog
+            from qgis.PyQt.QtGui import QColor
+            o = self._vopts.setdefault(lyr.id(), self._default_vopts(lyr))
+            start = QColor(o.get("color") or "#8899aa")
+            col = QColorDialog.getColor(start, self, tr("Задать свой цвет"))
+            if col.isValid():
+                o["color"] = col.name()
+                self._sync_vec_swatch()
+
+        def _checked_vec_layers(self):
+            """Отмеченные векторные слои."""
+            return self._checked_of(QgsVectorLayer)
+
+        def _z_available(self, lyr, opts):
+            """Есть ли чем задать высоту слоя, иначе рисовать нечего.
+
+            Молчаливо пустая сцена хуже отказа: человек не понимает,
+            выбрал он не тот слой или сломался модуль.
+            """
+            if opts.get("kind") == "wells":
+                return True      # у скважин отметки в отмеченных полях
+            zsrc = opts.get("zsrc", "geom")
+            if zsrc == "field":
+                if opts.get("zfield"):
+                    return True
+                self._warn(tr("У слоя %s не выбрано поле отметки.")
+                           % lyr.name())
+                return False
+            if zsrc == "flat":
+                return True
+            if _layer_has_z(lyr):
+                return True
+            self._warn(tr("У слоя %s нет высоты Z, выберите отметку "
+                          "из поля.") % lyr.name())
+            return False
+
+        @staticmethod
+        def _field_value(ft, name):
+            """Число из поля объекта или None."""
+            if not name:
+                return None
+            try:
+                v = float(ft[name])
+            except (TypeError, ValueError, KeyError):
+                return None
+            return v if v == v else None
+
+        def _feature_z(self, ft, opts):
+            """Отметка объекта по выбранному источнику высоты.
+
+            None означает «брать из вершин геометрии».
+            """
+            zsrc = opts.get("zsrc", "geom")
+            if zsrc == "field" and opts.get("zfield"):
+                try:
+                    return float(ft[opts["zfield"]])
+                except (TypeError, ValueError, KeyError):
+                    return None
+            if zsrc == "flat":
+                return 0.0
+            return None
 
         def _well_points(self):
-            """Собирает (x, y, [отметки]) по отмеченным полям."""
-            lyr = QgsProject.instance().mapLayer(
-                self.wells_combo.currentData() or "")
-            if lyr is None:
-                return []
-            names = [self.wells_fields.item(i).text()
-                     for i in range(self.wells_fields.count())
-                     if self.wells_fields.item(i).checkState() == _CHECKED]
-            if not names:
-                return []
-            lab = self.wells_label.currentData()
+            """(x, y, [отметки], подпись) по слоям в режиме скважин."""
             out = []
-            for ft in lyr.getFeatures():
-                g = ft.geometry()
-                if g is None or g.isEmpty():
+            for lyr in self._checked_vec_layers():
+                if self._geom_kind(lyr) != "point":
                     continue
-                p = g.asPoint()
-                zs = []
-                for nm in names:
-                    try:
-                        v = float(ft[nm])
-                    except (TypeError, ValueError):
+                o = self._opts_of(lyr)
+                if o.get("kind") != "wells":
+                    continue
+                names = o.get("wells_fields") or []
+                if not names:
+                    continue
+                lab = o.get("wells_label")
+                for ft in lyr.getFeatures():
+                    g = ft.geometry()
+                    if g is None or g.isEmpty():
                         continue
-                    if v == v:  # не NaN
-                        zs.append(v)
-                if zs:
-                    txt = ""
-                    if lab:
-                        val = ft[lab]
-                        txt = "" if val is None else str(val)
-                    out.append((p.x(), p.y(), zs, txt))
+                    p = g.asPoint()
+                    zs = []
+                    for nm in names:
+                        try:
+                            v = float(ft[nm])
+                        except (TypeError, ValueError, KeyError):
+                            continue
+                        if v == v:  # не NaN
+                            zs.append(v)
+                    if zs:
+                        txt = ""
+                        if lab:
+                            val = ft[lab]
+                            txt = "" if val is None else str(val)
+                        out.append((p.x(), p.y(), zs, txt))
             return out
 
-        def _checked_layers(self):
+        def _checked_of(self, cls):
+            """Отмеченные слои нужного типа из общего списка.
+
+            Список один, поэтому фильтр по типу обязателен: без него
+            векторный слой уходил в чтение как растр, не открывался
+            и попадал в «Пропущено», хотя рисовался телами.
+            """
             proj = QgsProject.instance()
             out = []
             for i in range(self.layer_list.count()):
                 it = self.layer_list.item(i)
                 if it.checkState() != _CHECKED:
                     continue
-                lyr = proj.mapLayer(it.data(_USER_ROLE))
-                if lyr is not None:
-                    out.append(lyr)
-            return out
-
-        def _checked_body_layers(self):
-            proj = QgsProject.instance()
-            out = []
-            for i in range(self.body_list.count()):
-                it = self.body_list.item(i)
-                if it.checkState() != _CHECKED:
+                if it.data(_USER_ROLE) == _SCENE_KEY:
                     continue
                 lyr = proj.mapLayer(it.data(_USER_ROLE))
-                if lyr is not None:
+                if isinstance(lyr, cls):
                     out.append(lyr)
             return out
 
-        def _body_meshes(self):
-            """(verts, faces, name) по отмеченным полигональным слоям.
+        def _checked_layers(self):
+            """Отмеченные растры."""
+            return self._checked_of(QgsRasterLayer)
+
+        def _body_meshes(self, prof=None):
+            """(verts, faces, name, цвет) по отмеченным полигонам с Z.
 
             Каждый ОБЪЕКТ слоя разбирается из WKT в треугольники отдельным
-            мешем (polyhedral.wkt_to_tris), поэтому свита из нескольких
-            пластов красится по-объектно, каждый пласт своим цветом.
+            мешем, поэтому свита из нескольких пластов красится
+            по-объектно, каждый пласт своим цветом.
             """
-            from . import polyhedral as poly
             out = []
-            for lyr in self._checked_body_layers():
+            for lyr in self._checked_vec_layers():
+                if self._geom_kind(lyr) != "polygon":
+                    continue
+                o = self._opts_of(lyr)
+                mode = o.get("poly", "outline")
+                if mode not in ("solid", "prism"):
+                    continue          # такой слой рисуется линиями
+                col = o.get("color")
+                zsrc = o.get("zsrc", "geom")
+                if zsrc == "geom" and not _layer_has_z(lyr):
+                    self._warn(tr("У слоя %s нет высоты Z, выберите "
+                                  "отметку из поля.") % lyr.name())
+                    continue
+                n_flat = n_solid = n_noz = 0
+                zlo = zhi = None
                 feats = list(lyr.getFeatures())
+                keep = _body_budget(feats, len(self._checked_vec_layers()))
+                if len(keep) < len(feats):
+                    self._warn(
+                        tr("В слое %s объектов %d, показаны первые %d.")
+                        % (lyr.name(), len(feats), len(keep)))
+                feats = keep
                 multi = len(feats) > 1
                 k = 0
                 for ft in feats:
                     g = ft.geometry()
                     if g is None or g.isEmpty():
                         continue
-                    try:
-                        v, f = poly.wkt_to_tris(g.asWkt())
-                    except Exception:  # nosec
+                    if mode == "prism":
+                        zb = self._field_value(ft, o.get("zfield"))
+                        zt = self._field_value(ft, o.get("ztop"))
+                        if zb is None or zt is None:
+                            n_noz += 1
+                            continue
+                        if zt < zb:
+                            zb, zt = zt, zb
+                        cv, cf = _tri_cached(lyr, ft, g, zt, prof)
+                        v, f = _prism(g, cv, cf, zb, zt)
+                        if not len(f):
+                            continue
+                        k += 1
+                        nm = (("%s #%d" % (lyr.name(), k)) if multi
+                              else lyr.name())
+                        out.append((v, f, nm, col))
                         continue
+                    zfix = None if zsrc == "geom" else \
+                        (self._feature_z(ft, o) or 0.0)
+                    if zsrc == "geom":
+                        flat = _flat_z(g)
+                        if flat is None:
+                            n_solid += 1
+                        else:
+                            n_flat += 1
+                            zlo = flat if zlo is None else min(zlo, flat)
+                            zhi = flat if zhi is None else max(zhi, flat)
+                        # и плоский контур, и скат разбираются одинаково
+                        # честно. Веер давал лучи через фигуру и терял
+                        # внутренние кольца, поясу между изолиниями это
+                        # ломало и форму, и отметки.
+                        v, f = _tri_cached(lyr, ft, g, flat, prof)
+                    else:
+                        v, f = _tri_cached(lyr, ft, g, zfix, prof)
                     if not len(f):
                         continue
                     k += 1
                     nm = ("%s #%d" % (lyr.name(), k)) if multi else lyr.name()
-                    out.append((v, f.astype(np.int64), nm))
+                    out.append((v, f.astype(np.int64), nm, col))
+                if n_flat and not n_solid:
+                    self._warn(tr(
+                        "Слой %s: все %d объектов плоские, отметки "
+                        "от %.1f до %.1f. Объёма в геометрии нет, для "
+                        "ступеней возьмите показ призмой.")
+                        % (lyr.name(), n_flat, zlo or 0.0, zhi or 0.0))
+                if n_noz:
+                    self._warn(tr("Слой %s: у %d объектов нет отметок "
+                                  "низа или верха.") % (lyr.name(), n_noz))
+            return out
+
+        def _vec_lines(self):
+            """(точки, цвет, имя) по отмеченным линейным слоям.
+
+            Высота берётся из вершин геометрии либо из числового поля,
+            тогда весь объект лежит на одной отметке: для изолиний это
+            и нужно, они плоские по определению.
+            """
+            out = []
+            for lyr in self._checked_vec_layers():
+                kind = self._geom_kind(lyr)
+                o = self._opts_of(lyr)
+                if kind == "polygon":
+                    # контуры уровней осмысленно смотреть линиями,
+                    # заливка нужна телам пласта и полиэдрам
+                    if o.get("poly", "outline") in ("solid", "prism"):
+                        continue
+                elif kind != "line":
+                    continue
+                elif o.get("as_section"):
+                    continue      # такой слой рисуется лентой разреза
+                col = o.get("color") or "#7a5c3c"
+                if not self._z_available(lyr, o):
+                    continue
+                feats = list(lyr.getFeatures())
+                if len(feats) > _MAX_LINES:
+                    self._warn(
+                        tr("В слое %s объектов %d, показаны первые %d.")
+                        % (lyr.name(), len(feats), _MAX_LINES))
+                    feats = feats[:_MAX_LINES]
+                for ft in feats:
+                    g = ft.geometry()
+                    if g is None or g.isEmpty():
+                        continue
+                    zf = self._feature_z(ft, o)
+                    for pts in _parts_xyz(g, zf):
+                        if len(pts) >= 2:
+                            out.append((pts, col, lyr.name()))
+            return out
+
+        def _vec_points(self):
+            """(x, y, z, цвет) по точечным слоям в режиме «как есть»."""
+            out = []
+            for lyr in self._checked_vec_layers():
+                if self._geom_kind(lyr) != "point":
+                    continue
+                o = self._opts_of(lyr)
+                if o.get("kind") == "wells":
+                    continue
+                col = o.get("color") or "#b03030"
+                if not self._z_available(lyr, o):
+                    continue
+                for ft in lyr.getFeatures():
+                    g = ft.geometry()
+                    if g is None or g.isEmpty():
+                        continue
+                    z = self._feature_z(ft, o)
+                    for pts in _parts_xyz(g, z):
+                        for x, y, zz in pts:
+                            out.append((x, y, zz, col))
             return out
 
         def _apply_filter(self, text):
@@ -795,7 +1769,7 @@ def _build_dialog(parent):
                 combo.addItem(zero_label, 0)
             for num, label in items:
                 combo.addItem(label, num)
-            i = combo.findData(keep)
+            i = _find_data(combo, keep)
             combo.setCurrentIndex(i if i >= 0 else 0)
             combo.blockSignals(False)
 
@@ -828,7 +1802,7 @@ def _build_dialog(parent):
                 self.opt_box.setTitle(tr("Параметры слоя") + ": " + lyr.name())
                 o = self._opts.setdefault(lyr.id(),
                                           self._default_opts(lyr.source()))
-                i = self.mode_combo.findData(o["mode"])
+                i = _find_data(self.mode_combo, o["mode"])
                 self.mode_combo.setCurrentIndex(max(i, 0))
                 items = _band_items(lyr.source()) or [(1, "1")]
                 self._fill_band_combo(self.zband, items, o["zband"])
@@ -869,7 +1843,7 @@ def _build_dialog(parent):
                     want = ("solid", None)
                 else:
                     want = ("palette", None)
-                i = cc.findData(want)
+                i = _find_data(cc, want)
                 cc.setCurrentIndex(i if i >= 0 else 0)
                 cc.blockSignals(False)
                 self._sync_aband(o.get("aband", 1))
@@ -963,10 +1937,17 @@ def _build_dialog(parent):
             (смещение, которым чертежи разнесены в слое). Полей может
             не быть, тогда на их месте None и чертёж не накладывается.
             """
-            lyr = QgsProject.instance().mapLayer(
-                self.plane_combo.currentData() or "")
-            if lyr is None:
-                return []
+            out = []
+            for lyr in self._checked_vec_layers():
+                if self._geom_kind(lyr) != "line":
+                    continue
+                if not self._opts_of(lyr).get("as_section"):
+                    continue
+                out.extend(self._plane_lines_of(lyr))
+            return out
+
+        def _plane_lines_of(self, lyr):
+            """То же самое для одного слоя определения разреза."""
             names = {f.name().lower() for f in lyr.fields()}
             has_z = "zmin" in names and "zmax" in names
 
@@ -1006,6 +1987,7 @@ def _build_dialog(parent):
                 att = {"sec_id": None if sec_id is None else int(sec_id),
                        "sec": sec, "vex": num(ft, "vex", 1.0),
                        "ox": num(ft, "ox", 0.0), "oy": num(ft, "oy", 0.0),
+                       "draw": self._opts_of(lyr).get("draw"),
                        "has_layout": "ox" in names and "oy" in names}
                 for pl in polys:
                     if len(pl) >= 2:
@@ -1179,7 +2161,7 @@ def _build_dialog(parent):
                 out.append(lyr)
             return out
 
-        def _drawing_layers(self):
+        def _drawing_layers(self, data=None):
             """Слои чертежа разреза по выбору в списке.
 
             Для группы берутся все её слои в порядке дерева, для слоя -
@@ -1187,7 +2169,8 @@ def _build_dialog(parent):
             пришлось бы держать чертёж включённым на карте, где он лежит
             в координатах разреза и мешает.
             """
-            data = self.draw_combo.currentData()
+            if data is None:
+                data = self.draw_combo.currentData()
             if not data:
                 return []
             kind, val = data
@@ -1254,7 +2237,7 @@ def _build_dialog(parent):
             а не как освещённая поверхность.
             """
             from . import texmesh
-            layers = self._drawing_layers()
+            layers = self._drawing_layers(att.get("draw"))
             if not layers:
                 return None
             if not att.get("has_layout"):
@@ -1310,8 +2293,18 @@ def _build_dialog(parent):
                 out.append(lyr)
             return out
 
+        def _warn(self, text):
+            """Предупреждение человеку: на экран и в журнал.
+
+            Журнал открыт не у всех и не всегда, а молчаливая пустая
+            сцена не объясняет ничего.
+            """
+            self._warnings.append(text)
+            _log(text)
+
         def rebuild(self):
             prof = _Prof()
+            self._warnings = []
             for m in self._items:
                 self.view.removeItem(m)
             self._items = []
@@ -1323,16 +2316,20 @@ def _build_dialog(parent):
                 self._pick_marker = None
             layers = self._checked_layers()
             prof.skip()
-            bodies = self._body_meshes()
+            bodies = self._body_meshes(prof)
             prof.add("vector")
-            if not layers and not bodies:
-                self.info.setText(tr("Отметьте растр на вкладке «Слои» "
-                                     "или тело на вкладке «Тела»."))
+            vlines = self._vec_lines()
+            vpoints = self._vec_points()
+            prof.add("vector")
+            if not layers and not bodies and not vlines and not vpoints:
+                self.info.setText(tr("Отметьте слой на вкладке «Слои» "
+                                     "или «Векторы»."))
                 return
             vex = float(self.vex.value())
             spacing = float(self.spacing.value())
             meshes, skipped = [], []
             nbeds = 0
+            budget = _layer_budget(len(layers))
             for k, lyr in enumerate(layers):
                 o = self._opts.get(lyr.id()) or \
                     self._default_opts(lyr.source())
@@ -1350,7 +2347,8 @@ def _build_dialog(parent):
                             raise ValueError
                         verts, faces = bed_to_mesh_arrays(
                             top, bot, gt, zscale=1.0,
-                            zoffset=-spacing * k, step=_auto_step(top))
+                            zoffset=-spacing * k,
+                            step=_auto_step(top, budget))
                         prof.add("mesh")
                         surf_arr = top
                         nbeds += 1
@@ -1363,7 +2361,7 @@ def _build_dialog(parent):
                             raise ValueError
                         verts, faces = grid_to_mesh_arrays(
                             arr, gt, zscale=1.0, zoffset=-spacing * k,
-                            step=_auto_step(arr))
+                            step=_auto_step(arr, budget))
                         prof.add("mesh")
                         surf_arr = arr
                 except ValueError:
@@ -1380,7 +2378,7 @@ def _build_dialog(parent):
                 meshes.append((verts, faces, base, lyr.id(), as_bed,
                                lyr.source(), o, surf_arr, gt,
                                -spacing * k))
-            if not meshes and not bodies:
+            if not meshes and not bodies and not vlines and not vpoints:
                 self.info.setText(tr("Гриды не открылись."))
                 return
             prof.skip()
@@ -1388,6 +2386,11 @@ def _build_dialog(parent):
             planes = self._plane_lines()
             prof.add("vector")
             vsets = [m[0] for m in meshes] + [b[0] for b in bodies]
+            for pts, _c, _n in vlines:
+                vsets.append(np.asarray(pts, dtype=float))
+            if vpoints:
+                vsets.append(np.array([(x, y, z) for x, y, z, _c in vpoints],
+                                      dtype=float))
             allv = np.vstack(vsets)
             xs = [allv[:, 0].min(), allv[:, 0].max()]
             ys = [allv[:, 1].min(), allv[:, 1].max()]
@@ -1473,18 +2476,34 @@ def _build_dialog(parent):
                 self.view.addItem(item)
                 self._items.append(item)
             # тела (полиэдры/полигоны с Z): плоские грани, окраска палитрой
-            for bi, (bverts, bfaces, bname) in enumerate(bodies):
-                color = PALETTE[(len(meshes) + bi) % len(PALETTE)]
-                v = bverts.copy()
-                v[:, 0] -= cx
-                v[:, 1] -= cy
-                v[:, 2] = (v[:, 2] - cz) * vex
-                md = gl.MeshData(vertexes=v.astype('float32'), faces=bfaces)
-                prof.count("tris", len(bfaces)).count("verts", len(v))
+            # Объекты собираются в один меш на сцену, а цвет каждого
+            # хранится в его вершинах. Отдельный элемент на объект стоил
+            # непомерно дорого: на 500 объектах это 500 наборов буферов
+            # плюс нормали в двойной точности, то есть сотни мегабайт
+            # видеопамяти при 20 МБ полезных данных.
+            if bodies:
+                allv, allf, allc, base = [], [], [], 0
+                for bi, (bverts, bfaces, bname, bcol) in enumerate(bodies):
+                    color = PALETTE[(len(meshes) + bi) % len(PALETTE)]
+                    if bcol:
+                        color = _css_rgba(bcol)
+                    v = bverts.copy()
+                    v[:, 0] -= cx
+                    v[:, 1] -= cy
+                    v[:, 2] = (v[:, 2] - cz) * vex
+                    allv.append(v)
+                    allf.append(np.asarray(bfaces, dtype=np.int64) + base)
+                    allc.append(np.tile(
+                        np.array(color[:3] + (alpha,), dtype='float32'),
+                        (len(v), 1)))
+                    base += len(v)
+                bv = np.vstack(allv).astype('float32')
+                bf = np.vstack(allf)
+                md = gl.MeshData(vertexes=bv, faces=bf)
+                md.setVertexColors(np.vstack(allc))
+                prof.count("tris", len(bf)).count("verts", len(bv))
                 item = gl.GLMeshItem(meshdata=md, smooth=False,
-                                     shader='shaded',
-                                     color=color[:3] + (alpha,),
-                                     glOptions=gopt)
+                                     shader='shaded', glOptions=gopt)
                 self.view.addItem(item)
                 self._items.append(item)
             if attr is not None:
@@ -1600,7 +2619,7 @@ def _build_dialog(parent):
                             continue
                         dxn, dyn = sxx / seglen, syy / seglen
                         nrm = (syy, -sxx, 0.0)   # горизонтальная нормаль шторы
-                        for bverts, bfaces, _bn in bodies:
+                        for bverts, bfaces, _bn, _bc in bodies:
                             s3 = poly.slice_triangles(
                                 bverts, bfaces, (ax, ay, 0.0), nrm)
                             for s in s3:
@@ -1668,16 +2687,23 @@ def _build_dialog(parent):
                     self.view.addItem(ln)
                     self._items.append(ln)
                 r = span * 0.004
-                if len(tops) <= 500:  # шарики на устьях
+                if len(tops) <= 500:  # шарики на устьях, одним мешем
                     sph = gl.MeshData.sphere(rows=8, cols=8, radius=r)
-                    for t_ in tops:
-                        ball = gl.GLMeshItem(meshdata=sph, smooth=True,
-                                             shader='shaded',
-                                             color=(0.12, 0.12, 0.12, 1.0),
-                                             glOptions='opaque')
-                        ball.translate(t_[0], t_[1], t_[2])
-                        self.view.addItem(ball)
-                        self._items.append(ball)
+                    sv = np.asarray(sph.vertexes(), dtype=float)
+                    sf = np.asarray(sph.faces(), dtype=np.int64)
+                    bv = np.vstack([sv + np.asarray(t_, dtype=float)
+                                    for t_ in tops])
+                    bf = np.vstack([sf + i * len(sv)
+                                    for i in range(len(tops))])
+                    md = gl.MeshData(vertexes=bv.astype('float32'),
+                                     faces=bf)
+                    ball = gl.GLMeshItem(meshdata=md, smooth=True,
+                                         shader='shaded',
+                                         color=(0.12, 0.12, 0.12, 1.0),
+                                         glOptions='opaque')
+                    self.view.addItem(ball)
+                    self._items.append(ball)
+                    prof.count("tris", len(bf)).count("verts", len(bv))
                 else:  # много скважин - круглые спрайты
                     dots = gl.GLScatterPlotItem(
                         pos=np.array(tops, dtype='float32'),
@@ -1716,8 +2742,50 @@ def _build_dialog(parent):
             msg = tr("Показано поверхностей: %d.") % len(meshes)
             if bodies:
                 msg += " " + tr("Тел: %d.") % len(bodies)
+                if prof.counts.get("trihits"):
+                    msg += " " + tr("Триангуляций из кэша: %d.") % (
+                        prof.counts["trihits"])
+            if vlines:
+                msg += " " + tr("Линий: %d.") % len(vlines)
+            if vpoints:
+                msg += " " + tr("Точек: %d.") % len(vpoints)
             if nbeds:
                 msg += " " + tr("Тел пластов: %d.") % nbeds
+            # --- линии векторных слоёв: изолинии, разломы, трассы
+            if vlines:
+                by_color = {}
+                for pts, col, _nm in vlines:
+                    seg = by_color.setdefault(col, [])
+                    P = np.asarray(pts, dtype=float)
+                    P[:, 0] -= cx
+                    P[:, 1] -= cy
+                    P[:, 2] = (P[:, 2] - cz) * vex
+                    for a, b in zip(P[:-1], P[1:]):
+                        seg.append(a)
+                        seg.append(b)
+                for col, seg in by_color.items():
+                    if not seg:
+                        continue
+                    item = gl.GLLinePlotItem(
+                        pos=np.array(seg, dtype='float32'), mode='lines',
+                        width=1.6, antialias=True,
+                        color=_css_rgba(col), glOptions='opaque')
+                    self.view.addItem(item)
+                    self._items.append(item)
+                    prof.count("verts", len(seg))
+
+            # --- точки векторных слоёв, кроме тех, что рисуются скважинами
+            if vpoints:
+                arr = np.array([(x - cx, y - cy, (z - cz) * vex)
+                                for x, y, z, _c in vpoints], dtype='float32')
+                cols = np.array([_css_rgba(c) for _x, _y, _z, c in vpoints],
+                                dtype='float32')
+                item = gl.GLScatterPlotItem(pos=arr, color=cols,
+                                            size=7.0, pxMode=True)
+                self.view.addItem(item)
+                self._items.append(item)
+                prof.count("verts", len(arr))
+
             if planes:
                 msg += " " + tr("Плоскостей разреза: %d.") % len(planes)
                 names = [p[3].get("sec") for p in planes if p[3].get("sec")]
@@ -1732,6 +2800,8 @@ def _build_dialog(parent):
             if skipped:
                 msg += " " + tr("Пропущено: %s") % ", ".join(skipped)
             prof.add("scene").count("items", len(self._items))
+            for w in self._warnings[:3]:
+                msg += " " + w
             if prof.counts.get("tex"):
                 msg += " " + tr("Текстур: %d (из кэша %d).") % (
                     prof.counts["tex"], prof.counts.get("texhits", 0))

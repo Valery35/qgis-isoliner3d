@@ -185,6 +185,101 @@ def test_band_count_opens_once():
     teardown()
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Кэш триангуляции полигонов
+# ─────────────────────────────────────────────────────────────────────────
+
+def _load_tri():
+    """Кэш триангуляции из viewer3d с подменённой самой триангуляцией."""
+    path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "viewer3d.py")
+    src = open(path, encoding="utf-8").read()
+    a = src.index("def _tessellate(")
+    b = src.index("def _flat_z(")
+    c = src.index("def _parts_xyz(")
+    d = src.index("def _css_rgba(")
+    ns = {}
+    exec(compile("import numpy as np\n" + src[c:d] + "\n" + src[a:b],  # nosec
+                 "viewer3d", "exec"), ns)
+    calls = {"n": 0}
+
+    def fake(geom, zfix=None):
+        calls["n"] += 1
+        return np.zeros((4, 3)), np.zeros((2, 3), dtype=np.int64)
+
+    ns["_tessellate"] = fake
+    ns["tri_cache_clear"]()
+    return ns, calls
+
+
+class _Box(object):
+    def xMinimum(self):
+        return 0.0
+
+    def yMinimum(self):
+        return 0.0
+
+    def xMaximum(self):
+        return 10.0
+
+    def yMaximum(self):
+        return 10.0
+
+
+class _Coords(object):
+    def nCoordinates(self):
+        return 100
+
+
+class _Geom2(object):
+    def constGet(self):
+        return _Coords()
+
+    def boundingBox(self):
+        return _Box()
+
+
+class _Lyr(object):
+    def id(self):
+        return "layer_1"
+
+
+class _Feat(object):
+    def __init__(self, fid):
+        self._fid = fid
+
+    def id(self):
+        return self._fid
+
+
+def test_triangulation_is_cached_per_feature():
+    """Разбивка тех же объектов не должна повторяться на каждой сборке.
+
+    На пятистах контурах она занимала шесть секунд и повторялась при
+    каждом нажатии «Обновить сцену», хотя геометрия не менялась.
+    """
+    ns, calls = _load_tri()
+    tri, lyr, geom = ns["_tri_cached"], _Lyr(), _Geom2()
+    for _ in range(3):
+        tri(lyr, _Feat(1), geom, None)
+    assert calls["n"] == 1, calls
+    tri(lyr, _Feat(2), geom, None)
+    assert calls["n"] == 2, calls
+    ns["tri_cache_clear"]()
+
+
+def test_triangulation_key_separates_elevation():
+    """Та же геометрия на другой отметке это другая разбивка."""
+    ns, calls = _load_tri()
+    tri, lyr, geom = ns["_tri_cached"], _Lyr(), _Geom2()
+    tri(lyr, _Feat(1), geom, None)
+    tri(lyr, _Feat(1), geom, 125.0)
+    assert calls["n"] == 2, calls
+    assert ns["tri_cache_size"]()[0] == 2
+    ns["tri_cache_clear"]()
+    assert ns["tri_cache_size"]() == (0, 0)
+
+
 if __name__ == "__main__":
     ok = 0
     for nm, fn in sorted(globals().items()):

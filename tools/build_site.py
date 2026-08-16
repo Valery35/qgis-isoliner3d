@@ -32,6 +32,30 @@ def figure(name, language):
     return "data:image/png;base64," + data
 
 
+def photo(path, side=1000, quality=82):
+    """Снимок экрана как data-URL.
+
+    Пережимается в JPEG: страница самодостаточная, и PNG на 760 КБ
+    раздул бы её вчетверо против пользы. Без Pillow вставляется как есть.
+    """
+    full = os.path.join(ROOT, path)
+    if not os.path.isfile(full):
+        return ""
+    try:
+        import io as _io
+        from PIL import Image
+        im = Image.open(full)
+        im.thumbnail((side, side), Image.LANCZOS)
+        buf = _io.BytesIO()
+        im.convert("RGB").save(buf, "JPEG", quality=quality, optimize=True)
+        return (' src="data:image/jpeg;base64,%s"'
+                % base64.b64encode(buf.getvalue()).decode())
+    except Exception:
+        with open(full, "rb") as fh:
+            data = base64.b64encode(fh.read()).decode()
+        return ' src="data:image/png;base64,%s"' % data
+
+
 def figure_pair(name):
     """
     Обе версии схемы для переключателя языка.
@@ -76,6 +100,11 @@ TEXTS = {
 "hero.h1":    ("Модель пласта видна целиком, а не по одному горизонту",
                "The bed model is seen as a whole, not one horizon "
                "at a time"),
+"hero.shot":  ("Рельеф с картой OpenStreetMap, натянутой текстурой, "
+               "и три пласта телами под ним: одна сцена, семь поверхностей.",
+               "Relief with an OpenStreetMap texture draped over it and "
+               "three beds as bodies underneath: one scene, seven "
+               "surfaces."),
 "hero.lead":  ("Кровля, подошва, скважины и разрез существуют по отдельности "
                "и сходятся только в голове у геолога. Isoliner3D собирает их "
                "в одну сцену: тела пластов, стволы скважин насквозь, чертёж "
@@ -374,6 +403,8 @@ section .sub{margin-top:16px;max-width:70ch;color:var(--ink-soft)}
 figure{margin:30px 0 0}
 figure img{width:100%;height:auto;display:block;border-radius:var(--r);
   border:1px solid var(--line);background:#fff}
+.shot{margin-top:38px}
+.shot img{border-color:rgba(22,34,31,.22)}
 figcaption{margin-top:10px;font-size:14px;color:var(--ink-soft)}
 .tools{margin-top:34px;border:1px solid var(--line);border-radius:var(--r);
   overflow:hidden;background:#fff}
@@ -425,6 +456,10 @@ figcaption{margin-top:10px;font-size:14px;color:var(--ink-soft)}
     <a class="btn btn-ghost" data-i18n="cta.code"
        href="https://github.com/Valery35/qgis-isoliner3d"></a>
   </div>
+  <figure class="shot">
+    <img alt=""__PHOTO__>
+    <figcaption data-i18n="hero.shot"></figcaption>
+  </figure>
 </div>
 
 <section id="idea">
@@ -559,7 +594,7 @@ def main():
         print("Нет doc/figures, сначала запустите tools/make_figures.py")
         return 1
 
-    page = PAGE
+    page = PAGE.replace("__PHOTO__", photo("docs/screenshot.png"))
     for name in ("bed_body", "texture", "section", "pipeline"):
         page = page.replace("__PAIR_%s__" % name, figure_pair(name))
     rows1 = "".join(tool_row(n, k) for n, k in (

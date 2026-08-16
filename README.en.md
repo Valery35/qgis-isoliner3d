@@ -9,6 +9,8 @@ A QGIS plugin that shows a geological model in three dimensions and computes
 reserves from a block model: surfaces from rasters, watertight bed bodies,
 boreholes, cross-sections, maps draped as textures.
 
+![Relief with an OpenStreetMap texture draped over it and three beds as bodies underneath. All in one scene.](docs/screenshot.png)
+
 Rendering runs on pyqtgraph and PyOpenGL bundled inside the plugin. The
 built-in QGIS 3D view and Qt3D are not used, and there are no external
 dependencies.

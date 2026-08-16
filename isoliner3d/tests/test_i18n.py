@@ -77,9 +77,9 @@ def test_table_has_no_dead_keys():
 
 def test_switching_language():
     i18n.set_language("ru")
-    assert i18n.tr("Слои") == "Слои"
+    assert i18n.tr("Сцена") == "Сцена"
     i18n.set_language("en")
-    assert i18n.tr("Слои") == "Layers"
+    assert i18n.tr("Сцена") == "Scene"
     assert i18n.tr("строки нет в таблице") == "строки нет в таблице"
     i18n.set_language(None)
 

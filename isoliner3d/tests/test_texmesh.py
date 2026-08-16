@@ -150,6 +150,176 @@ def test_section_texture_aspect_matches_ribbon():
     assert abs((w / float(h)) / want - 1.0) < 0.01, (w, h, want)
 
 
+def _load_parts_xyz():
+    """Достаём разбор геометрии из viewer3d, не поднимая QGIS."""
+    path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "viewer3d.py")
+    src = open(path, encoding="utf-8").read()
+    start = src.index("def _parts_xyz(")
+    end = src.index("def _css_rgba(")
+    ns = {}
+    exec(compile("import numpy as np\n" + src[start:end],   # nosec
+                 "viewer3d", "exec"), ns)
+    return ns["_parts_xyz"]
+
+
+class _V(object):
+    def __init__(self, x, y, z):
+        self._x, self._y, self._z = x, y, z
+
+    def x(self):
+        return self._x
+
+    def y(self):
+        return self._y
+
+    def z(self):
+        return self._z
+
+
+class _Ring(object):
+    def __init__(self, pts):
+        self._pts = pts
+
+    def vertices(self):
+        return [_V(*p) for p in self._pts]
+
+
+class _Poly(object):
+    """Полигон с внешним кольцом и дырами."""
+
+    def __init__(self, ext, holes):
+        self._ext = _Ring(ext)
+        self._holes = [_Ring(h) for h in holes]
+
+    def exteriorRing(self):
+        return self._ext
+
+    def numInteriorRings(self):
+        return len(self._holes)
+
+    def interiorRing(self, i):
+        return self._holes[i]
+
+
+class _Geom(object):
+    def __init__(self, parts):
+        self._parts = parts
+
+    def constParts(self):
+        return self._parts
+
+
+EXT = [(0, 0, 10), (10, 0, 10), (10, 10, 10), (0, 10, 10), (0, 0, 10)]
+HOLE = [(3, 3, 10), (6, 3, 10), (6, 6, 10), (3, 3, 10)]
+
+
+def test_rings_are_not_glued():
+    """Дыра не должна соединяться с внешним кольцом одной ломаной.
+
+    Иначе через фигуру тянется прямой штрих, а на слое контуров рельефа
+    таких штрихов тысячи и картинка превращается в паутину.
+    """
+    parts_xyz = _load_parts_xyz()
+    res = parts_xyz(_Geom([_Poly(EXT, [HOLE])]))
+    assert len(res) == 2, "колец должно быть два, получено %d" % len(res)
+    assert [len(r) for r in res] == [5, 4]
+
+
+def test_field_elevation_wins_over_geometry():
+    parts_xyz = _load_parts_xyz()
+    res = parts_xyz(_Geom([_Poly(EXT, [HOLE])]), zfix=125.0)
+    zs = {round(p[2], 1) for ring in res for p in ring}
+    assert zs == {125.0}, zs
+
+
+def test_plain_line_part_still_works():
+    """Линия без колец разбирается как была."""
+    parts_xyz = _load_parts_xyz()
+    res = parts_xyz(_Geom([_Ring([(0, 0, 1), (5, 5, 2)])]))
+    assert len(res) == 1 and len(res[0]) == 2
+
+
+def _load_prism():
+    path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "viewer3d.py")
+    src = open(path, encoding="utf-8").read()
+    c = src.index("def _parts_xyz(")
+    d = src.index("def _css_rgba(")
+    a = src.index("def _prism(")
+    b = src.index("def _flat_z(")
+    ns = {}
+    exec(compile("import numpy as np\n" + src[c:d] + "\n" + src[a:b],  # nosec
+                 "viewer3d", "exec"), ns)
+    return ns["_prism"]
+
+
+SQUARE = [(0, 0, 0), (10, 0, 0), (10, 10, 0), (0, 10, 0), (0, 0, 0)]
+CAP_V = np.array([[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0]], float)
+CAP_F = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int64)
+
+
+def test_prism_has_two_caps_and_walls():
+    """Контур с полями низа и верха превращается в объём.
+
+    Ступень рельефа, уступ карьера и подсчётный блок описывают не плиту,
+    а призму: две крышки и вертикальные стенки по кольцам.
+    """
+    prism = _load_prism()
+    v, f = prism(_Geom([_Poly(SQUARE, [])]), CAP_V, CAP_F, 100.0, 140.0)
+    assert len(f) == 2 * len(CAP_F) + 8, len(f)
+    zs = sorted(set(np.round(v[:, 2], 1).tolist()))
+    assert zs == [100.0, 140.0], zs
+
+
+def test_prism_indices_are_valid():
+    """Битые индексы дали бы мусор в сцене вместо тела."""
+    prism = _load_prism()
+    v, f = prism(_Geom([_Poly(SQUARE, [])]), CAP_V, CAP_F, 0.0, 5.0)
+    assert f.min() >= 0 and f.max() < len(v)
+
+
+def test_prism_without_cap_is_empty():
+    prism = _load_prism()
+    v, f = prism(_Geom([_Poly(SQUARE, [])]), CAP_V,
+                 np.zeros((0, 3), dtype=np.int64), 0.0, 5.0)
+    assert len(f) == 0 and len(v) == 0
+
+
+def _load_flat_z():
+    """Достаём распознавание плоского объекта из viewer3d."""
+    path = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "viewer3d.py")
+    src = open(path, encoding="utf-8").read()
+    a = src.index("def _flat_z(")
+    b = src.index("def _layer_has_z(")
+    c = src.index("def _parts_xyz(")
+    d = src.index("def _css_rgba(")
+    ns = {}
+    exec(compile("import numpy as np\n" + src[c:d] + "\n" + src[a:b],  # nosec
+                 "viewer3d", "exec"), ns)
+    return ns["_flat_z"]
+
+
+def test_flat_polygon_is_recognised():
+    """Плоская ступень должна распознаваться и разбиваться честно.
+
+    Веерная разбивка верна только для простых граней полиэдра, а на
+    плоском контуре рельефа даёт лучи через всю фигуру.
+    """
+    flat_z = _load_flat_z()
+    flat = _Geom([_Poly([(0, 0, 120), (10, 0, 120), (10, 10, 120),
+                         (0, 0, 120)], [])])
+    assert flat_z(flat) == 120.0
+
+
+def test_tilted_face_is_not_flat():
+    flat_z = _load_flat_z()
+    tilt = _Geom([_Poly([(0, 0, 120), (10, 0, 140), (10, 10, 160),
+                         (0, 0, 120)], [])])
+    assert flat_z(tilt) is None
+
+
 class _FakeLayer(object):
     """Двойник слоя: только идентификатор, без QGIS."""
 

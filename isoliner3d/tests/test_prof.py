@@ -93,6 +93,36 @@ def test_report_survives_empty_run():
     i18n.set_language(None)
 
 
+def test_memory_estimate_grows_with_scene():
+    """Оценка памяти должна расти вместе со сценой и ловить порядок."""
+    p = _Prof()
+    assert p.megabytes() == 0.0
+    p.count("verts", 100000).count("tris", 200000)
+    small = p.megabytes()
+    assert 5 < small < 10, small
+    p.count("texpx", 4096 * 4096)
+    big = p.megabytes()
+    assert big - small > 60, (small, big)   # текстура 4096 это 64 МБ
+
+
+def test_layer_budget_shares_the_scene():
+    """Бюджет вершин делится между слоями, но не ниже пола."""
+    import os
+    path = os.path.join(PKG, "viewer3d.py")
+    src = open(path, encoding="utf-8").read()
+    ns = {}
+    start = src.index("MAX_VERTS_SCENE")
+    end = src.index("def _auto_step(")
+    exec(compile(src[start:end], "viewer3d", "exec"), ns)   # nosec
+    budget = ns["_layer_budget"]
+    one = budget(1)
+    six = budget(6)
+    many = budget(100)
+    assert one > six > many, (one, six, many)
+    assert many == ns["MIN_VERTS_LAYER"]
+    assert six * 6 <= ns["MAX_VERTS_SCENE"]
+
+
 if __name__ == "__main__":
     ok = 0
     for nm, fn in sorted(globals().items()):

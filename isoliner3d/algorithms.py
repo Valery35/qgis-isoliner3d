@@ -1188,6 +1188,8 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
     работают."""
 
     EXAMPLE = "EXAMPLE"
+    LIKE, PIXEL, CELLS, FIELDS = "LIKE", "PIXEL", "CELLS", "FIELDS"
+    OUTPUT_MAP = "OUTPUT_MAP"
     EXTENT = "EXTENT"
     NX = "NX"
     THICKNESS = "THICKNESS"
@@ -1245,7 +1247,8 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
             self.EXAMPLE, self.tr("Пример"),
             options=[self.tr("Тело пласта"),
                      self.tr("Свита (стопка складчатых пластов)"),
-                     self.tr("Куб"), self.tr("Тетраэдр")],
+                     self.tr("Куб"), self.tr("Тетраэдр"),
+                     self.tr("Карта (растр для текстуры)")],
             defaultValue=_dv(self, self.EXAMPLE, 0)))
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Охват (окно вида) - размещение и размер"),
@@ -1269,9 +1272,29 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
             self.N_BEDS, self.tr("Пластов в свите"),
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.N_BEDS, 3), minValue=2, maxValue=8)))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.LIKE, self.tr("Карта: по охвату грида (растр)"),
+            optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.PIXEL, self.tr("Карта: сторона картинки, пикселей"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.PIXEL, 1024),
+            minValue=64, maxValue=8192)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.CELLS, self.tr("Карта: клеток координатной сетки"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.CELLS, 10),
+            minValue=2, maxValue=100)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.FIELDS, self.tr("Карта: полей пластов"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.FIELDS, 6),
+            minValue=2, maxValue=8)))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Тело (демо)"),
             QgsProcessing.SourceType.TypeVectorPolygon, optional=True))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_MAP, self.tr("Карта (демо)"), optional=True))
 
     @staticmethod
     def _resolve_wkb(*names):
