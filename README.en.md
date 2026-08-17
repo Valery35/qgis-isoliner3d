@@ -41,7 +41,7 @@ place in space and a map draped over the relief.
   set separately and does not depend on the mesh density.
 - The section drawing draped onto the ribbon, several sections at once.
 - Click query: the layer name, the coordinates, all band values, the
-- Clipping the scene by a contour or a line: the piece inside, everything but it, a side of the line, a corridor of a given width along the profile.
+- Clipping the scene by a contour or a line: the piece inside, everything but it, a side of the line, a corridor of a given width along the profile. Both surfaces and vectors are cut.
 - Markup right in the scene: a contour and a line are drawn by clicks on the surface and saved as a project layer.
 - A parallel projection and a top view as a plan.
   thickness.

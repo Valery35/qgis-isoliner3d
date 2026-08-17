@@ -270,7 +270,9 @@ away from the profile. The half-width is entered on the panel over the
 scene, next to the drawing icons, and is shown only in the corridor mode.
 
 The edge follows the contour rather than the bounding rectangle, and the
-holes of the contour stay holes.
+holes of the contour stay holes. It is not only the surfaces that are cut:
+lines break where they leave the piece, points and boreholes are selected
+by their position, bodies by their centre.
 
 **Drawing in the scene.** The contour icon turns on the markup mode:
 a click on the surface adds a vertex, a rubber band follows the cursor, the
@@ -280,7 +282,9 @@ The polyline icon finishes a line and clips a corridor along it, switching
 to the right mode by itself.
 
 The vertices are taken from the surface by a ray from the camera, so the
-markup lies on the relief and stays true when the scene is rotated. The
+markup lies on the relief and stays true when the scene is rotated. When
+the scene has no raster surfaces, say only isolines are shown, a vertex is
+taken from the level of the middle of the scene. The
 plan position of the vertices is what the clipping uses. The markup itself
 is drawn over the model and does not hide under folds.
 

@@ -1119,6 +1119,34 @@ def _build_dialog(parent):
     class ViewerDialog(QDialog):
         def __init__(self, parent=None):
             super().__init__(parent)
+            # Состояние заводим первым делом: виджеты шлют сигналы уже
+            # при сборке окна, и обработчик натыкался на поле, которого
+            # ещё нет. Так окно вообще не открывалось. Сцена тоже
+            # объявлена заранее и говорит обработчикам «рано».
+            self.view = None
+            self._pick = None
+            self._pick_marker = None
+            self._items = []
+            self._owners = []
+            self._warnings = []
+            self._opts = {}
+            self._vopts = {}
+            self._loading_opts = False
+            self._props = None
+            self._draw_mode = False
+            self._draw_pts = []
+            self._draw_ring = []
+            self._draw_path = []
+            self._draw_line = None
+            self._draw_dots = None
+            self._hover = None
+            self._show_sketch = True
+            self._clip_now = None
+            self._view_span = 0.0
+            from qgis.PyQt.QtCore import QTimer
+            self._rebuild_timer = QTimer(self)
+            self._rebuild_timer.setSingleShot(True)
+            self._rebuild_timer.timeout.connect(self.rebuild)
             self.setWindowTitle(
                 tr("Isoliner3D - 3D-просмотр поверхностей"))
             self.resize(1060, 660)
@@ -1383,11 +1411,6 @@ def _build_dialog(parent):
             lv.addWidget(self.legend_txt)
             lv.addWidget(self.info)
 
-            from qgis.PyQt.QtCore import QTimer
-            self._rebuild_timer = QTimer(self)
-            self._rebuild_timer.setSingleShot(True)
-            self._rebuild_timer.timeout.connect(self.rebuild)
-
             from qgis.PyQt.QtGui import QKeySequence
             from qgis.PyQt.QtWidgets import QShortcut
             std = getattr(getattr(QKeySequence, "StandardKey",
@@ -1531,9 +1554,14 @@ def _build_dialog(parent):
         def _copy_png(self):
             """Кадр сцены в буфер обмена.
 
+            Защита от раннего вызова: обработчик может сработать
+            в момент сборки окна, когда сцены ещё нет.
+
             Чаще всего снимок нужен, чтобы сразу вставить его в письмо
             или в записку, а не чтобы хранить файлом.
             """
+            if self.view is None:
+                return
             try:
                 from qgis.PyQt.QtWidgets import QApplication
                 img = self.view.grabFramebuffer()
@@ -2565,6 +2593,39 @@ def _build_dialog(parent):
                         return True
             return False
 
+        def _hit_plane(self, px, py):
+            """Точка на горизонтальном уровне середины сцены.
+
+            Запасной способ, когда целиться не во что: важно плановое
+            положение вершины, а высота для обрезки роли не играет.
+            """
+            import numpy as np
+            from qgis.PyQt.QtGui import QVector3D
+            pk = self._pick or {}
+            w = max(self.view.width(), 1)
+            h = max(self.view.height(), 1)
+            try:
+                proj = self.view.projectionMatrix()
+            except TypeError:
+                proj = self.view.projectionMatrix((0, 0, w, h), (0, 0, w, h))
+            m = proj * self.view.viewMatrix()
+            inv, ok = m.inverted()
+            if not ok:
+                return None
+            xn = 2.0 * px / w - 1.0
+            yn = 1.0 - 2.0 * py / h
+            p0 = inv.map(QVector3D(xn, yn, -1.0))
+            p1 = inv.map(QVector3D(xn, yn, 1.0))
+            a = np.array([p0.x(), p0.y(), p0.z()], float)
+            d = np.array([p1.x(), p1.y(), p1.z()], float) - a
+            if abs(d[2]) < 1e-12:
+                return None
+            tt = -a[2] / d[2]          # плоскость z = 0 в координатах сцены
+            p = a + tt * d
+            cx, cy = pk.get("cx", 0.0), pk.get("cy", 0.0)
+            cz = pk.get("cz", 0.0)
+            return (tt, None, float(p[0]) + cx, float(p[1]) + cy, cz)
+
         def _hit_at(self, px, py, samples=4096):
             """Точка на поверхности под курсором или None.
 
@@ -2574,8 +2635,13 @@ def _build_dialog(parent):
             """
             import numpy as np
             pk = self._pick
-            if not pk or not pk["layers"]:
+            if not pk:
                 return None
+            if not pk["layers"]:
+                # Поверхностей из растров нет, а размечать надо: в сцене
+                # могут лежать одни изолинии. Пересекаем луч с уровнем
+                # середины сцены, план от этого не меняется.
+                return self._hit_plane(px, py)
             from qgis.PyQt.QtGui import QVector3D
             w = max(self.view.width(), 1)
             h = max(self.view.height(), 1)
@@ -2646,6 +2712,8 @@ def _build_dialog(parent):
             if self._draw_mode:
                 self._draw_add(xh, yh, zh)
                 return
+            if L is None:
+                return       # попали в плоскость, читать нечего
             pk = self._pick or {}
             cx, cy = pk.get("cx", 0.0), pk.get("cy", 0.0)
             gl = _import_gl()
@@ -2965,6 +3033,8 @@ def _build_dialog(parent):
 
         def _draw_refresh(self, closed=False):
             """Перерисовать контур поверх сцены."""
+            if self.view is None:
+                return            # окно ещё собирается
             gl = _import_gl()
             import numpy as np
             for it in (self._draw_line, self._draw_dots):
@@ -3245,6 +3315,7 @@ def _build_dialog(parent):
 
         def _rebuild_scene(self):
             prof = _Prof()
+            self._clip_now = None
             self._warnings = []
             for m in self._items:
                 self.view.removeItem(m)
@@ -3281,10 +3352,7 @@ def _build_dialog(parent):
             meshes, skipped = [], []
             nbeds = 0
             budget = _layer_budget(len(layers))
-            self._clip_now = None
-            clip = self._clip_rings()
-            clip_lines = self._clip_lines()
-            self._clip_now = (clip, clip_lines)
+            clip, clip_lines = self._clip_ctx()
             for k, lyr in enumerate(layers):
                 o = self._opts.get(lyr.id()) or \
                     self._default_opts(lyr.source())

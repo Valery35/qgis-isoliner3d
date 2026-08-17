@@ -6,7 +6,7 @@ description=Standalone 3D viewer and bed/block-model toolset: surfaces, watertig
 about=A standalone 3D viewer for geological surfaces and bodies in QGIS, independent of the built-in 3D map. Renders project rasters as triangular-mesh surfaces (each horizon in its own colour, with vertical exaggeration and Z spacing), builds watertight bed bodies from multiband grids (band 1 roof, band 2 bottom), draws boreholes as coloured stems with collar masts and labels, shows a section plane with a bright section trace, and displays polyhedral / TIN / MultiPolygon Z bodies. Click-query prints layer name, coordinates, all band values and thickness. Colouring by palette, custom colour, own band, an external raster or a real map texture with shading: an orthophoto, a basemap or a styled geological map. A section drawing is draped onto the section ribbon, several sections at once. A Processing group of seven bed and block-model tools computes thickness, volume and reserves from a bed grid. PNG snapshot for reports. pyqtgraph and PyOpenGL are bundled - nothing to install. Companion to the Isoliner kriging toolset. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Автономный 3D-просмотр геологических поверхностей и тел в QGIS, не зависящий от штатного 3D-вида. Растры проекта рисуются треугольными мешами (каждый горизонт своим цветом, с вертикальным преувеличением и разносом по Z), из многоканальных гридов строятся водонепроницаемые тела пластов (канал 1 - кровля, канал 2 - подошва), скважины показываются цветными стволами с мачтами и подписями, плоскость разреза даёт яркий след сечения, а полиэдры / TIN / MultiPolygon Z отображаются объёмными телами. Клик по сцене печатает имя слоя, координаты, значения всех каналов и мощность. Окраска палитрой, своим цветом, собственным каналом, внешним растром или настоящей текстурой карты с затенением: ортофото, подложка, геологическая карта со своей символикой. На ленту разреза накладывается чертёж, несколько разрезов сразу. Группа Processing из семи инструментов пласта и блочной модели считает мощность, объём и запасы по гриду пласта. Снимок PNG для отчётов. pyqtgraph и PyOpenGL идут в комплекте - устанавливать ничего не нужно. Спутник набора кригинга Isoliner. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=0.16.0
+version=0.16.2
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner3d
@@ -18,7 +18,22 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=0.16.0
+changelog=0.16.2
+    - Окно снова не открывалось: обработчик показа разметки трогал сцену,
+      которой ещё нет. Сцена объявлена заранее, обработчики проверяют,
+      что она уже создана.
+    - Изолинии и прочие векторы теперь режутся с первой же сборки: контур
+      обрезки сбрасывался после их разбора, и они резались по прошлому
+      состоянию.
+    - Размечать можно и в сцене без растровых поверхностей: вершина
+      берётся с уровня середины сцены. Раньше на слое одних изолиний
+      нарисовать линию обрезки было нечем.
+    0.16.1
+    - Окно не открывалось: кнопка показа разметки включается при сборке
+      окна и вызывала перерисовку раньше, чем появлялось состояние сцены.
+      Всё состояние теперь заводится до создания виджетов, а тест это
+      стережёт.
+    0.16.0
     - Обрезка режет и векторные слои, а не только растры. Линии рвутся
       там, где выходят за кусок, точки и скважины отбираются по своему
       положению, тела по центру объекта. Раньше изолинии и разломы

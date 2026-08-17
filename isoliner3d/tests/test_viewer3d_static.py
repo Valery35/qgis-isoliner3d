@@ -490,6 +490,71 @@ def test_clip_context_is_computed_once():
     assert "self._clip_ctx()" in src[start:end]
 
 
+def test_state_is_created_before_widgets():
+    """Все поля состояния заводятся до первого виджета.
+
+    Виджеты шлют сигналы уже при сборке окна: включённая по умолчанию
+    кнопка показа разметки вызывала перерисовку раньше, чем появлялось
+    поле сцены, и окно не открывалось вовсе.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    tree = ast.parse(src)
+    cls = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "ViewerDialog":
+            cls = node
+    init = None
+    for m in cls.body:
+        if isinstance(m, ast.FunctionDef) and m.name == "__init__":
+            init = m
+    assert init is not None
+    first_widget, state = None, {}
+    for node in ast.walk(init):
+        if not isinstance(node, ast.Assign):
+            continue
+        for tgt in node.targets:
+            if not (isinstance(tgt, ast.Attribute)
+                    and getattr(tgt.value, "id", "") == "self"):
+                continue
+            # виджетом считаем только создание объекта: заглушка
+            # вроде `self.view = None` это тоже состояние
+            is_widget = isinstance(node.value, ast.Call)
+            if not is_widget or tgt.attr.startswith("_"):
+                state.setdefault(tgt.attr, node.lineno)
+            elif first_widget is None or node.lineno < first_widget:
+                first_widget = node.lineno
+    late = sorted(k for k, v in state.items()
+                  if first_widget and v > first_widget)
+    assert not late, "состояние заводится после виджетов: %s" % ", ".join(late)
+
+
+def test_handlers_survive_early_calls():
+    """Обработчики, трогающие сцену, проверяют, что она уже есть.
+
+    Виджет шлёт сигнал в момент создания, и обработчик выполняется
+    посреди сборки окна. Дважды на этом падало открытие окна.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "self.view = None" in src, "сцена не объявлена заранее"
+    for fn in ("_draw_refresh", "_copy_png"):
+        start = src.index("def %s" % fn)
+        end = src.index("        def ", start + 10)
+        assert "if self.view is None" in src[start:end], fn
+
+
+def test_drawing_works_without_raster_surfaces():
+    """Размечать можно и там, где растровых поверхностей нет.
+
+    В сцене могут лежать одни изолинии: вершина берётся с уровня
+    середины сцены, плановое положение от этого не меняется.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _hit_plane" in src
+    start = src.index("def _hit_at")
+    end = src.index("        def _pick_at", start)
+    assert "self._hit_plane(" in src[start:end]
+
+
 def _run():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
