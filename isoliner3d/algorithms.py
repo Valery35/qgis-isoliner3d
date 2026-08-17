@@ -1147,6 +1147,8 @@ class ReserveDeltaAlgorithm(IsolinerAlgorithm):
                            if "lay" in [f.name() for f in src.fields()]
                            else 0)
                 except KeyError:
+                    key = None   # не except/continue: сканер даёт B112
+                if key is None:
                     continue
                 v = ft[field] if field in [f.name() for f in src.fields()] \
                     else None

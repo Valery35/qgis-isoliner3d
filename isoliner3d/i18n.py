@@ -81,6 +81,7 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    ' Вершин: %d.': ' Vertices: %d.',
     '(нет)': '(none)',
     '1.01 Собрать грид пласта': '1.01 Assemble a bed grid',
     '1.02 Калькулятор пласта': '1.02 Bed calculator',
@@ -115,6 +116,7 @@ TRANSLATIONS = {
     'В слое %s объектов %d, показаны первые %d.':
         'The layer %s holds %d features, the first %d are shown.',
     'Вертикальное преувеличение': 'Vertical exaggeration',
+    'Вид сверху, план': 'Top view, a plan',
     'Вложенные контуры уровней осмысленно смотреть линиями. Заливка нужна '
     'телам пласта и полиэдрам.':
         'Nested level contours make sense as lines. The fill is for bed '
@@ -137,14 +139,20 @@ TRANSLATIONS = {
     'Группа: %s': 'Group: %s',
     'Диапазон Z: %.3f .. %.3f (ед. карты).':
         'Z range: %.3f .. %.3f (map units).',
+    'Для контура нужно хотя бы три вершины.':
+        'A contour needs at least three vertices.',
+    'Для линии нужно хотя бы две вершины.':
+        'A line needs at least two vertices.',
     'Для текстуры нет видимых слоёв карты.':
         'There are no visible map layers for the texture.',
     'Домены записаны в канал %d. Ячеек в доменах: %d.':
         'Domains written to band %d. Cells in domains: %d.',
+    'Завершить линию и резать по ней': 'Finish the line and cut along it',
     'Загружено алгоритмов: %d': 'Algorithms loaded: %d',
     'Задайте грид или охват: карте нужны границы.':
         'Give a grid or an extent: the map needs its bounds.',
     'Задать свой цвет': 'Set a custom colour',
+    'Замкнуть контур и обрезать сцену': 'Close the contour and clip the scene',
     'Запасы металла': 'Metal reserves',
     'Запасы руды': 'Ore reserves',
     'Инструмент: %s': 'Tool: %s',
@@ -170,13 +178,23 @@ TRANSLATIONS = {
     'Карта: по охвату грида (растр)': 'Map: by the extent of a grid (raster)',
     'Карта: полей пластов': 'Map: bed fields',
     'Карта: сторона картинки, пикселей': 'Map: image side, pixels',
+    'Контур (нарисован)': 'Contour (drawn)',
+    'Контур ещё не нарисован.': 'No contour has been drawn yet.',
+    'Контур замкнут: вершин %d.': 'The contour is closed: %d vertices.',
     'Контур подсчёта (полигоны, необязательно)':
         'Reserve contour (polygons, optional)',
+    'Контур сохранён слоем проекта.':
+        'The contour is saved as a project layer.',
     'Контуром': 'As outlines',
+    'Коридор вдоль линии': 'A corridor along the line',
+    'Коридор, полуширина': 'Corridor, half-width',
     'Кровля (растр)': 'Roof (raster)',
     'Куб': 'Cube',
     'Куб (демо)': 'Cube (demo)',
+    'Кусок': 'The piece',
     'Линий: %d.': 'Lines: %d.',
+    'Линия готова: вершин %d, коридор %.0f.':
+        'The line is ready: %d vertices, corridor %.0f.',
     'Линия становится вертикальной лентой от zmin до zmax из полей '
     'определения разреза.':
         'The line becomes a vertical ribbon from zmin to zmax taken from the '
@@ -189,7 +207,8 @@ TRANSLATIONS = {
     'Модель «стало» (центроиды)': 'The "after" model (centroids)',
     'Мощность средняя / мин / макс': 'Thickness mean / min / max',
     'Мощность, ед. карты': 'Thickness, map units',
-    'Наклонно': 'Angled',
+    'Нарисованная линия': 'The drawn line',
+    'Нарисованный контур': 'The drawn contour',
     'Нативный тип {0} на этой сборке недоступен - вывод как MultiPolygon Z. '
     'Нативный PolyhedralSurface / TIN и QSFCGAL доступны с QGIS 3.40.':
         'The native {0} type is unavailable on this build, output as '
@@ -209,13 +228,18 @@ TRANSLATIONS = {
         'A multiband bed grid is required (bands 1 and 2).',
     'Нужен хотя бы один грид.': 'At least one grid is required.',
     'Обновить сцену': 'Update the scene',
+    'Обновлять автоматически': 'Update automatically',
     'Оболочка НЕ замкнута: открытых рёбер %d.':
         'Shell is NOT closed: open edges %d.',
     'Оболочка замкнута (водонепроницаема).': 'Shell is closed (watertight).',
+    'Обрезка по контуру': 'Clip by a contour',
+    'Обрезка снята, сцена показана целиком.':
+        'The clip is off, the whole scene is shown.',
     'Объектов: %d, граней всего: %d.': 'Objects: %d, faces total: %d.',
     'Объём': 'Volume',
     'Окраска': 'Colouring',
     'Окраска: %s [%.4g … %.4g].': 'Colour: %s [%.4g … %.4g].',
+    'Оставить внутри': 'Keep what is inside',
     'Отметка залегания (подошва), ед. карты':
         'Base elevation (floor), map units',
     'Отметка из поля': 'Elevation from a field',
@@ -226,6 +250,8 @@ TRANSLATIONS = {
         'Extent (map view) - placement and size',
     'Палитра': 'Palette',
     'Папка для мешей (2DM)': 'Folder for meshes (2DM)',
+    'Параллельная проекция вместо перспективной':
+        'A parallel projection instead of a perspective one',
     'Параметры (растры, берётся канал 1)':
         'Parameters (rasters, band 1 is taken)',
     'Параметры слоя': 'Layer settings',
@@ -275,8 +301,9 @@ TRANSLATIONS = {
     'Поверхности-гриды': 'Surface grids',
     'Поверхность': 'Surface',
     'Подошва (растр)': 'Bottom (raster)',
-    'Показано поверхностей: %d.': 'Surfaces shown: %d.',
     'Показывать плоскостью разреза': 'Show as a section plane',
+    'Показывать разметку: контур и линию разреза':
+        'Show the markup: the contour and the section line',
     'Поле верха призмы': 'Prism top field',
     'Поле верха призмы. Поле низа задаётся строкой «Поле отметки».':
         'The top field of the prism. The bottom is set by the «Elevation '
@@ -287,8 +314,23 @@ TRANSLATIONS = {
     'Поле отметки': 'Elevation field',
     'Поле подписи скважин': 'Borehole label field',
     'Полигональный слой': 'Polygon layer',
+    'Полигональный слой, по которому режется сцена. Годится любой замкнутый '
+    'контур: подсчётный блок, лицензионный участок, нарисованный от руки '
+    'полигон.':
+        'The polygon layer the scene is cut by. Any closed contour will do: '
+        'a mining block, a licence area, a polygon drawn by hand.',
     'Полигоны доменов': 'Domain polygons',
+    'Положить кадр сцены в буфер обмена (Ctrl+C)':
+        'Put a frame of the scene on the clipboard (Ctrl+C)',
+    'Полуширина коридора вдоль линии, в единицах карты. Профиль разреза и '
+    'данные по обе стороны от него.':
+        'The half-width of the corridor along the line, in map units. The '
+        'section profile and the data on both sides of it.',
     'Поля отметок': 'Elevation fields',
+    'Правка свойств сразу пересобирает сцену. На тяжёлой сцене снимите галку '
+    'и пользуйтесь кнопкой.':
+        'Editing the properties rebuilds the scene at once. On a heavy scene '
+        'untick this and use the button.',
     'Призмой (от поля до поля)': 'As a prism (from field to field)',
     'Пример': 'Example',
     'Прозрачность поверхностей (процентов)': 'Surface transparency (percent)',
@@ -323,9 +365,15 @@ TRANSLATIONS = {
         'after the mining, subtract. The domain contours must be in the same '
         'CRS as the grid.',
     'Режим': 'Mode',
+    'Рисование отменено.': 'The drawing is cancelled.',
+    'Рисовать контур по поверхности: клик ставит вершину.':
+        'Draw a contour on the surface: a click adds a vertex.',
+    'Рисую контур. Клик ставит вершину, кнопки рядом: снять последнюю, '
+    'замкнуть.':
+        'Drawing a contour. A click adds a vertex, the buttons alongside '
+        'remove the last one and close it.',
     'Руководство Isoliner3D в формате PDF': 'The Isoliner3D manual in PDF',
-    'Сбоку': 'Side view',
-    'Сверху': 'Top view',
+    'Сборка сцены не удалась: %s': 'The scene could not be built: %s',
     'Свита (стопка складчатых пластов)': 'Suite (stack of folded beds)',
     'Свита x%d (демо)': 'Suite x%d (demo)',
     'Свита загружена отдельными слоями по пласту: %d.':
@@ -341,6 +389,8 @@ TRANSLATIONS = {
     'Своя высота геометрии (Z)': 'The geometry\'s own elevation (Z)',
     'Скважин: %d.': 'Boreholes: %d.',
     'Скважины (стволы по отметкам)': 'Boreholes (stems by elevations)',
+    'Скопировать не удалось: %s': 'The copy failed: %s',
+    'Слева от линии': 'To the left of the line',
     'Слой %s: все %d объектов плоские, отметки от %.1f до %.1f. Объёма в '
     'геометрии нет, для ступеней возьмите показ призмой.':
         'The layer %s: all %d features are flat, elevations from %.1f to '
@@ -351,8 +401,11 @@ TRANSLATIONS = {
     'Слой меша не загрузился: %s': 'Mesh layer failed to load: %s',
     'Слоёв по вертикали (деление колонки)': 'Vertical layers (column split)',
     'Смещение Z': 'Z offset',
+    'Снимок скопирован в буфер обмена.': 'The snapshot is on the clipboard.',
     'Снимок сохранён: %s': 'Snapshot saved: %s',
-    'Снимок…': 'Snapshot…',
+    'Снять обрезку и убрать наброски':
+        'Remove the clip and clear the sketches',
+    'Снять последнюю вершину': 'Remove the last vertex',
     'Собирает многоканальный грид пласта по конвенции плагина: канал 1 - '
     'кровля, канал 2 - подошва, каналы 3 и далее - параметры (содержание, '
     'минтип и любые другие). Кровля задаёт сетку результата; подошва и '
@@ -372,6 +425,7 @@ TRANSLATIONS = {
         'section (bands 1/2/3), the 3D viewer (bed bodies) and the mesh '
         'export - a step towards a block model where new parameters are '
         'added as bands.',
+    'Собираю сцену…': 'Building the scene…',
     'Содержание (взвешенное по мощности)': 'Content (thickness-weighted)',
     'Создано: %s': 'Created: %s',
     'Создаёт демонстрационную полиэдральную поверхность, чтобы посмотреть '
@@ -452,7 +506,11 @@ TRANSLATIONS = {
         'bounds.',
     'Сохранить кадр сцены в файл PNG':
         'Save a frame of the scene to a PNG file',
+    'Сохранить контур не удалось: %s': 'The contour could not be saved: %s',
+    'Сохранить нарисованный контур слоем проекта':
+        'Save the drawn contour as a project layer',
     'Сохранить снимок': 'Save the snapshot',
+    'Справа от линии': 'To the right of the line',
     'Справка (руководство PDF)…': 'Help (PDF manual)…',
     'Сторона текстуры (пикселей)': 'Texture side (pixels)',
     'Сторона текстуры по длинной оси охвата. Больше значение - детальнее '
@@ -516,6 +574,7 @@ TRANSLATIONS = {
         'No elevation field is chosen for the layer %s.',
     'У слоя %s нет высоты Z, выберите отметку из поля.':
         'The layer %s has no Z elevation, choose an elevation field.',
+    'Убрать внутри': 'Remove what is inside',
     'Укажите файл для карты в поле «Карта (демо)».':
         'Give a file for the map in the «Map (demo)» field.',
     'Файл руководства не найден: %s': 'The manual file was not found: %s',
@@ -566,6 +625,7 @@ TRANSLATIONS = {
     'кровля': 'roof',
     'линии': 'lines',
     'меши': 'meshes',
+    'мимо поверхности': 'missed the surface',
     'мощность': 'thickness',
     'окраска': 'colouring',
     'подошва': 'bottom',

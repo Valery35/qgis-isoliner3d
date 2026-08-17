@@ -127,6 +127,45 @@ def bed_to_mesh_arrays(top, bot, gt, zscale=1.0, zoffset=0.0, step=1):
     return verts, faces
 
 
+def polyline_dist_side(points, gt, shape):
+    """Расстояние до ломаной и сторона от неё для центров ячеек грида.
+
+    Возвращает (dist, side): расстояние в единицах карты и знак стороны,
+    положительный слева по ходу линии, отрицательный справа. Сторона
+    берётся от ближайшего звена, поэтому на изломах она меняется там же,
+    где меняется ближайшее звено, а не скачком по всей площади.
+
+    Нужна для двух вещей: резать модель по линии (оставить одну сторону)
+    и брать коридор заданной ширины вдоль линии.
+    """
+    ny, nx = shape
+    xs = gt[0] + (np.arange(nx) + 0.5) * gt[1]
+    ys = gt[3] + (np.arange(ny) + 0.5) * gt[5]
+    XX, YY = np.meshgrid(xs, ys)
+    pts = np.asarray(points, dtype=float)
+    if len(pts) < 2:
+        return (np.full(shape, np.inf), np.zeros(shape))
+    best_d = np.full(shape, np.inf)
+    best_s = np.zeros(shape)
+    for a, b in zip(pts[:-1], pts[1:]):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        seg2 = dx * dx + dy * dy
+        if seg2 <= 0:
+            continue
+        # проекция точки на звено, зажатая в его пределы
+        tt = ((XX - a[0]) * dx + (YY - a[1]) * dy) / seg2
+        tt = np.clip(tt, 0.0, 1.0)
+        px = a[0] + tt * dx
+        py = a[1] + tt * dy
+        d = np.hypot(XX - px, YY - py)
+        # знак площади треугольника: слева от звена он положителен
+        cross = dx * (YY - a[1]) - dy * (XX - a[0])
+        closer = d < best_d
+        best_d = np.where(closer, d, best_d)
+        best_s = np.where(closer, np.sign(cross), best_s)
+    return best_d, best_s
+
+
 def polygon_mask(rings, gt, shape):
     """Маска ячеек грида внутри полигонов (правило чёт-нечет, дырки
     учитываются, если переданы своими кольцами). rings - список колец,

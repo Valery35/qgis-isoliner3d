@@ -240,6 +240,70 @@ def test_plain_line_part_still_works():
     assert len(res) == 1 and len(res[0]) == 2
 
 
+def test_clip_pieces_add_up_to_the_whole():
+    """Кусок и остаток вместе дают целое, без потерь и наложений.
+
+    Так проверяется обрезка сцены по контуру: «оставить внутри»
+    и «убрать внутри» обязаны дополнять друг друга.
+    """
+    from isoliner3d.mesh3d import polygon_mask
+    gt = (0.0, 1.0, 0.0, 10.0, 0.0, -1.0)
+    ring = [(2, 2), (8, 2), (8, 8), (2, 8), (2, 2)]
+    mask = polygon_mask([ring], gt, (10, 10))
+    arr = np.ones((10, 10))
+    inside = arr.copy()
+    inside[~mask] = np.nan
+    outside = arr.copy()
+    outside[mask] = np.nan
+    n_in = int(np.isfinite(inside).sum())
+    n_out = int(np.isfinite(outside).sum())
+    assert n_in == int(mask.sum()) and n_in > 0
+    assert n_in + n_out == arr.size
+
+
+def test_clip_by_ring_with_hole():
+    """Дырка контура остаётся дыркой: правило чёт-нечет."""
+    from isoliner3d.mesh3d import polygon_mask
+    gt = (0.0, 1.0, 0.0, 10.0, 0.0, -1.0)
+    outer = [(1, 1), (9, 1), (9, 9), (1, 9), (1, 1)]
+    hole = [(4, 4), (6, 4), (6, 6), (4, 6), (4, 4)]
+    full = polygon_mask([outer], gt, (10, 10)).sum()
+    holed = polygon_mask([outer, hole], gt, (10, 10)).sum()
+    assert holed < full, (holed, full)
+
+
+def test_line_side_and_corridor():
+    """Резка по линии: стороны дополняют друг друга, коридор симметричен.
+
+    Идея коридора из практики: смотреть не голый профиль, а полосу
+    заданной ширины по обе стороны от линии.
+    """
+    from isoliner3d.mesh3d import polyline_dist_side
+    gt = (0.0, 1.0, 0.0, 10.0, 0.0, -1.0)
+    d, s = polyline_dist_side([(0, 5), (10, 5)], gt, (10, 10))
+    left = int((s > 0).sum())
+    right = int((s < 0).sum())
+    assert left == right and left + right == d.size
+    band = d <= 2.0
+    assert int(band.sum()) == 40, int(band.sum())
+
+
+def test_line_distance_grows_with_offset():
+    from isoliner3d.mesh3d import polyline_dist_side
+    gt = (0.0, 1.0, 0.0, 10.0, 0.0, -1.0)
+    d, _s = polyline_dist_side([(0, 5), (10, 5)], gt, (10, 10))
+    assert d[4, 0] < d[2, 0] < d[0, 0]
+
+
+def test_line_bend_switches_side_locally():
+    """На изломе сторона меняется у ближайшего звена, а не по всей площади."""
+    from isoliner3d.mesh3d import polyline_dist_side
+    gt = (0.0, 1.0, 0.0, 10.0, 0.0, -1.0)
+    d, s = polyline_dist_side([(0, 2), (5, 5), (10, 2)], gt, (10, 10))
+    assert set(np.unique(s)) <= {-1.0, 0.0, 1.0}
+    assert (s > 0).any() and (s < 0).any()
+
+
 def _load_prism():
     path = os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "viewer3d.py")

@@ -83,6 +83,48 @@ def test_every_module_is_listed():
         % ", ".join(missing))
 
 
+# конструкции, на которых сканер каталога plugins.qgis.org отклоняет
+# загрузку: B110 (except/pass) и B112 (except/continue)
+BLOCKERS = (("continue", "B112"), ("pass", "B110"))
+
+
+def test_no_scanner_blockers():
+    """В своём коде нет except/pass и except/continue без метки nosec.
+
+    Сканер каталога на них отклоняет загрузку, а узнаётся это только
+    при отправке. Дважды уже ловили руками, поэтому проверка здесь.
+    Метка `# nosec` сканером уважается и допускается.
+    """
+    import ast
+    bad = []
+    for name in MODULES:
+        path = os.path.join(PKG, name)
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        lines = src.split("\n")
+        for node in ast.walk(ast.parse(src)):
+            if not isinstance(node, ast.ExceptHandler):
+                continue
+            body = node.body
+            if len(body) != 1:
+                continue
+            for kind, code in BLOCKERS:
+                hit = (isinstance(body[0], ast.Continue)
+                       if kind == "continue"
+                       else isinstance(body[0], ast.Pass))
+                if not hit:
+                    continue
+                line = lines[node.lineno - 1]
+                tail = lines[body[0].lineno - 1]
+                if "nosec" in line or "nosec" in tail:
+                    continue
+                bad.append("%s:%d %s" % (name, node.lineno, code))
+    assert not bad, ("сканер каталога отклонит загрузку:\n  %s"
+                     % "\n  ".join(bad))
+
+
 if __name__ == "__main__":
     ok = 0
     for nm, fn in sorted(globals().items()):

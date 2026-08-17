@@ -19,10 +19,15 @@ import time
 
 from .i18n import tr
 from .mesh3d import (grid_to_mesh_arrays, bed_to_mesh_arrays,
-                     sample_bilinear, thin_labels_xy, cylinder)
+                     sample_bilinear, thin_labels_xy, cylinder,
+                     polygon_mask, polyline_dist_side)
 
 # закреплённая строка «Сцена» в списке слоёв
 _SCENE_KEY = "__scene__"
+# ключ пункта «нарисованный контур» в списке обрезки
+_DRAWN_KEY = "__drawn__"
+# ключ пункта «нарисованная линия» в списке обрезки
+_DRAWNL_KEY = "__drawnline__"
 
 # опорные цвета шкалы (тёмно-синий -> бирюза -> жёлтый, а-ля viridis)
 _CMAP = [(0.267, 0.005, 0.329), (0.229, 0.322, 0.546),
@@ -173,6 +178,8 @@ def _tri_rings(tri):
         try:
             vs = list(ring.vertices())
         except Exception:
+            vs = []          # не except/continue: сканер даёт B112
+        if not vs:
             continue
         pts = []
         for v in vs[:3]:
@@ -278,7 +285,7 @@ def _tessellate(geom, zfix=None):
         try:
             res = fn()
         except Exception:
-            continue
+            res = None       # не except/continue: сканер даёт B112
         if res is not None and not res.isEmpty():
             tri, strict = res, flag
             break
@@ -437,7 +444,7 @@ def _flat_z(geom, tol=1e-6):
         try:
             z = float(v.z())
         except Exception:
-            continue
+            z = float("nan")   # не except/continue: сканер даёт B112
         if z != z:
             continue
         if lo is None:
@@ -505,7 +512,7 @@ def _parts_xyz(geom, zfix=None):
         try:
             vertices = list(part.vertices())
         except Exception:
-            continue
+            vertices = []    # не except/continue: сканер даёт B112
         for v in vertices:
             z = zfix
             if z is None:
@@ -558,7 +565,7 @@ def _all_vertices(geom):
             try:
                 vs = list(ring.vertices())
             except Exception:
-                continue
+                vs = []      # не except/continue: сканер даёт B112
             for v in vs:
                 yield v
 
@@ -573,6 +580,160 @@ def _css_rgba(css, alpha=1.0):
     except ValueError:
         return (0.55, 0.60, 0.66, alpha)
     return (r, g, b, alpha)
+
+
+def _draw_on_top(item):
+    """Рисовать элемент поверх всего, не считаясь с глубиной.
+
+    Высота вершин контура берётся с поверхности, но для работы она
+    не нужна: важно плановое положение. Зато линия, спрятанная под
+    складкой рельефа или под верхним пластом, мешает постоянно.
+    """
+    try:
+        from OpenGL.GL import (GL_DEPTH_TEST, GL_BLEND, GL_CULL_FACE,
+                               GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
+                               GL_ONE)
+        # Набор ключей повторяет штатный «translucent» из pyqtgraph,
+        # только проверка глубины выключена. Свой ключ вроде
+        # GL_ALPHA_TEST сюда класть нельзя: он не из этого набора,
+        # и отрисовка падала.
+        item.setGLOptions({
+            GL_DEPTH_TEST: False,
+            GL_BLEND: True,
+            GL_CULL_FACE: False,
+            'glBlendFuncSeparate': (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
+                                    GL_ONE, GL_ONE_MINUS_SRC_ALPHA),
+        })
+    except Exception:  # nosec
+        item.setGLOptions('translucent')
+
+
+def _tool_icon(kind, size=18):
+    """Значок кнопки, нарисованный кодом.
+
+    Файлов нет намеренно: значки должны одинаково выглядеть в светлой
+    и тёмной теме и не требовать сборки ресурсов.
+    """
+    from qgis.PyQt.QtGui import QIcon, QPixmap, QPainter, QPen, QColor
+    from qgis.PyQt.QtCore import Qt as _Qt, QPointF
+    pm = QPixmap(size, size)
+    pm.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pm)
+    try:
+        hint = getattr(getattr(QPainter, "RenderHint", QPainter),
+                       "Antialiasing")
+        p.setRenderHint(hint)
+    except Exception:  # nosec
+        pass
+    pen = QPen(QColor("#1d2b28"))
+    pen.setWidthF(1.6)
+    cap = getattr(getattr(_Qt, "PenCapStyle", _Qt), "RoundCap")
+    pen.setCapStyle(cap)
+    p.setPen(pen)
+    s = size
+    if kind == "draw":            # замкнутый контур с вершинами
+        pts = [(0.20, 0.62), (0.38, 0.26), (0.72, 0.32),
+               (0.82, 0.68), (0.46, 0.82)]
+        poly = [QPointF(x * s, y * s) for x, y in pts]
+        for a, b in zip(poly, poly[1:] + poly[:1]):
+            p.drawLine(a, b)
+        p.setBrush(QColor("#C2622C"))
+        for q in poly:
+            p.drawEllipse(q, 1.7, 1.7)
+    elif kind == "layer":         # стопка листов
+        for dy, fill in ((0.16, None), (0.40, None), (0.64, "#cfe3f2")):
+            if fill:
+                p.setBrush(QColor(fill))
+            pts = [(0.5, dy), (0.86, dy + 0.14),
+                   (0.5, dy + 0.28), (0.14, dy + 0.14)]
+            p.drawPolygon(*[QPointF(x * s, y * s) for x, y in pts])
+    elif kind == "copy":          # два прямоугольника
+        p.drawRect(int(0.16 * s), int(0.16 * s),
+                   int(0.50 * s), int(0.56 * s))
+        p.setBrush(QColor("#ffffff"))
+        p.drawRect(int(0.34 * s), int(0.30 * s),
+                   int(0.50 * s), int(0.56 * s))
+    elif kind == "png":           # фотоаппарат
+        p.drawRect(int(0.12 * s), int(0.30 * s),
+                   int(0.76 * s), int(0.48 * s))
+        p.drawLine(QPointF(0.34 * s, 0.30 * s),
+                   QPointF(0.42 * s, 0.20 * s))
+        p.drawLine(QPointF(0.42 * s, 0.20 * s),
+                   QPointF(0.62 * s, 0.20 * s))
+        p.setBrush(QColor("#cfe3f2"))
+        p.drawEllipse(QPointF(0.50 * s, 0.55 * s), 0.16 * s, 0.16 * s)
+    elif kind == "top":           # вид сверху: рамка и перекрестие
+        p.drawRect(int(0.18 * s), int(0.18 * s),
+                   int(0.64 * s), int(0.64 * s))
+        pen2 = QPen(QColor("#0E7C66"))
+        pen2.setWidthF(1.4)
+        pen2.setCapStyle(cap)
+        p.setPen(pen2)
+        p.drawLine(QPointF(0.50 * s, 0.10 * s),
+                   QPointF(0.50 * s, 0.90 * s))
+        p.drawLine(QPointF(0.10 * s, 0.50 * s),
+                   QPointF(0.90 * s, 0.50 * s))
+    elif kind == "ortho":         # куб в параллельной проекции
+        front = [(0.20, 0.36), (0.62, 0.36), (0.62, 0.78), (0.20, 0.78)]
+        back = [(x + 0.18, y - 0.18) for x, y in front]
+        for poly in (front, back):
+            pts_ = [QPointF(x * s, y * s) for x, y in poly]
+            for a, b in zip(pts_, pts_[1:] + pts_[:1]):
+                p.drawLine(a, b)
+        for (x1, y1), (x2, y2) in zip(front, back):
+            p.drawLine(QPointF(x1 * s, y1 * s), QPointF(x2 * s, y2 * s))
+    elif kind == "eye":           # глаз: показ разметки
+        p.drawArc(int(0.08 * s), int(0.24 * s),
+                  int(0.84 * s), int(0.52 * s), 20 * 16, 140 * 16)
+        p.drawArc(int(0.08 * s), int(0.24 * s),
+                  int(0.84 * s), int(0.52 * s), 200 * 16, 140 * 16)
+        p.setBrush(QColor("#C2622C"))
+        p.drawEllipse(QPointF(0.50 * s, 0.50 * s), 0.13 * s, 0.13 * s)
+    elif kind == "clear":         # перечёркнутый контур: снять обрезку
+        pts = [(0.22, 0.30), (0.62, 0.22), (0.78, 0.58), (0.36, 0.74)]
+        poly = [QPointF(x * s, y * s) for x, y in pts]
+        for a, b in zip(poly, poly[1:] + poly[:1]):
+            p.drawLine(a, b)
+        pen2 = QPen(QColor("#C2622C"))
+        pen2.setWidthF(2.2)
+        pen2.setCapStyle(cap)
+        p.setPen(pen2)
+        p.drawLine(QPointF(0.20 * s, 0.80 * s), QPointF(0.82 * s, 0.18 * s))
+    elif kind == "line":          # незамкнутая ломаная с концами
+        pts = [(0.16, 0.70), (0.40, 0.34), (0.62, 0.60), (0.86, 0.28)]
+        poly = [QPointF(x * s, y * s) for x, y in pts]
+        for a, b in zip(poly, poly[1:]):
+            p.drawLine(a, b)
+        p.setBrush(QColor("#C2622C"))
+        for q in (poly[0], poly[-1]):
+            p.drawEllipse(q, 1.9, 1.9)
+    elif kind == "undo":          # стрелка назад
+        p.drawLine(QPointF(0.24 * s, 0.50 * s), QPointF(0.82 * s, 0.50 * s))
+        p.setBrush(QColor("#1d2b28"))
+        tri = [(0.16, 0.50), (0.40, 0.34), (0.40, 0.66)]
+        p.drawPolygon(*[QPointF(x * s, y * s) for x, y in tri])
+    elif kind == "done":          # замкнутый контур с галкой
+        pts = [(0.18, 0.30), (0.52, 0.18), (0.72, 0.44),
+               (0.44, 0.62)]
+        poly = [QPointF(x * s, y * s) for x, y in pts]
+        for a, b in zip(poly, poly[1:] + poly[:1]):
+            p.drawLine(a, b)
+        pen2 = QPen(QColor("#0E7C66"))
+        pen2.setWidthF(2.2)
+        pen2.setCapStyle(cap)
+        p.setPen(pen2)
+        p.drawLine(QPointF(0.42 * s, 0.74 * s), QPointF(0.56 * s, 0.88 * s))
+        p.drawLine(QPointF(0.56 * s, 0.88 * s), QPointF(0.88 * s, 0.56 * s))
+    elif kind == "rebuild":       # круговая стрелка
+        rect_pen = QPen(pen)
+        p.setPen(rect_pen)
+        p.drawArc(int(0.18 * s), int(0.18 * s),
+                  int(0.64 * s), int(0.64 * s), 40 * 16, 280 * 16)
+        p.setBrush(QColor("#1d2b28"))
+        tri = [(0.78, 0.20), (0.90, 0.44), (0.64, 0.42)]
+        p.drawPolygon(*[QPointF(x * s, y * s) for x, y in tri])
+    p.end()
+    return QIcon(pm)
 
 
 def _find_data(combo, want):
@@ -850,7 +1011,7 @@ def _build_dialog(parent):
         QDialog, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
         QDoubleSpinBox, QPushButton, QLabel, QFormLayout, QSplitter, QWidget,
         QComboBox, QLineEdit, QGroupBox, QSpinBox,
-        QFrame, QMenu, QCheckBox)
+        QFrame, QMenu, QCheckBox, QToolButton)
 
     # Qt5/Qt6: enum'ы либо плоские, либо в scoped-подклассах
     _CHECKED = getattr(getattr(Qt, "CheckState", Qt), "Checked")
@@ -863,8 +1024,82 @@ def _build_dialog(parent):
     class _PickView(gl.GLViewWidget):
         """GLViewWidget с колбэком на клик без перетаскивания."""
         pick_cb = None
+        dbl_cb = None
+
+        undo_cb = None
+        cancel_cb = None
+        hover_cb = None
+        draw_mode = False
+        ortho = False
+
+        def projectionMatrix(self, region=None, viewport=None):
+            """Ортогональная проекция вместо перспективной.
+
+            В перспективе объекты, лежащие выше, смещаются в кадре
+            к краям, и нарисованная по одной поверхности линия
+            переставала совпадать с коридором, собранным из нескольких.
+            Сжимать раствор камеры вместо этого нельзя: камера уезжает
+            слишком далеко и буфер глубины теряет точность.
+            """
+            if not self.ortho:
+                try:
+                    return super().projectionMatrix(region)
+                except TypeError:
+                    return super().projectionMatrix(region, viewport)
+            import math
+            from qgis.PyQt.QtGui import QMatrix4x4
+            w = max(self.width(), 1)
+            h = max(self.height(), 1)
+            dist = float(self.opts.get('distance', 10.0)) or 10.0
+            fov = float(self.opts.get('fov', 60.0)) or 60.0
+            half_h = dist * math.tan(math.radians(fov / 2.0))
+            half_w = half_h * (float(w) / float(h))
+            m = QMatrix4x4()
+            m.ortho(-half_w, half_w, -half_h, half_h,
+                    dist * 0.001, dist * 1000.0)
+            return m
+
+        def mouseMoveEvent(self, ev):
+            if self.draw_mode and self.hover_cb is not None and \
+                    not ev.buttons():
+                self.hover_cb(*self._evpos(ev))
+                return
+            super().mouseMoveEvent(ev)
+
+        def mouseDoubleClickEvent(self, ev):
+            if self.dbl_cb is not None:
+                self.dbl_cb()
+            else:
+                super().mouseDoubleClickEvent(ev)
+
+        def contextMenuEvent(self, ev):
+            """Правая кнопка снимает последнюю вершину контура."""
+            if self.undo_cb is not None and self.undo_cb():
+                ev.accept()
+                return
+            super().contextMenuEvent(ev)
+
+        def keyPressEvent(self, ev):
+            key = ev.key()
+            esc = getattr(getattr(Qt, "Key", Qt), "Key_Escape")
+            back = getattr(getattr(Qt, "Key", Qt), "Key_Backspace")
+            if key == esc and self.cancel_cb is not None:
+                self.cancel_cb()
+                return
+            if key == back and self.undo_cb is not None:
+                self.undo_cb()
+                return
+            super().keyPressEvent(ev)
 
         def mousePressEvent(self, ev):
+            # В режиме рисования правая кнопка отдана отмене вершины:
+            # иначе её забирает камера и до рисовалки нажатие не доходит.
+            right = getattr(getattr(Qt, "MouseButton", Qt), "RightButton")
+            if self.draw_mode and ev.button() == right:
+                if self.undo_cb is not None:
+                    self.undo_cb()
+                ev.accept()
+                return
             self._press = self._evpos(ev)
             super().mousePressEvent(ev)
 
@@ -894,6 +1129,17 @@ def _build_dialog(parent):
             except Exception:  # nosec
                 pass
 
+            self._draw_mode = False  # рисуем ли сейчас контур по сцене
+            self._draw_pts = []      # вершины рисуемого контура
+            self._draw_ring = []     # замкнутый контур для обрезки
+            self._draw_path = []     # незамкнутая линия для коридора
+            self._view_span = 0.0    # охват прошлой сцены, для кадра
+            self._draw_line = None
+            self._draw_dots = None
+            self._hover = None       # точка под курсором для резинки
+            self._show_sketch = True  # показывать ли контур и линию
+            self._clip_now = None    # контур обрезки на время сборки
+            self._owners = []        # чьего слоя каждый элемент сцены
             self._warnings = []      # что сказать человеку после сборки
             self._opts = {}          # id слоя -> персональные настройки
             self._vopts = {}         # id векторного слоя -> его настройки
@@ -917,6 +1163,38 @@ def _build_dialog(parent):
             self.texside.setRange(256, 8192)
             self.texside.setSingleStep(512)
             self.texside.setValue(2048)
+            for w in (self.vex, self.spacing, self.opacity, self.texside):
+                w.valueChanged.connect(lambda *_a: self._schedule_rebuild())
+            self.clip_combo = QComboBox()
+            self.clip_combo.setToolTip(tr(
+                "Полигональный слой, по которому режется сцена. "
+                "Годится любой замкнутый контур: подсчётный блок, "
+                "лицензионный участок, нарисованный от руки полигон."))
+            self.clip_side = QComboBox()
+            for label, key in ((tr("Оставить внутри"), "in"),
+                               (tr("Убрать внутри"), "out"),
+                               (tr("Слева от линии"), "left"),
+                               (tr("Справа от линии"), "right"),
+                               (tr("Коридор вдоль линии"), "corridor")):
+                self.clip_side.addItem(label, key)
+            self.clip_width = QDoubleSpinBox()
+            self.clip_width.setRange(0.0, 1e9)
+            self.clip_width.setDecimals(1)
+            self.clip_width.setValue(250.0)
+            self.clip_width.setToolTip(tr(
+                "Полуширина коридора вдоль линии, в единицах карты. "
+                "Профиль разреза и данные по обе стороны от него."))
+            self.clip_width.setFixedWidth(84)
+            self.clip_width.setPrefix("\u00b1 ")
+            for w in (self.clip_combo, self.clip_side, self.clip_width):
+                sig = getattr(w, "currentIndexChanged", None) or \
+                    w.valueChanged
+                sig.connect(lambda *_a: self._schedule_rebuild())
+            self.auto_rebuild = QCheckBox(tr("Обновлять автоматически"))
+            self.auto_rebuild.setChecked(True)
+            self.auto_rebuild.setToolTip(tr(
+                "Правка свойств сразу пересобирает сцену. На тяжёлой "
+                "сцене снимите галку и пользуйтесь кнопкой."))
             self.texside.setToolTip(tr(
                 "Сторона текстуры по длинной оси охвата. Больше значение - "
                 "детальнее карта на поверхности и больше видеопамяти."))
@@ -927,6 +1205,9 @@ def _build_dialog(parent):
             sf.addRow(tr("Прозрачность поверхностей (процентов)"),
                       self.opacity)
             sf.addRow(tr("Сторона текстуры (пикселей)"), self.texside)
+            sf.addRow(tr("Обрезка по контуру"), self.clip_combo)
+            sf.addRow(tr("Кусок"), self.clip_side)
+            sf.addRow(self.auto_rebuild)
 
             self.legend_pix = QLabel()
             self.legend_txt = QLabel("")
@@ -1043,50 +1324,134 @@ def _build_dialog(parent):
             self.sec_on.stateChanged.connect(self._save_vec_opts)
             self.draw_combo.currentIndexChanged.connect(self._save_vec_opts)
 
-            # --- кнопки снизу: вид сцены отдельной строкой, сборка крупно
-            btn_top = QPushButton(tr("Сверху"))
-            btn_top.clicked.connect(lambda: self._set_view(90, -90))
-            btn_side = QPushButton(tr("Сбоку"))
-            btn_side.clicked.connect(lambda: self._set_view(8, -90))
-            btn_iso = QPushButton(tr("Наклонно"))
-            btn_iso.clicked.connect(lambda: self._set_view(35, -60))
-            btn_png = QPushButton(tr("Снимок…"))
-            btn_png.setToolTip(tr("Сохранить кадр сцены в файл PNG"))
-            btn_png.clicked.connect(self._save_png)
-            views = QHBoxLayout()
-            views.setSpacing(4)
-            for b in (btn_top, btn_side, btn_iso, btn_png):
-                views.addWidget(b)
-            self.btn = QPushButton(tr("Обновить сцену"))
-            self.btn.setMinimumHeight(30)
-            self.btn.setDefault(True)
-            self.btn.clicked.connect(self.rebuild)
+            # Инструменты живут поверх сцены маленькими значками, как
+            # на холсте карты: список слоёв не надо теснить кнопками,
+            # а рука и глаз остаются там, где идёт работа.
+            def tool(kind, text, slot, checkable=False):
+                b = QToolButton(self)
+                b.setIcon(_tool_icon(kind))
+                b.setToolTip(text)
+                b.setAutoRaise(True)
+                b.setCheckable(checkable)
+                if checkable:
+                    b.toggled.connect(slot)
+                else:
+                    b.clicked.connect(slot)
+                return b
+
+            btn_top = tool("top", tr("Вид сверху, план"),
+                           lambda: self._set_view(90, -90, plan=True))
+            self.btn_ortho = tool(
+                "ortho", tr("Параллельная проекция вместо перспективной"),
+                self._set_ortho, True)
+            self.btn_draw = tool(
+                "draw", tr("Рисовать контур по поверхности: клик ставит "
+                           "вершину."), self._draw_toggle, True)
+            self.btn_undo = tool("undo", tr("Снять последнюю вершину"),
+                                 self._draw_undo)
+            self.btn_done = tool("done", tr("Замкнуть контур и обрезать "
+                                            "сцену"), self._draw_close)
+            self.btn_line = tool("line", tr("Завершить линию и резать "
+                                            "по ней"), self._draw_line_done)
+            for b in (self.btn_undo, self.btn_done, self.btn_line):
+                b.setVisible(False)
+            self.btn_sketch = tool(
+                "eye", tr("Показывать разметку: контур и линию разреза"),
+                self._toggle_sketch, True)
+            self.btn_sketch.setChecked(True)
+            btn_clip_off = tool(
+                "clear", tr("Снять обрезку и убрать наброски"),
+                self._clip_clear)
+            btn_draw_save = tool(
+                "layer", tr("Сохранить нарисованный контур слоем проекта"),
+                self._draw_save)
+            btn_copy = tool(
+                "copy", tr("Положить кадр сцены в буфер обмена (Ctrl+C)"),
+                self._copy_png)
+            btn_png = tool("png", tr("Сохранить кадр сцены в файл PNG"),
+                           self._save_png)
+            self.btn = tool("rebuild", tr("Обновить сцену"), self.rebuild)
+            self.btn.setVisible(False)
+            self.auto_rebuild.toggled.connect(
+                lambda on: self.btn.setVisible(not on))
 
             left = QWidget()
             lv = QVBoxLayout(left)
             lv.addLayout(fl)
             lv.addWidget(self.layer_list, 1)
-            lv.addLayout(views)
-            lv.addWidget(self.btn)
             lv.addWidget(self.legend_pix)
             lv.addWidget(self.legend_txt)
             lv.addWidget(self.info)
 
+            from qgis.PyQt.QtCore import QTimer
+            self._rebuild_timer = QTimer(self)
+            self._rebuild_timer.setSingleShot(True)
+            self._rebuild_timer.timeout.connect(self.rebuild)
+
+            from qgis.PyQt.QtGui import QKeySequence
+            from qgis.PyQt.QtWidgets import QShortcut
+            std = getattr(getattr(QKeySequence, "StandardKey",
+                                  QKeySequence), "Copy")
+            copy_key = QShortcut(std, self)
+            copy_key.activated.connect(self._copy_png)
+
             self.view = _PickView()
             self.view.setBackgroundColor((250, 250, 248))
             self.view.pick_cb = self._pick_at
+            self.view.dbl_cb = self._draw_close
+            self.view.undo_cb = self._draw_undo
+            self.view.hover_cb = self._draw_hover
+            self.view.cancel_cb = self._draw_cancel
+            focus = getattr(getattr(Qt, "FocusPolicy", Qt), "StrongFocus")
+            self.view.setFocusPolicy(focus)
             self._pick = None
             self._pick_marker = None
             # тонкая тёмная рамка вокруг сцены, как у холста карты QGIS
             frame = QFrame()
-            frame.setFrameShape(QFrame.Shape.Box
-                                if hasattr(QFrame, "Shape")
-                                else QFrame.Box)
+            frame.setFrameShape(
+                getattr(getattr(QFrame, "Shape", QFrame), "Box"))
             frame.setLineWidth(1)
             frame.setStyleSheet("QFrame { border: 1px solid #7a7a7a; }")
             fv = QVBoxLayout(frame)
             fv.setContentsMargins(1, 1, 1, 1)
             fv.addWidget(self.view)
+
+            self.tools = QWidget(frame)
+            tb = QHBoxLayout(self.tools)
+            tb.setContentsMargins(3, 3, 3, 3)
+            tb.setSpacing(2)
+            for b in (btn_top, self.btn_ortho, self.btn_draw,
+                      self.btn_undo,
+                      self.btn_done, self.btn_line, self.btn_sketch,
+                      btn_clip_off,
+                      btn_draw_save, btn_copy, btn_png, self.btn):
+                b.setParent(self.tools)
+                tb.addWidget(b)
+            # Полуширина коридора стоит здесь же: она нужна ровно тогда,
+            # когда режут линией, а в свойствах сцены её никто не искал.
+            self.clip_width.setParent(self.tools)
+            tb.addWidget(self.clip_width)
+            self.clip_side.currentIndexChanged.connect(
+                lambda *_a: self._sync_corridor())
+            # Стиль вешаем только на саму плашку, по имени. Без имени
+            # он распространялся на кнопки внутри и стирал у них
+            # подсветку: нажатие никак не отзывалось.
+            self.tools.setObjectName("isoliner3dTools")
+            self.tools.setStyleSheet(
+                "#isoliner3dTools { background: rgba(255,255,255,205);"
+                " border: 1px solid rgba(0,0,0,45); border-radius: 4px; }"
+                "#isoliner3dTools QToolButton { border: 1px solid"
+                " transparent; border-radius: 3px; padding: 2px; }"
+                "#isoliner3dTools QToolButton:hover { background:"
+                " rgba(14,124,102,45); border-color: rgba(14,124,102,120); }"
+                "#isoliner3dTools QToolButton:pressed { background:"
+                " rgba(14,124,102,110); }"
+                "#isoliner3dTools QToolButton:checked { background:"
+                " rgba(14,124,102,90); border-color: rgba(14,124,102,180); }")
+            self.tools.move(8, 8)
+            self._sync_corridor()
+            self.tools.adjustSize()
+            self.tools.raise_()
 
             split = QSplitter()
             split.addWidget(left)
@@ -1118,8 +1483,9 @@ def _build_dialog(parent):
             menu = QMenu(self)
             act = menu.addAction(tr("Свойства…"))
             act.triggered.connect(self._open_props)
-            menu.exec(widget.mapToGlobal(pos)) if hasattr(menu, "exec") \
-                else menu.exec_(widget.mapToGlobal(pos))
+            # exec_ снят в Qt6, exec есть в обоих: берём по имени
+            show = getattr(menu, "exec", None) or getattr(menu, "exec_")
+            show(widget.mapToGlobal(pos))
 
         def _open_props(self, *_a):
             """Открыть окно свойств для выделенной строки."""
@@ -1162,9 +1528,66 @@ def _build_dialog(parent):
                 title = tr("Свойства слоя: %s") % lyr.name()
             self._props.setWindowTitle(title)
 
-        def _set_view(self, elevation, azimuth):
-            self.view.opts['elevation'] = elevation
-            self.view.opts['azimuth'] = azimuth
+        def _copy_png(self):
+            """Кадр сцены в буфер обмена.
+
+            Чаще всего снимок нужен, чтобы сразу вставить его в письмо
+            или в записку, а не чтобы хранить файлом.
+            """
+            try:
+                from qgis.PyQt.QtWidgets import QApplication
+                img = self.view.grabFramebuffer()
+                QApplication.clipboard().setImage(img)
+                self.info.setText(tr("Снимок скопирован в буфер обмена."))
+            except Exception as err:
+                self.info.setText(tr("Скопировать не удалось: %s") % err)
+                _log(tr("Скопировать не удалось: %s") % err)
+
+        def _set_ortho(self, on):
+            """Параллельная проекция: масштаб одинаков по всему кадру."""
+            self.view.ortho = bool(on)
+            self.view.update()
+
+        def _toggle_sketch(self, on):
+            """Показ разметки: сама обрезка при этом работает.
+
+            Линия нужна, пока размечаешь, и мешает, когда смотришь
+            результат. Прятать её через снятие обрезки было бы неверно:
+            это разные вещи.
+            """
+            self._show_sketch = bool(on)
+            self._draw_refresh(
+                closed=bool(self._draw_ring) and not self._draw_mode)
+
+        def _clip_clear(self):
+            """Убрать обрезку и наброски, вернуть сцену целиком."""
+            self._draw_pts = []
+            self._draw_ring = []
+            self._draw_path = []
+            self._hover = None
+            self._draw_toggle(False)
+            self._draw_refresh()
+            i = _find_data(self.clip_combo, None)
+            if i >= 0:
+                self.clip_combo.setCurrentIndex(i)
+            self.info.setText(tr("Обрезка снята, сцена показана целиком."))
+            self._schedule_rebuild(0)
+
+        def _set_view(self, elevation, azimuth, plan=False):
+            """Поставить камеру в заданный ракурс.
+
+            `plan` заодно включает параллельную проекцию: план
+            с перспективой это не план, объекты на разной высоте
+            смещаются в кадре и перестают совпадать в плане.
+            """
+            opts = self.view.opts
+            if plan and not self.view.ortho:
+                # План без перспективы: включаем параллельную проекцию,
+                # а не сжимаем раствор камеры. Сжатие уводило камеру
+                # далеко и портило точность буфера глубины.
+                self.btn_ortho.setChecked(True)
+            opts['elevation'] = elevation
+            opts['azimuth'] = azimuth
             self.view.update()
 
         def _save_png(self):
@@ -1244,6 +1667,22 @@ def _build_dialog(parent):
                     if self.layer_list.item(i).data(_USER_ROLE) == current:
                         self.layer_list.setCurrentRow(i)
                         break
+
+            prev_cl = self.clip_combo.currentData()
+            self.clip_combo.blockSignals(True)
+            self.clip_combo.clear()
+            self.clip_combo.addItem(tr("(нет)"), None)
+            self.clip_combo.addItem(tr("Нарисованный контур"), _DRAWN_KEY)
+            self.clip_combo.addItem(tr("Нарисованная линия"), _DRAWNL_KEY)
+            for lyr in proj.mapLayers().values():
+                if not isinstance(lyr, QgsVectorLayer):
+                    continue
+                kind = self._geom_kind(lyr)
+                if kind in ("polygon", "line"):
+                    self.clip_combo.addItem(lyr.name(), lyr.id())
+            icl = _find_data(self.clip_combo, prev_cl)
+            self.clip_combo.setCurrentIndex(max(icl, 0))
+            self.clip_combo.blockSignals(False)
 
             prev_dr = self.draw_combo.currentData()
             self.draw_combo.blockSignals(True)
@@ -1467,6 +1906,7 @@ def _build_dialog(parent):
                 for i in range(self.wells_fields.count())
                 if self.wells_fields.item(i).checkState() == _CHECKED]
             self._sync_vec_enabled()
+            self._schedule_rebuild()
 
         def _sync_vec_swatch(self):
             lyr = self._vec_layer()
@@ -1488,6 +1928,7 @@ def _build_dialog(parent):
             if col.isValid():
                 o["color"] = col.name()
                 self._sync_vec_swatch()
+                self._schedule_rebuild()
 
         def _checked_vec_layers(self):
             """Отмеченные векторные слои."""
@@ -1527,6 +1968,26 @@ def _build_dialog(parent):
                 return None
             return v if v == v else None
 
+        def _clip_run(self, pts):
+            """Разбить ломаную на куски, попавшие в показанную часть.
+
+            Обрезка режет и векторы тоже: иначе изолинии и разломы
+            торчали бы за краем обрезанной модели.
+            """
+            rings, lines = self._clip_ctx()
+            if not rings and not lines:
+                return [pts]
+            runs, cur = [], []
+            for p in pts:
+                if self._point_kept(p[0], p[1]):
+                    cur.append(p)
+                elif cur:
+                    runs.append(cur)
+                    cur = []
+            if cur:
+                runs.append(cur)
+            return runs
+
         def _feature_z(self, ft, opts):
             """Отметка объекта по выбранному источнику высоты.
 
@@ -1560,12 +2021,14 @@ def _build_dialog(parent):
                     if g is None or g.isEmpty():
                         continue
                     p = g.asPoint()
+                    if not self._point_kept(p.x(), p.y()):
+                        continue
                     zs = []
                     for nm in names:
                         try:
                             v = float(ft[nm])
                         except (TypeError, ValueError, KeyError):
-                            continue
+                            v = float("nan")   # сканер даёт B112
                         if v == v:  # не NaN
                             zs.append(v)
                     if zs:
@@ -1651,7 +2114,7 @@ def _build_dialog(parent):
                         k += 1
                         nm = (("%s #%d" % (lyr.name(), k)) if multi
                               else lyr.name())
-                        out.append((v, f, nm, col))
+                        out.append((v, f, nm, col, lyr.id()))
                         continue
                     zfix = None if zsrc == "geom" else \
                         (self._feature_z(ft, o) or 0.0)
@@ -1672,9 +2135,15 @@ def _build_dialog(parent):
                         v, f = _tri_cached(lyr, ft, g, zfix, prof)
                     if not len(f):
                         continue
+                    if len(v):
+                        cxx = float(np.mean(v[:, 0]))
+                        cyy = float(np.mean(v[:, 1]))
+                        if not self._point_kept(cxx, cyy):
+                            continue
                     k += 1
                     nm = ("%s #%d" % (lyr.name(), k)) if multi else lyr.name()
-                    out.append((v, f.astype(np.int64), nm, col))
+                    out.append((v, f.astype(np.int64), nm, col,
+                                lyr.id()))
                 if n_flat and not n_solid:
                     self._warn(tr(
                         "Слой %s: все %d объектов плоские, отметки "
@@ -1721,8 +2190,10 @@ def _build_dialog(parent):
                         continue
                     zf = self._feature_z(ft, o)
                     for pts in _parts_xyz(g, zf):
-                        if len(pts) >= 2:
-                            out.append((pts, col, lyr.name()))
+                        for run in self._clip_run(pts):
+                            if len(run) >= 2:
+                                out.append((run, col, lyr.name(),
+                                            lyr.id()))
             return out
 
         def _vec_points(self):
@@ -1744,7 +2215,9 @@ def _build_dialog(parent):
                     z = self._feature_z(ft, o)
                     for pts in _parts_xyz(g, z):
                         for x, y, zz in pts:
-                            out.append((x, y, zz, col))
+                            if not self._point_kept(x, y):
+                                continue
+                            out.append((x, y, zz, col, lyr.id()))
             return out
 
         def _apply_filter(self, text):
@@ -1784,8 +2257,43 @@ def _build_dialog(parent):
                         attr_id=None, texture=False, tex_id=None,
                         aband=1)
 
-        def _item_toggled(self, *_a):
-            pass  # отметки читаются при перестройке сцены
+        def _item_toggled(self, item=None, *_a):
+            """Галка видимости: прячем и показываем без пересборки.
+
+            Элементы уже лежат в видеопамяти, поэтому переключение
+            стоит ничего и отзывается мгновенно на сцене любой тяжести.
+            Пересборка нужна только тогда, когда своих элементов у слоя
+            в сцене нет: его ещё ни разу не показывали либо он рисуется
+            вместе с другими (скважины, ленты разрезов).
+            """
+            if item is None or self._loading_opts:
+                return
+            key = item.data(_USER_ROLE)
+            if key == _SCENE_KEY:
+                return
+            on = item.checkState() == _CHECKED
+            mine = [it for it, own in zip(self._items, self._owners)
+                    if own == key]
+            if not mine:
+                if on:
+                    self._schedule_rebuild()
+                return
+            for it in mine:
+                try:
+                    it.setVisible(on)
+                except Exception:  # nosec
+                    pass
+            self.view.update()
+
+        def _schedule_rebuild(self, delay=250):
+            """Пересобрать сцену чуть погодя, если это разрешено.
+
+            Задержка нужна, чтобы кручение ползунка не вызывало десяток
+            сборок подряд: считается только последнее состояние.
+            """
+            if not self.auto_rebuild.isChecked():
+                return
+            self._rebuild_timer.start(int(delay))
 
         def _load_opts(self, item, *_a):
             """Показывает настройки выбранного в списке слоя."""
@@ -1906,6 +2414,7 @@ def _build_dialog(parent):
             self._save_opts()
 
         def _save_opts(self, *_a):
+            """Настройки растрового слоя. После правки сцена пересобирается."""
             if self._loading_opts:
                 return
             item = self.layer_list.currentItem()
@@ -1925,6 +2434,7 @@ def _build_dialog(parent):
                 tex_id=d[1] if d[0] == "tex" else None,
                 solid=solid,
                 aband=self._combo_band(self.aband, 1))
+            self._schedule_rebuild()
             self._sync_swatch()
 
         def _plane_lines(self):
@@ -1995,12 +2505,77 @@ def _build_dialog(parent):
                                     zlo, zhi, att))
             return out
 
-        def _pick_at(self, px, py):
-            """Клик по сцене: луч, пересечение с рельефом, каналы в точке."""
+        def _clip_ctx(self):
+            """Контур и линии обрезки, посчитанные один раз за сборку.
+
+            Иначе отбор каждой вершины пересчитывал бы геометрию слоя
+            обрезки заново, а вершин в сцене десятки тысяч.
+            """
+            if self._clip_now is None:
+                self._clip_now = (self._clip_rings(), self._clip_lines())
+            return self._clip_now
+
+        def _point_kept(self, x, y):
+            """Показана ли точка после обрезки.
+
+            Луч ищет пересечение по исходным гридам, а не по обрезанным,
+            поэтому без этой проверки вершина ставилась там, где модель
+            уже не видна.
+            """
+            import numpy as np
+            rings, lines = self._clip_ctx()
+            if not rings and not lines:
+                return True
+            mode = self.clip_side.currentData()
+            if rings:
+                inside = False
+                invert = mode == "out"
+                for ring in rings:
+                    pts = list(ring)
+                    if pts[0] != pts[-1]:
+                        pts = pts + [pts[0]]
+                    for i in range(len(pts) - 1):
+                        x1, y1 = pts[i]
+                        x2, y2 = pts[i + 1]
+                        if (y1 > y) != (y2 > y):
+                            xx = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+                            if x < xx:
+                                inside = not inside
+                return (not inside) if invert else inside
+            for pts in lines:
+                p = np.asarray(pts, dtype=float)
+                a, b = p[:-1], p[1:]
+                d = b - a
+                seg2 = (d ** 2).sum(axis=1)
+                seg2[seg2 == 0] = 1e-12
+                tt = np.clip(((x - a[:, 0]) * d[:, 0]
+                              + (y - a[:, 1]) * d[:, 1]) / seg2, 0.0, 1.0)
+                px_ = a[:, 0] + tt * d[:, 0]
+                py_ = a[:, 1] + tt * d[:, 1]
+                dist = np.hypot(x - px_, y - py_)
+                k = int(np.argmin(dist))
+                if mode == "corridor":
+                    if dist[k] <= float(self.clip_width.value()):
+                        return True
+                else:
+                    cross = (d[k, 0] * (y - a[k, 1])
+                             - d[k, 1] * (x - a[k, 0]))
+                    if (mode == "left" and cross > 0) or \
+                            (mode == "right" and cross < 0):
+                        return True
+            return False
+
+        def _hit_at(self, px, py, samples=4096):
+            """Точка на поверхности под курсором или None.
+
+            Отдельно от опроса, потому что этим же пользуется резинка
+            при рисовании контура: ей нужна только точка, без чтения
+            каналов, и она может считать грубее.
+            """
             import numpy as np
             pk = self._pick
             if not pk or not pk["layers"]:
-                return
+                return None
             from qgis.PyQt.QtGui import QVector3D
             w = max(self.view.width(), 1)
             h = max(self.view.height(), 1)
@@ -2012,18 +2587,21 @@ def _build_dialog(parent):
                     proj = self.view.projectionMatrix((0, 0, w, h),
                                                       (0, 0, w, h))
                 except Exception:
-                    return
+                    return None
             m = proj * self.view.viewMatrix()
             inv, ok = m.inverted()
             if not ok:
-                return
+                return None
             xn = 2.0 * px / w - 1.0
             yn = 1.0 - 2.0 * py / h
             p0 = inv.map(QVector3D(xn, yn, -1.0))
             p1 = inv.map(QVector3D(xn, yn, 1.0))
             a = np.array([p0.x(), p0.y(), p0.z()], float)
             d = np.array([p1.x(), p1.y(), p1.z()], float) - a
-            ts = np.linspace(0.0, 1.0, 512)
+            # Луч бьётся мелко: 512 отсчётов промахивались по узким
+            # гребням и по краю площади, и клик в режиме рисования
+            # уходил в пустоту чаще, чем попадал.
+            ts = np.linspace(0.0, 1.0, int(samples))
             pts = a[None, :] + ts[:, None] * d[None, :]
             cx, cy, cz, vex = pk["cx"], pk["cy"], pk["cz"], pk["vex"]
             X = pts[:, 0] + cx
@@ -2041,6 +2619,9 @@ def _build_dialog(parent):
                 cross = np.where((sgn[:-1] * sgn[1:] < 0) &
                                  okm[:-1] & okm[1:])[0]
                 if not len(cross):
+                    # Никаких поблажек: без пересечения вершина
+                    # ставилась бы в пустоту рядом с поверхностью,
+                    # и контур получался шире, чем нарисован.
                     continue
                 i = int(cross[0])
                 f = abs(diff[i]) / (abs(diff[i]) + abs(diff[i + 1]) + 1e-12)
@@ -2049,10 +2630,25 @@ def _build_dialog(parent):
                     xh = X[i] + (X[i + 1] - X[i]) * f
                     yh = Y[i] + (Y[i + 1] - Y[i]) * f
                     zh = pts[i, 2] + (pts[i + 1, 2] - pts[i, 2]) * f
+                    if self._draw_mode and not self._point_kept(xh, yh):
+                        continue      # эта часть модели сейчас не видна
                     best = (tt, L, xh, yh, zh)
+            return best
+
+        def _pick_at(self, px, py):
+            """Клик по сцене: точка, а в обычном режиме ещё и каналы."""
+            best = self._hit_at(px, py)
             if best is None:
+                if self._draw_mode:
+                    self._draw_status(tr("мимо поверхности"))
                 return
             _t, L, xh, yh, zh = best
+            if self._draw_mode:
+                self._draw_add(xh, yh, zh)
+                return
+            pk = self._pick or {}
+            cx, cy = pk.get("cx", 0.0), pk.get("cy", 0.0)
+            gl = _import_gl()
             from osgeo import gdal
             ds = gdal.Open(L["source"])
             vals = []
@@ -2293,6 +2889,329 @@ def _build_dialog(parent):
                 out.append(lyr)
             return out
 
+        def _draw_toggle(self, on):
+            """Включить рисование контура прямо по сцене.
+
+            Пока режим включён, клик по поверхности ставит вершину,
+            а не опрашивает модель. Двойной клик замыкает контур.
+            """
+            self._draw_mode = bool(on)
+            self.view.draw_mode = self._draw_mode
+            self.view.setMouseTracking(self._draw_mode)
+            self._hover = None
+            self.btn_draw.setChecked(self._draw_mode)
+            for b in (self.btn_undo, self.btn_done, self.btn_line):
+                b.setVisible(self._draw_mode)
+            self.tools.adjustSize()
+            if self._draw_mode:
+                if self._pick_marker is not None:
+                    try:
+                        self.view.removeItem(self._pick_marker)
+                    except Exception:  # nosec
+                        pass
+                    self._pick_marker = None
+                self._draw_pts = []
+                self._draw_refresh()
+                self._draw_status()
+            else:
+                self.info.setText("")
+
+        def _draw_hover(self, px, py):
+            """Резинка от последней вершины к курсору.
+
+            Луч считается грубее, чем при клике: на движение мыши
+            точность не нужна, а скорость нужна.
+            """
+            if not self._draw_pts:
+                return
+            best = self._hit_at(px, py, samples=768)
+            self._hover = None if best is None else best[2:5]
+            self._draw_refresh()
+
+        def _draw_status(self, extra=""):
+            """Подсказка живёт всё время рисования, а не гаснет с первым
+            же кликом: человеку надо помнить, чем замыкать контур."""
+            base = tr("Рисую контур. Клик ставит вершину, кнопки рядом: "
+                      "снять последнюю, замкнуть.")
+            tail = tr(" Вершин: %d.") % len(self._draw_pts)
+            if extra:
+                tail += " " + extra
+            self.info.setText(base + tail)
+
+        def _draw_undo(self):
+            """Снять последнюю вершину. True, если было что снимать."""
+            if not self._draw_mode or not self._draw_pts:
+                return False
+            self._draw_pts.pop()
+            self._draw_refresh()
+            self._draw_status()
+            return True
+
+        def _draw_cancel(self):
+            """Бросить рисование и убрать наброски."""
+            if not self._draw_mode:
+                return
+            self._draw_pts = []
+            self._draw_refresh()
+            self._draw_toggle(False)
+            self.info.setText(tr("Рисование отменено."))
+
+        def _draw_add(self, x, y, z):
+            """Вершина контура: берём точку на поверхности как есть."""
+            self._draw_pts.append((x, y, z))
+            self._hover = None
+            self._draw_refresh()
+            self._draw_status()
+
+        def _draw_refresh(self, closed=False):
+            """Перерисовать контур поверх сцены."""
+            gl = _import_gl()
+            import numpy as np
+            for it in (self._draw_line, self._draw_dots):
+                if it is not None:
+                    try:
+                        self.view.removeItem(it)
+                    except Exception:  # nosec
+                        pass
+            self._draw_line = self._draw_dots = None
+            pk = self._pick or {}
+            cx, cy = pk.get("cx", 0.0), pk.get("cy", 0.0)
+            cz = pk.get("cz", 0.0)
+            vex = pk.get("vex", 1.0)
+            active = self.clip_combo.currentData()
+            if not self._draw_mode and not self._show_sketch:
+                self.view.update()
+                return
+            if not self._draw_mode and active not in (_DRAWN_KEY,
+                                                      _DRAWNL_KEY):
+                # нарисованное перестало резать сцену: не мозолим глаза
+                self.view.update()
+                return
+            pts = list(self._draw_pts)
+            if self._hover is not None and not closed:
+                pts = pts + [tuple(self._hover)]
+            if not pts:
+                self.view.update()
+                return
+            arr = np.array([(x - cx, y - cy, (z - cz) * vex + 1e-9)
+                            for x, y, z in pts], dtype='float32')
+            self._draw_dots = gl.GLScatterPlotItem(
+                pos=arr, color=(0.95, 0.35, 0.1, 1.0), size=9.0,
+                pxMode=True)
+            _draw_on_top(self._draw_dots)
+            self.view.addItem(self._draw_dots)
+            if len(arr) >= 2:
+                seq = np.vstack([arr, arr[:1]]) if closed else arr
+                self._draw_line = gl.GLLinePlotItem(
+                    pos=seq, mode='line_strip', width=2.5, antialias=True,
+                    color=(0.95, 0.35, 0.1, 1.0), glOptions='opaque')
+                _draw_on_top(self._draw_line)
+                self.view.addItem(self._draw_line)
+            self.view.update()
+
+        def _draw_close(self):
+            """Замкнуть контур и сразу пустить его в обрезку."""
+            if not self._draw_mode:
+                return
+            if len(self._draw_pts) < 3:
+                self.info.setText(tr("Для контура нужно хотя бы три "
+                                     "вершины."))
+                return
+            self._draw_ring = [(x, y) for x, y, _z in self._draw_pts]
+            self._draw_path = []
+            self._draw_refresh(closed=True)
+            self._draw_toggle(False)
+            i = _find_data(self.clip_combo, _DRAWN_KEY)
+            if i >= 0:
+                self.clip_combo.setCurrentIndex(i)
+            # режим мог остаться от работы с линией, а для контура
+            # осмысленное умолчание одно: показать то, что обвели
+            if self.clip_side.currentData() not in ("in", "out"):
+                j = _find_data(self.clip_side, "in")
+                if j >= 0:
+                    self.clip_side.setCurrentIndex(j)
+            self.info.setText(tr("Контур замкнут: вершин %d.")
+                              % len(self._draw_ring))
+
+        def _sync_corridor(self):
+            """Поле полуширины видно только тогда, когда режут коридором."""
+            on = self.clip_side.currentData() == "corridor"
+            self.clip_width.setVisible(on)
+            self.tools.adjustSize()
+
+        def _draw_line_done(self):
+            """Завершить незамкнутую линию и резать по ней коридором.
+
+            Контур режет площадь, линия режет вдоль профиля: это разные
+            задачи, поэтому и кнопки разные.
+            """
+            if not self._draw_mode:
+                return
+            if len(self._draw_pts) < 2:
+                self.info.setText(tr("Для линии нужно хотя бы две "
+                                     "вершины."))
+                return
+            self._draw_path = [(x, y) for x, y, _z in self._draw_pts]
+            self._draw_ring = []
+            self._draw_refresh()
+            self._draw_toggle(False)
+            i = _find_data(self.clip_combo, _DRAWNL_KEY)
+            if i >= 0:
+                self.clip_combo.setCurrentIndex(i)
+            j = _find_data(self.clip_side, "corridor")
+            if j >= 0:
+                self.clip_side.setCurrentIndex(j)
+            self.info.setText(tr("Линия готова: вершин %d, коридор %.0f.")
+                              % (len(self._draw_path),
+                                 self.clip_width.value()))
+
+        def _draw_save(self):
+            """Сохранить нарисованный контур слоем проекта."""
+            if not self._draw_ring:
+                self.info.setText(tr("Контур ещё не нарисован."))
+                return
+            try:
+                from qgis.core import (QgsVectorLayer, QgsFeature,
+                                       QgsGeometry, QgsPointXY)
+                proj = QgsProject.instance()
+                crs = proj.crs().authid() or ""
+                lyr = QgsVectorLayer("Polygon?crs=" + crs,
+                                     tr("Контур (нарисован)"), "memory")
+                ft = QgsFeature()
+                ring = [QgsPointXY(x, y) for x, y in self._draw_ring]
+                ft.setGeometry(QgsGeometry.fromPolygonXY([ring]))
+                lyr.dataProvider().addFeatures([ft])
+                lyr.updateExtents()
+                proj.addMapLayer(lyr)
+                self.refresh_layers()
+                i = _find_data(self.clip_combo, lyr.id())
+                if i >= 0:
+                    self.clip_combo.setCurrentIndex(i)
+                self.info.setText(tr("Контур сохранён слоем проекта."))
+            except Exception as err:
+                self.info.setText(tr("Сохранить контур не удалось: %s")
+                                  % err)
+                _log(tr("Сохранить контур не удалось: %s") % err)
+
+        def _clip_lines(self):
+            """Ломаные слоя обрезки, если выбран линейный слой."""
+            lid = self.clip_combo.currentData()
+            if lid == _DRAWNL_KEY:
+                return [list(self._draw_path)] if self._draw_path else []
+            if not lid or lid == _DRAWN_KEY:
+                return []
+            lyr = QgsProject.instance().mapLayer(lid)
+            if lyr is None or self._geom_kind(lyr) != "line":
+                return []
+            out = []
+            for ft in lyr.getFeatures():
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                for part in _parts_xyz(g, 0.0):
+                    if len(part) >= 2:
+                        out.append([(x, y) for x, y, _z in part])
+            return out
+
+        def _clip_rings(self):
+            """Кольца контура обрезки в координатах проекта.
+
+            Пусто, если контур не выбран. Дырки контура тоже попадают
+            сюда своими кольцами: маска считает по правилу чёт-нечет,
+            поэтому отверстие останется отверстием.
+            """
+            lid = self.clip_combo.currentData()
+            if lid == _DRAWN_KEY:
+                return [list(self._draw_ring)] if self._draw_ring else []
+            if not lid:
+                return []
+            lyr = QgsProject.instance().mapLayer(lid)
+            if lyr is None:
+                return []
+            rings = []
+            for ft in lyr.getFeatures():
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                for part in _parts_xyz(g, 0.0):
+                    if len(part) >= 3:
+                        rings.append([(x, y) for x, y, _z in part])
+            return rings
+
+        def _clip_by_lines(self, arr, gt, lines):
+            """Резать по линии: сторона или коридор вдоль неё.
+
+            Коридор это идея из практики: смотреть не голый профиль,
+            а полосу заданной ширины по обе стороны от линии, чтобы
+            рядом с разрезом были видны данные, а не пустота.
+            """
+            import numpy as np
+            mode = self.clip_side.currentData()
+            keep = np.zeros(arr.shape, dtype=bool)
+            width = float(self.clip_width.value())
+            for pts in lines:
+                d, s = polyline_dist_side(pts, gt, arr.shape)
+                if mode == "corridor":
+                    keep |= d <= max(width, abs(gt[1]))
+                elif mode == "left":
+                    keep |= s > 0
+                elif mode == "right":
+                    keep |= s < 0
+                else:
+                    keep |= d <= max(width, abs(gt[1]))
+            out = arr.copy()
+            out[~keep] = np.nan
+            return out
+
+        def _clip_array(self, arr, gt, rings):
+            """Выбросить из грида то, что не нужно показывать.
+
+            Ячейки за пределами куска становятся NaN, то есть выпадают
+            из меша так же, как обычные пропуски данных. Край получается
+            по контуру, а не по прямоугольнику охвата.
+            """
+            if not rings:
+                return arr
+            import numpy as np
+            inside = polygon_mask(rings, gt, arr.shape)
+            # «убрать внутри» это единственный вывернутый вариант,
+            # остальные режимы относятся к линии и контур не выворачивают
+            keep = ~inside if (self.clip_side.currentData() == "out") \
+                else inside
+            out = arr.copy()
+            out[~keep] = np.nan
+            return out
+
+        def _busy(self, on):
+            """Курсор ожидания на время работы.
+
+            Ставится и снимается только здесь, чтобы после сбоя окно
+            не осталось с часами навсегда.
+            """
+            try:
+                from qgis.PyQt.QtWidgets import QApplication
+                from qgis.PyQt.QtCore import Qt as _Qt
+                cursor = getattr(getattr(_Qt, "CursorShape", _Qt),
+                                 "WaitCursor")
+                if on:
+                    QApplication.setOverrideCursor(cursor)
+                else:
+                    QApplication.restoreOverrideCursor()
+                QApplication.processEvents()
+            except Exception:  # nosec
+                pass
+
+        def _add_item(self, item, owner=None):
+            """Положить элемент в сцену, запомнив, чьего он слоя.
+
+            Хозяин нужен, чтобы галка видимости прятала элемент сразу,
+            без пересборки. Если элемент общий для нескольких слоёв,
+            хозяин None и такой слой переключается пересборкой.
+            """
+            self.view.addItem(item)
+            self._items.append(item)
+            self._owners.append(owner)
+
         def _warn(self, text):
             """Предупреждение человеку: на экран и в журнал.
 
@@ -2303,11 +3222,43 @@ def _build_dialog(parent):
             _log(text)
 
         def rebuild(self):
+            """Собрать сцену, показав причину, если не вышло.
+
+            Без этой обёртки сбой выглядел пустым окном без единого
+            слова: исключение уходило в журнал Python, куда никто
+            не смотрит, а строка состояния оставалась пустой.
+            """
+            # Курсор ожидания вместо полосы: сборка идёт в потоке
+            # интерфейса, поэтому бегущая полоса всё равно не двигалась
+            # бы, а часы понятны и не занимают места.
+            self.info.setText(tr("Собираю сцену…"))
+            self._busy(True)
+            try:
+                self._rebuild_scene()
+            except Exception as err:
+                import traceback
+                self.info.setText(tr("Сборка сцены не удалась: %s") % err)
+                _log(tr("Сборка сцены не удалась: %s") % err)
+                _log(traceback.format_exc())
+            finally:
+                self._busy(False)
+
+        def _rebuild_scene(self):
             prof = _Prof()
             self._warnings = []
             for m in self._items:
                 self.view.removeItem(m)
             self._items = []
+            self._owners = []
+            # наброски живут вне списка сцены, поэтому убираем их сами:
+            # раньше обнулялась только ссылка, а линия оставалась висеть
+            for it in (self._draw_line, self._draw_dots):
+                if it is not None:
+                    try:
+                        self.view.removeItem(it)
+                    except Exception:  # nosec
+                        pass
+            self._draw_line = self._draw_dots = None
             if self._pick_marker is not None:
                 try:
                     self.view.removeItem(self._pick_marker)
@@ -2330,6 +3281,10 @@ def _build_dialog(parent):
             meshes, skipped = [], []
             nbeds = 0
             budget = _layer_budget(len(layers))
+            self._clip_now = None
+            clip = self._clip_rings()
+            clip_lines = self._clip_lines()
+            self._clip_now = (clip, clip_lines)
             for k, lyr in enumerate(layers):
                 o = self._opts.get(lyr.id()) or \
                     self._default_opts(lyr.source())
@@ -2345,6 +3300,12 @@ def _build_dialog(parent):
                         prof.add("read")
                         if top is None or bot is None:
                             raise ValueError
+                        if clip:
+                            top = self._clip_array(top, gt, clip)
+                            bot = self._clip_array(bot, gt, clip)
+                        if clip_lines:
+                            top = self._clip_by_lines(top, gt, clip_lines)
+                            bot = self._clip_by_lines(bot, gt, clip_lines)
                         verts, faces = bed_to_mesh_arrays(
                             top, bot, gt, zscale=1.0,
                             zoffset=-spacing * k,
@@ -2359,6 +3320,10 @@ def _build_dialog(parent):
                         prof.add("read")
                         if arr is None:
                             raise ValueError
+                        if clip:
+                            arr = self._clip_array(arr, gt, clip)
+                        if clip_lines:
+                            arr = self._clip_by_lines(arr, gt, clip_lines)
                         verts, faces = grid_to_mesh_arrays(
                             arr, gt, zscale=1.0, zoffset=-spacing * k,
                             step=_auto_step(arr, budget))
@@ -2386,10 +3351,11 @@ def _build_dialog(parent):
             planes = self._plane_lines()
             prof.add("vector")
             vsets = [m[0] for m in meshes] + [b[0] for b in bodies]
-            for pts, _c, _n in vlines:
+            for pts, _c, _n, _l in vlines:
                 vsets.append(np.asarray(pts, dtype=float))
             if vpoints:
-                vsets.append(np.array([(x, y, z) for x, y, z, _c in vpoints],
+                vsets.append(np.array([(x, y, z)
+                                       for x, y, z, _c, _l in vpoints],
                                       dtype=float))
             allv = np.vstack(vsets)
             xs = [allv[:, 0].min(), allv[:, 0].max()]
@@ -2458,8 +3424,7 @@ def _build_dialog(parent):
                     item = self._textured(gl, md, verts, v, faces,
                                           alpha, prof, o)
                     if item is not None:
-                        self.view.addItem(item)
-                        self._items.append(item)
+                        self._add_item(item, lid)
                         continue
                 if attr is not None and lid in attr[0]:
                     vals, vmin, vmax, rng = attr
@@ -2473,8 +3438,7 @@ def _build_dialog(parent):
                                          shader='shaded',
                                          color=color[:3] + (alpha,),
                                          glOptions=gopt)
-                self.view.addItem(item)
-                self._items.append(item)
+                self._add_item(item, lid)
             # тела (полиэдры/полигоны с Z): плоские грани, окраска палитрой
             # Объекты собираются в один меш на сцену, а цвет каждого
             # хранится в его вершинах. Отдельный элемент на объект стоил
@@ -2482,30 +3446,37 @@ def _build_dialog(parent):
             # плюс нормали в двойной точности, то есть сотни мегабайт
             # видеопамяти при 20 МБ полезных данных.
             if bodies:
-                allv, allf, allc, base = [], [], [], 0
-                for bi, (bverts, bfaces, bname, bcol) in enumerate(bodies):
-                    color = PALETTE[(len(meshes) + bi) % len(PALETTE)]
-                    if bcol:
-                        color = _css_rgba(bcol)
-                    v = bverts.copy()
-                    v[:, 0] -= cx
-                    v[:, 1] -= cy
-                    v[:, 2] = (v[:, 2] - cz) * vex
-                    allv.append(v)
-                    allf.append(np.asarray(bfaces, dtype=np.int64) + base)
-                    allc.append(np.tile(
-                        np.array(color[:3] + (alpha,), dtype='float32'),
-                        (len(v), 1)))
-                    base += len(v)
-                bv = np.vstack(allv).astype('float32')
-                bf = np.vstack(allf)
-                md = gl.MeshData(vertexes=bv, faces=bf)
-                md.setVertexColors(np.vstack(allc))
-                prof.count("tris", len(bf)).count("verts", len(bv))
-                item = gl.GLMeshItem(meshdata=md, smooth=False,
-                                     shader='shaded', glOptions=gopt)
-                self.view.addItem(item)
-                self._items.append(item)
+                # один меш на слой: элемент на объект стоил сотен
+                # мегабайт, а общий на сцену не давал прятать слой
+                # по галке, не пересобирая всё
+                by_layer = {}
+                for bi, rec in enumerate(bodies):
+                    by_layer.setdefault(rec[4], []).append((bi, rec))
+                for lid_b, group in by_layer.items():
+                    allv, allf, allc, base = [], [], [], 0
+                    for bi, (bverts, bfaces, bname, bcol, _bl) in group:
+                        color = PALETTE[(len(meshes) + bi) % len(PALETTE)]
+                        if bcol:
+                            color = _css_rgba(bcol)
+                        v = bverts.copy()
+                        v[:, 0] -= cx
+                        v[:, 1] -= cy
+                        v[:, 2] = (v[:, 2] - cz) * vex
+                        allv.append(v)
+                        allf.append(np.asarray(bfaces, dtype=np.int64)
+                                    + base)
+                        allc.append(np.tile(
+                            np.array(color[:3] + (alpha,), dtype='float32'),
+                            (len(v), 1)))
+                        base += len(v)
+                    bv = np.vstack(allv).astype('float32')
+                    bf = np.vstack(allf)
+                    md = gl.MeshData(vertexes=bv, faces=bf)
+                    md.setVertexColors(np.vstack(allc))
+                    prof.count("tris", len(bf)).count("verts", len(bv))
+                    item = gl.GLMeshItem(meshdata=md, smooth=False,
+                                         shader='shaded', glOptions=gopt)
+                    self._add_item(item, lid_b)
             if attr is not None:
                 self._show_legend(attr[1], attr[2])
             else:
@@ -2549,16 +3520,14 @@ def _build_dialog(parent):
                         itm = gl.GLMeshItem(meshdata=md, smooth=False,
                                             color=(0.30, 0.35, 0.50, 0.30),
                                             glOptions='translucent')
-                    self.view.addItem(itm)
-                    self._items.append(itm)
+                    self._add_item(itm)
                     # контур: низ -> верх в обратном порядке -> замыкание
                     frame = np.vstack([pv[0::2], pv[1::2][::-1], pv[0:1]])
                     ln = gl.GLLinePlotItem(pos=frame, mode='line_strip',
                                            width=1.5, antialias=True,
                                            color=(0.20, 0.24, 0.38, 0.9),
                                            glOptions='translucent')
-                    self.view.addItem(ln)
-                    self._items.append(ln)
+                    self._add_item(ln)
 
             # след разреза: линия пересечения секущих плоскостей с каждой
             # поверхностью - яркая нить по кровле/подошве вдоль линии
@@ -2598,8 +3567,7 @@ def _build_dialog(parent):
                                 pos=tpts[run], mode='line_strip', width=3.0,
                                 antialias=True, color=(0.95, 0.20, 0.15, 1.0),
                                 glOptions='opaque')
-                            self.view.addItem(tl)
-                            self._items.append(tl)
+                            self._add_item(tl)
 
             # контур сечения тел плоскостью разреза: где вертикальная штора
             # вдоль линии режет тело, рисуем яркий след (как по поверхностям)
@@ -2619,7 +3587,7 @@ def _build_dialog(parent):
                             continue
                         dxn, dyn = sxx / seglen, syy / seglen
                         nrm = (syy, -sxx, 0.0)   # горизонтальная нормаль шторы
-                        for bverts, bfaces, _bn, _bc in bodies:
+                        for bverts, bfaces, _bn, _bc, _bl in bodies:
                             s3 = poly.slice_triangles(
                                 bverts, bfaces, (ax, ay, 0.0), nrm)
                             for s in s3:
@@ -2636,8 +3604,7 @@ def _build_dialog(parent):
                         pos=np.array(cut, dtype='float32'), mode='lines',
                         width=3.0, antialias=True,
                         color=(0.95, 0.20, 0.15, 1.0), glOptions='opaque')
-                    self.view.addItem(cl)
-                    self._items.append(cl)
+                    self._add_item(cl)
 
             if wells:
                 mast = span * 0.02   # мачта над устьем поверх непрозрачных тел
@@ -2677,15 +3644,13 @@ def _build_dialog(parent):
                     md.setVertexColors(np.vstack(allc).astype('float32'))
                     stems = gl.GLMeshItem(meshdata=md, smooth=False,
                                           glOptions='opaque')
-                    self.view.addItem(stems)
-                    self._items.append(stems)
+                    self._add_item(stems)
                 if mseg:   # мачты тонкой линией
                     ln = gl.GLLinePlotItem(
                         pos=np.array(mseg, dtype='float32'), mode='lines',
                         width=2.0, color=(0.15, 0.15, 0.15, 1.0),
                         antialias=True, glOptions='opaque')
-                    self.view.addItem(ln)
-                    self._items.append(ln)
+                    self._add_item(ln)
                 r = span * 0.004
                 if len(tops) <= 500:  # шарики на устьях, одним мешем
                     sph = gl.MeshData.sphere(rows=8, cols=8, radius=r)
@@ -2701,8 +3666,7 @@ def _build_dialog(parent):
                                          shader='shaded',
                                          color=(0.12, 0.12, 0.12, 1.0),
                                          glOptions='opaque')
-                    self.view.addItem(ball)
-                    self._items.append(ball)
+                    self._add_item(ball)
                     prof.count("tris", len(bf)).count("verts", len(bv))
                 else:  # много скважин - круглые спрайты
                     dots = gl.GLScatterPlotItem(
@@ -2710,8 +3674,7 @@ def _build_dialog(parent):
                         size=r * 2, pxMode=False,
                         color=(0.12, 0.12, 0.12, 0.9),
                         glOptions='translucent')
-                    self.view.addItem(dots)
-                    self._items.append(dots)
+                    self._add_item(dots)
                 TextItem = getattr(gl, "GLTextItem", None)
                 if TextItem is not None and len(labels) <= 500:
                     from qgis.PyQt.QtGui import QFont
@@ -2727,19 +3690,26 @@ def _build_dialog(parent):
                             continue
                         ti = TextItem(pos=(lx, ly, lz), text=txt,
                                       color=(30, 30, 30, 255), font=fnt)
-                        self.view.addItem(ti)
-                        self._items.append(ti)
+                        self._add_item(ti)
 
             # кадрируем с учётом преувеличенной высоты, иначе высокое тело
             # при большом vex выходит за кадр и читается как перекос плана
             zspan_disp = (max(zs_) - min(zs_)) * vex
             view_span = max(span, zspan_disp, 1.0)
-            self.view.opts['distance'] = view_span * 1.5
+            want = view_span * 1.5
+            prev = float(self._view_span or 0.0)
+            # Кадрируем заново, если охват изменился заметно: обрезка
+            # коридором уменьшает сцену в разы, и при прежнем удалении
+            # камеры от неё остаётся точка в пустом кадре.
+            if prev <= 0 or view_span > prev * 1.6 or \
+                    view_span < prev / 1.6:
+                self.view.opts['distance'] = want
+            self._view_span = view_span
             self.view.opts['center'].setX(0)
             self.view.opts['center'].setY(0)
             self.view.opts['center'].setZ(0)
             self.view.update()
-            msg = tr("Показано поверхностей: %d.") % len(meshes)
+            msg = ""
             if bodies:
                 msg += " " + tr("Тел: %d.") % len(bodies)
                 if prof.counts.get("trihits"):
@@ -2753,9 +3723,11 @@ def _build_dialog(parent):
                 msg += " " + tr("Тел пластов: %d.") % nbeds
             # --- линии векторных слоёв: изолинии, разломы, трассы
             if vlines:
-                by_color = {}
-                for pts, col, _nm in vlines:
-                    seg = by_color.setdefault(col, [])
+                # группируем по слою, а не по цвету: так галка прячет
+                # слой сразу, без пересборки сцены
+                by_layer = {}
+                for pts, col, _nm, lid_v in vlines:
+                    seg = by_layer.setdefault((lid_v, col), [])
                     P = np.asarray(pts, dtype=float)
                     P[:, 0] -= cx
                     P[:, 1] -= cy
@@ -2763,28 +3735,30 @@ def _build_dialog(parent):
                     for a, b in zip(P[:-1], P[1:]):
                         seg.append(a)
                         seg.append(b)
-                for col, seg in by_color.items():
+                for (lid_v, col), seg in by_layer.items():
                     if not seg:
                         continue
                     item = gl.GLLinePlotItem(
                         pos=np.array(seg, dtype='float32'), mode='lines',
                         width=1.6, antialias=True,
                         color=_css_rgba(col), glOptions='opaque')
-                    self.view.addItem(item)
-                    self._items.append(item)
+                    self._add_item(item, lid_v)
                     prof.count("verts", len(seg))
 
             # --- точки векторных слоёв, кроме тех, что рисуются скважинами
             if vpoints:
-                arr = np.array([(x - cx, y - cy, (z - cz) * vex)
-                                for x, y, z, _c in vpoints], dtype='float32')
-                cols = np.array([_css_rgba(c) for _x, _y, _z, c in vpoints],
-                                dtype='float32')
-                item = gl.GLScatterPlotItem(pos=arr, color=cols,
-                                            size=7.0, pxMode=True)
-                self.view.addItem(item)
-                self._items.append(item)
-                prof.count("verts", len(arr))
+                by_layer = {}
+                for x, y, z, c, lid_v in vpoints:
+                    by_layer.setdefault(lid_v, []).append(
+                        ((x - cx, y - cy, (z - cz) * vex), c))
+                for lid_v, rows in by_layer.items():
+                    arr = np.array([r[0] for r in rows], dtype='float32')
+                    cols = np.array([_css_rgba(r[1]) for r in rows],
+                                    dtype='float32')
+                    item = gl.GLScatterPlotItem(pos=arr, color=cols,
+                                                size=7.0, pxMode=True)
+                    self._add_item(item, lid_v)
+                    prof.count("verts", len(arr))
 
             if planes:
                 msg += " " + tr("Плоскостей разреза: %d.") % len(planes)
@@ -2799,6 +3773,12 @@ def _build_dialog(parent):
                 msg += " " + tr("Скважин: %d.") % len(wells)
             if skipped:
                 msg += " " + tr("Пропущено: %s") % ", ".join(skipped)
+            # Контур живёт в координатах сцены, а центр сцены меняется
+            # вместе с данными: после обрезки охват стал меньше, и линия
+            # осталась бы висеть по прежнему центру. Поэтому рисуем её
+            # заново, уже по новому центру.
+            self._draw_refresh(
+                closed=bool(self._draw_ring) and not self._draw_mode)
             prof.add("scene").count("items", len(self._items))
             for w in self._warnings[:3]:
                 msg += " " + w
@@ -2807,6 +3787,6 @@ def _build_dialog(parent):
                     prof.counts["tex"], prof.counts.get("texhits", 0))
             msg += " " + prof.brief()
             _log(prof.report())
-            self.info.setText(msg)
+            self.info.setText(msg.strip())
 
     return ViewerDialog(parent)

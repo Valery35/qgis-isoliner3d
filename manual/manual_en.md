@@ -50,25 +50,31 @@ Isoliner3D.
 
 # The viewer window
 
-The control panel is on the left, the scene on the right. The scene rotates
+The layer list is on the left, the scene on the right. The scene rotates
 with the mouse and zooms with the wheel. Large grids are thinned
-automatically so that a layer never brings more than 60 thousand nodes into
-the scene: the display stays fast on a matrix of any size while the shape
-of the surface is preserved.
+automatically: the vertex budget is counted for the whole scene and shared
+between the ticked layers, so a single surface gets more detail than a pile
+of ten.
 
-The panel has three tabs. **Layers** holds the project rasters and the
-per-layer settings. **Vectors** holds the boreholes and the section plane.
-**Bodies** holds the polygon layers with Z.
+The list is one, rasters and vectors together, as in the QGIS layer tree.
+The layer type is marked in the row, because the set of properties depends
+on it. The first row is a pinned **Scene**: the scene-wide settings are the
+same kind of list object as a layer.
 
-Below the tabs live the scene-wide settings: the vertical exaggeration, the
-Z spacing, the surface transparency, the **Top view** and **Side view**
-buttons, **PNG snapshot…** and **Update the scene**. The settings below the
-tabs act on the whole scene at once, the settings inside the **Layers** tab
-act on the selected layer only.
+The tick includes a layer in the scene and acts at once, without a rebuild.
+The properties open on a double click or with the right button, the
+properties window is not modal and changes its content when another row is
+selected. Editing any property rebuilds the scene by itself, and on a heavy
+scene the automation can be switched off by the **Update automatically**
+tick in the scene properties, which brings back a manual rebuild button.
+
+A panel of icons sits over the scene at the top left: top view, parallel
+projection, contour drawing, markup visibility, clip removal, saving the
+contour as a layer, copying and saving a snapshot.
 
 ![A stack of surfaces coloured by an attribute grid. The scale bar with the range sits under the buttons.](images/viewer_surfaces_stack.png){width=78%}
 
-# The Layers tab: the set and the layer settings
+# A raster layer: the settings
 
 The list shows all the project rasters. The **Filter layers…** line narrows
 the list by a substring, the **All** and **None** buttons check and uncheck
@@ -137,7 +143,7 @@ settings.
 
 ![Two bed bodies, each coloured by its own grade band. Boreholes pierce the stack.](images/viewer_bodies_grade.png){width=78%}
 
-# The Vectors tab: boreholes and the section
+# Vector layers: elevation, boreholes, the section
 
 ![The **Vectors** tab: the section plane, the boreholes, the label field and the elevation fields. The scene shows the section ribbon with boreholes on a bed body.](images/viewer_vectors_tab.png){width=86%}
 
@@ -218,7 +224,7 @@ number is there but the chosen drawing layers do not contain it, the
 drawing and the definition come from different builds and the ribbon stays
 without an image.
 
-# The Bodies tab: polyhedra and polygons with Z
+# Polygons with Z: bodies, outlines, prisms
 
 The **Bodies** tab shows polygon layers carrying a Z elevation as
 volumetric bodies right in the scene, next to the surfaces and the bed
@@ -247,18 +253,52 @@ is marked with a red ball until the next click or a scene rebuild.
 Dragging is separated from querying: rotating the scene with the mouse
 works as usual, the query fires only on a click without movement.
 
-# Views, snapshot and the rest
+# Clipping the scene, markup, views
 
-**Top view** and **Side view** set orthogonal views that make a good
-starting point when choosing an angle. **PNG snapshot…** saves a frame of
-the scene to a file for a report or a presentation. The snapshot size
-equals the size of the scene widget, so it is worth maximising the window
-before the shot.
+The scene can be cut so that only the part you need is left. The clipping
+contour is set in the scene properties: any polygon or line layer of the
+project, or one drawn right in the scene. The **The piece** row sets what
+to show.
 
-**Z spacing** pushes the surfaces down with a constant step and turns the
-pile into a stack in which every horizon is seen on its own. **Surface
-transparency** helps to look inside the bodies and to see the borehole
-stems through the roof.
+For a polygon it is **Keep what is inside** or **Remove what is inside**:
+a slice of the cake or the cake without the slice. For a line it is **To
+the left of the line**, **To the right of the line** and **A corridor along
+the line**. The corridor takes a band of a given half-width on both sides
+of the profile, and that is usually more useful than a bare section: the
+data stay next to the line, and it is visible how the structure changes
+away from the profile. The half-width is entered on the panel over the
+scene, next to the drawing icons, and is shown only in the corridor mode.
+
+The edge follows the contour rather than the bounding rectangle, and the
+holes of the contour stay holes.
+
+**Drawing in the scene.** The contour icon turns on the markup mode:
+a click on the surface adds a vertex, a rubber band follows the cursor, the
+right button or the neighbouring icon removes the last vertex. From there
+two ways. The icon with a tick closes the contour and clips an area by it.
+The polyline icon finishes a line and clips a corridor along it, switching
+to the right mode by itself.
+
+The vertices are taken from the surface by a ray from the camera, so the
+markup lies on the relief and stays true when the scene is rotated. The
+plan position of the vertices is what the clipping uses. The markup itself
+is drawn over the model and does not hide under folds.
+
+The eye icon hides and shows the markup without removing the clip. The icon
+with a crossed-out contour removes the clip entirely and clears the
+sketches. The icon with a stack of sheets saves the drawn contour as
+a project layer, after which the Isoliner tools can use it.
+
+**Views.** The icon of a frame with a crosshair sets the top view and turns
+on the parallel projection as well, because a plan with perspective is not
+a plan. The projection is also switched separately by the cube icon: in
+a parallel projection the scale is the same across the whole frame, and
+objects at different heights do not shift relative to each other.
+
+**Snapshot.** The icon with two rectangles puts a frame of the scene on the
+clipboard, and so does Ctrl+C. The camera icon saves the frame to a PNG
+file. The snapshot size equals the size of the scene window, so it is worth
+maximising the window before shooting.
 
 # The Bed and block model group
 
