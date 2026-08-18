@@ -127,6 +127,71 @@ def bed_to_mesh_arrays(top, bot, gt, zscale=1.0, zoffset=0.0, step=1):
     return verts, faces
 
 
+def vertical_span(verts, faces, x, y):
+    """Отметки входа и выхода вертикального луча в замкнутое тело.
+
+    Возвращает (zmin, zmax) по всем пересечениям луча с треугольниками
+    оболочки или None, если луч прошёл мимо. Нужна для крышки на срезе:
+    в каждой точке линии реза тело занимает интервал по вертикали, и его
+    надо закрыть.
+    """
+    v = np.asarray(verts, dtype=float)
+    f = np.asarray(faces, dtype=np.int64)
+    if not len(f):
+        return None
+    a, b, c = v[f[:, 0]], v[f[:, 1]], v[f[:, 2]]
+    # барицентрические координаты точки в плане каждого треугольника
+    x1, y1 = a[:, 0], a[:, 1]
+    x2, y2 = b[:, 0], b[:, 1]
+    x3, y3 = c[:, 0], c[:, 1]
+    den = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
+    ok = np.abs(den) > 1e-12
+    den = np.where(ok, den, 1.0)
+    l1 = ((y2 - y3) * (x - x3) + (x3 - x2) * (y - y3)) / den
+    l2 = ((y3 - y1) * (x - x3) + (x1 - x3) * (y - y3)) / den
+    l3 = 1.0 - l1 - l2
+    hit = ok & (l1 >= -1e-9) & (l2 >= -1e-9) & (l3 >= -1e-9)
+    if not hit.any():
+        return None
+    zs = (l1 * a[:, 2] + l2 * b[:, 2] + l3 * c[:, 2])[hit]
+    return float(np.min(zs)), float(np.max(zs))
+
+
+def cap_ribbon(verts, faces, line, tol=1e-9):
+    """Крышка на срезе: лента между низом и верхом тела вдоль линии реза.
+
+    Без неё вырезанный кусок выглядит дырой в оболочке: видно изнанку
+    вместо разреза. Лента строится по станциям линии, в каждой берётся
+    интервал, который тело занимает по вертикали.
+
+    `line` это точки линии реза в плане. Возвращает (verts, faces).
+    """
+    pts = [p for p in line]
+    spans, keep = [], []
+    for x, y in pts:
+        sp = vertical_span(verts, faces, x, y)
+        if sp is None or (sp[1] - sp[0]) <= tol:
+            spans.append(None)
+        else:
+            spans.append(sp)
+        keep.append(spans[-1] is not None)
+    out_v, out_f = [], []
+    for i in range(len(pts) - 1):
+        if not (keep[i] and keep[i + 1]):
+            continue
+        (x1, y1), (x2, y2) = pts[i], pts[i + 1]
+        (lo1, hi1), (lo2, hi2) = spans[i], spans[i + 1]
+        base = len(out_v)
+        out_v.extend([(x1, y1, lo1), (x1, y1, hi1),
+                      (x2, y2, lo2), (x2, y2, hi2)])
+        out_f.append((base, base + 1, base + 3))
+        out_f.append((base, base + 3, base + 2))
+    if not out_f:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+    return (np.asarray(out_v, dtype=float),
+            np.asarray(out_f, dtype=np.int64))
+
+
 def polyline_dist_side(points, gt, shape):
     """Расстояние до ломаной и сторона от неё для центров ячеек грида.
 

@@ -15,8 +15,12 @@ Rendering runs on pyqtgraph and PyOpenGL bundled inside the plugin. The
 built-in QGIS 3D view and Qt3D are not used, and there are no external
 dependencies.
 
-A companion to the [Isoliner](https://github.com/Valery35/qgis-isoliner)
-kriging toolset.
+A companion to the [Isoliner](https://plugins.qgis.org/plugins/grid_isolines/)
+kriging and contouring toolset and to [Topoliner](https://plugins.qgis.org/plugins/topoliner/), topology
+cleaning. Together they cover the way from observation points to a
+volumetric model: Isoliner builds grids and isolines, Topoliner tidies
+the contours, Isoliner3D shows the result in three dimensions and
+computes reserves.
 
 ## Why
 

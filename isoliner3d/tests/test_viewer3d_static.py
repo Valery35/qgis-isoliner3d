@@ -199,8 +199,11 @@ def test_vopts_read_through_defaults():
     """
     src = open(VIEWER, encoding="utf-8").read()
     tree = ast.parse(src)
+    # сохранение и чтение состояния работают со словарём целиком,
+    # умолчания к ним отношения не имеют
     allowed = {"_opts_of", "_load_vec_opts", "_save_vec_opts",
-               "_pick_vec_color", "__init__"}
+               "_pick_vec_color", "__init__",
+               "_state_save", "_state_load"}
     bad = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -553,6 +556,291 @@ def test_drawing_works_without_raster_surfaces():
     start = src.index("def _hit_at")
     end = src.index("        def _pick_at", start)
     assert "self._hit_plane(" in src[start:end]
+
+
+def test_prism_is_clipped_by_geometry_not_by_centre():
+    """Призма режется контуром, а не выбрасывается целиком по центру.
+
+    Пересечение даёт новый контур, и призма строится по нему заново
+    вместе с крышками: срез получается закрытым, а не дырой в оболочке.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _clip_geom" in src
+    start = src.index('if mode == "prism":')
+    end = src.index("zb = self._base_z", start)
+    body = src[start:end]
+    assert "self._clip_geom()" in body
+    assert "g.intersection(cg)" in body and "g.difference(cg)" in body
+
+
+def test_clipped_prism_skips_the_cache():
+    """У обрезанного объекта геометрия своя, ключ кэша по объекту соврёт."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index('if mode == "prism":')
+    end = src.index("out.append((v, f, nm,", start)
+    body = src[start:end]
+    assert "_tessellate(g, zt)" in body and "_tri_cached(" in body
+
+
+def _load_kept():
+    src = open(VIEWER, encoding="utf-8").read()
+
+    def grab(name, nxt):
+        s = src.index("        def %s(" % name)
+        e = src.index("        def %s(" % nxt, s)
+        body = src[s:e].replace("        def ", "def ", 1)
+        rows = [row[4:] if row.startswith("    ") else row
+                for row in body.split("\n")]
+        return "\n".join(rows)
+
+    ns = {}
+    code = ("import numpy as np\n"
+            + grab("_points_kept", "_point_kept") + "\n"
+            + grab("_point_kept", "_hit_plane"))
+    exec(compile(code, "viewer3d", "exec"), ns)   # nosec
+    return ns["_points_kept"], ns["_point_kept"]
+
+
+class _Combo(object):
+    def __init__(self, value):
+        self._value = value
+
+    def currentData(self):
+        return self._value
+
+
+class _Width(object):
+    def __init__(self, value):
+        self._value = value
+
+    def value(self):
+        return self._value
+
+
+class _KeptDlg(object):
+    def __init__(self, rings, lines, mode, width=250.0):
+        self._rings, self._lines = rings, lines
+        self.clip_side = _Combo(mode)
+        self.clip_width = _Width(width)
+
+    def _clip_ctx(self):
+        return (self._rings, self._lines)
+
+
+def test_vector_and_point_selection_agree():
+    """Отбор разом по массиву обязан совпадать с поточечным.
+
+    Поточечная проверка на десятках тысяч треугольников занимала десятки
+    секунд, поэтому появился массовый вариант, и он не должен расходиться
+    с прежним ни на одной точке.
+    """
+    import numpy as np
+    many, one = _load_kept()
+    _KeptDlg._points_kept = many
+    _KeptDlg._point_kept = one
+    rng = np.random.RandomState(0)
+    xs = rng.uniform(-5, 15, 300)
+    ys = rng.uniform(-5, 15, 300)
+    ring = [(0, 0), (10, 0), (10, 10), (0, 10)]
+    for dlg in (_KeptDlg([ring], [], "in"),
+                _KeptDlg([ring], [], "out"),
+                _KeptDlg([], [[(0, 5), (10, 5)]], "corridor", 2.0),
+                _KeptDlg([], [[(0, 5), (10, 5)]], "left")):
+        a = dlg._points_kept(xs, ys)
+        b = np.array([dlg._point_kept(x, y) for x, y in zip(xs, ys)])
+        assert (a == b).all()
+
+
+def test_old_solid_clipping_is_gone():
+    """Прежние подходы к срезу убраны, а не оставлены рядом.
+
+    Отбор по центру с лентой между отметками давал рваную оболочку.
+    Работает разрезка граней по контуру с крышкой по кольцам среза,
+    и две реализации одного и того же держать рядом незачем.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _clip_solid" not in src
+    assert "cap_ribbon" not in src
+    assert "def _cap_cut" in src
+
+
+def _load_ring_normal():
+    src = open(VIEWER, encoding="utf-8").read()
+    a = src.index("def _ring_normal(")
+    b = src.index("def _tessellate_ring3d(")
+    ns = {}
+    exec(compile("import numpy as np\n" + src[a:b],   # nosec
+                 "viewer3d", "exec"), ns)
+    return ns["_ring_normal"]
+
+
+def test_ring_normal_handles_vertical_walls():
+    """Нормаль кольца берётся по всему кольцу, а не по трём точкам.
+
+    Вертикальная стенка в плане вырождается в линию, поэтому разбивка
+    по плану давала мусор: кольцо надо класть в его собственную
+    плоскость.
+    """
+    normal = _load_ring_normal()
+    wall = [(0, 0, 0), (10, 0, 0), (10, 0, 5), (0, 0, 5)]
+    n = normal(wall)
+    assert abs(float(n[2])) < 1e-9, n
+    flat = [(0, 0, 7), (10, 0, 7), (10, 10, 7), (0, 10, 7)]
+    assert abs(abs(float(normal(flat)[2])) - 1.0) < 1e-9
+    assert normal([(0, 0, 0), (1, 0, 0), (2, 0, 0)]) is None
+
+
+def test_solid_rings_are_triangulated_in_plane():
+    """Объект с переменной Z разбирается по кольцам, а не по плану."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _tris_from_geometry" in src
+    start = src.index("def _body_meshes")
+    end = src.index("        def _vec_lines", start)
+    body = src[start:end]
+    assert "_tris_from_geometry(g)" in body
+
+
+def test_faces_are_turned_up_not_duplicated():
+    """Грани разворачиваются нормалью вверх, а не дублируются.
+
+    Копия грани ложится ровно на оригинал, и две грани начинают спорить
+    за глубину: появляются полосы, а цвет уходит в чёрный.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _tris_from_geometry")
+    end = src.index("def _flat_z", start)
+    body = src[start:end]
+    assert "flip = nz < 0" in body
+    assert "np.vstack([f_all, f_all[:, ::-1]])" not in body
+
+
+def test_face_orientation_flips_only_downward():
+    """Грань нормалью вверх остаётся, грань вниз разворачивается."""
+    import numpy as np
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("    v_all, f_all = np.vstack(verts), np.vstack(faces)")
+    end = src.index("    return v_all, f_all", start)
+    end += len("    return v_all, f_all")
+    body = src[start:end].replace(
+        "    v_all, f_all = np.vstack(verts), np.vstack(faces)\n", "")
+    ns = {"np": np}
+    exec(compile("def orient(v_all, f_all, both_sides=True):\n" + body,
+                 "viewer3d", "exec"), ns)          # nosec
+    v = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], float)
+    up = np.array([[0, 1, 2]], np.int64)
+    dn = np.array([[0, 2, 1]], np.int64)
+    assert ns["orient"](v, up)[1].tolist() == [[0, 1, 2]]
+    assert ns["orient"](v, dn)[1].tolist() != [[0, 2, 1]]
+
+
+def test_colours_come_from_the_layer_style():
+    """Цвет объекта берётся из стиля слоя, своей легенды не заводим.
+
+    Раскраска уже лежит в стиле и сохраняется вместе с проектом,
+    поэтому карта и объём выглядят одинаково.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _layer_colors" in src
+    start = src.index("def _layer_colors")
+    end = src.index("        def _body_meshes", start)
+    assert "symbolForFeature" in src[start:end]
+    body = src[src.index("def _body_meshes"):]
+    assert "by_style.get(ft.id())" in body
+
+
+def test_belts_are_clipped_by_geometry():
+    """Пояса режутся по контуру, а не выбрасываются по центру объекта.
+
+    Это открытые поверхности, крышка на срезе им не нужна, поэтому
+    режутся сами грани и край проходит по контуру обрезки.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _body_meshes")
+    end = src.index("        def _vec_lines", start)
+    body = src[start:end]
+    assert "self._clip_tris(v, f)" in body
+    assert "_point_kept(cxx" not in body
+
+
+def test_barycentric_z_restores_heights():
+    """Новая вершина на линии реза берёт высоту из плоскости грани.
+
+    Иначе обрезанный треугольник ложился бы на нулевую отметку
+    и пояс рвался бы по высоте.
+    """
+    import numpy as np
+    src = open(VIEWER, encoding="utf-8").read()
+    a = src.index("def _bary_z(")
+    b = src.index("def _flat_z(")
+    ns = {}
+    exec(compile("import numpy as np\n" + src[a:b],   # nosec
+                 "viewer3d", "exec"), ns)
+    bary = ns["_bary_z"]
+    tri = np.array([[0, 0, 0], [10, 0, 10], [0, 10, 20]], float)
+    for (x, y), want in zip(tri[:, :2], (0.0, 10.0, 20.0)):
+        got = float(bary(tri, np.array([x]), np.array([y]))[0])
+        assert abs(got - want) < 1e-6, (x, y, got, want)
+    mid = float(bary(tri, np.array([10 / 3.0]), np.array([10 / 3.0]))[0])
+    assert abs(mid - 10.0) < 1e-6, mid
+
+
+def test_edge_triangles_are_cut_not_dropped():
+    """Грань, пересечённая контуром, режется, а не отбирается по центру.
+
+    У пояса встречаются треугольники крупнее коридора: по центру они
+    либо торчали за краем, либо пропадали целиком.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _clip_tris")
+    end = src.index("        def _clip_geom", start)
+    body = src[start:end]
+    assert "n_in == 3" in body and "(n_in > 0) & (n_in < 3)" in body
+    assert "_bary_z(tri" in body
+
+
+def test_closed_shell_is_recognised():
+    """Замкнутая оболочка отличается от открытого пояса по рёбрам.
+
+    Поясу крышка на срезе не нужна и портит картинку, телу обязательна:
+    без неё сквозь срез видна изнанка.
+    """
+    import numpy as np
+    src = open(VIEWER, encoding="utf-8").read()
+    a = src.index("def _is_closed(")
+    b = src.index("def _bary_z(")
+    ns = {}
+    exec(compile(src[a:b], "viewer3d", "exec"), ns)      # nosec
+    closed = ns["_is_closed"]
+    v = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0],
+                  [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]], float)
+    f = np.array([[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7],
+                  [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],
+                  [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]], np.int64)
+    assert closed(v, f) is True
+    assert closed(v, f[2:]) is False
+    assert closed(v, np.zeros((0, 3), np.int64)) is False
+
+
+def test_cap_is_built_only_for_closed_shells():
+    """Крышка строится только замкнутым телам."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _body_meshes")
+    end = src.index("        def _vec_lines", start)
+    body = src[start:end]
+    assert "_is_closed(v, f)" in body
+    assert "self._cap_cut(v, f)" in body
+
+
+def test_every_surface_branch_is_exported():
+    """Все ветки поверхностей попадают в выгрузку.
+
+    Текстурированная поверхность рисуется своей веткой и пропускала
+    выгрузку: в файле оставались только те слои, что рисуются цветом.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _rebuild_scene")
+    body = src[start:]
+    assert body.count("self._keep_for_export(") >= 3
 
 
 def _run():

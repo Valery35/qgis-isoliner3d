@@ -14,7 +14,7 @@
 Рендер идёт на pyqtgraph и PyOpenGL, которые лежат внутри плагина. Штатный
 3D-вид QGIS и Qt3D не используются, внешних зависимостей нет.
 
-Плагин-спутник набора кригинга [Isoliner](https://github.com/Valery35/qgis-isoliner).
+Плагин-спутник набора кригинга и изолиний [Isoliner](https://plugins.qgis.org/plugins/grid_isolines/) и инструмента чистки топологии [Topoliner](https://plugins.qgis.org/plugins/topoliner/). Вместе они закрывают путь от точек наблюдений до объёмной модели: Isoliner строит гриды и изолинии, Topoliner приводит в порядок контуры, Isoliner3D показывает результат в объёме и считает запасы.
 
 ## Зачем
 

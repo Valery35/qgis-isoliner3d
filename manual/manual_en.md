@@ -496,6 +496,28 @@ grid colouring to **Texture: Map (demo)** and update the scene. If the
 corner marks are where they belong and the graticule cells are square, the
 draping works correctly.
 
+# The neighbouring plugins
+
+Isoliner3D does not work on its own. Three plugins cover the way from
+observation points to a volumetric model, and each does its own part.
+
+**Isoliner** builds grids and isolines: kriging with variograms, minimum
+curvature, relief and catchments, sections with drawings, a geological bed
+model. It is the one that prepares the grids and belts shown here.
+The catalogue: `plugins.qgis.org/plugins/grid_isolines`.
+
+**Topoliner** tidies the contours: dangling nodes, self-intersections, gaps
+and overlaps between adjacent polygons, thinning that preserves topology.
+It helps before belts and solids are assembled, because a torn topology on
+the map turns into a torn shell in three dimensions.
+The catalogue: `plugins.qgis.org/plugins/topoliner`.
+
+**Isoliner3D** shows the result in three dimensions, cuts the model by
+a contour or a corridor, computes reserves from a block model and exports
+the scene to GLB.
+
+All three work independently: installing the whole set is not required.
+
 # Typical situations and solutions
 
 | What you see | Cause | Solution |

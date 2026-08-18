@@ -304,6 +304,57 @@ def test_line_bend_switches_side_locally():
     assert (s > 0).any() and (s < 0).any()
 
 
+def test_glb_structure_is_valid():
+    """Файл GLB собирается по формату: заголовок, JSON, двоичный кусок.
+
+    Формат выбран из-за читателей: GLB открывают браузерные
+    просмотрщики, Blender и Windows, поэтому модель можно просто
+    отправить письмом.
+    """
+    import json
+    import struct
+    from isoliner3d.gltf import build_glb
+    v = np.array([[0, 0, 0], [10, 0, 0], [10, 10, 5], [0, 10, 5]], float)
+    f = np.array([[0, 1, 2], [0, 2, 3]], np.int64)
+    c = np.tile(np.array([0.9, 0.4, 0.1, 1.0]), (4, 1))
+    data = build_glb([{"verts": v, "faces": f, "colors": c,
+                       "name": "пласт"}])
+    magic, ver, total = struct.unpack("<III", data[:12])
+    assert magic == 0x46546C67 and ver == 2
+    assert total == len(data), (total, len(data))
+    assert len(data) % 4 == 0
+    jl, _jt = struct.unpack("<II", data[12:20])
+    js = json.loads(data[20:20 + jl])
+    assert len(js["meshes"]) == 1 and len(js["nodes"]) == 1
+    attrs = js["meshes"][0]["primitives"][0]["attributes"]
+    assert "POSITION" in attrs and "COLOR_0" in attrs
+
+
+def test_glb_axes_are_swapped_for_viewers():
+    """Оси переставляются в порядок glTF, иначе модель лежит на боку."""
+    import json
+    import struct
+    from isoliner3d.gltf import build_glb
+    v = np.array([[0, 0, 0], [1, 0, 0], [0, 0, 7]], float)
+    f = np.array([[0, 1, 2]], np.int64)
+    data = build_glb([{"verts": v, "faces": f}])
+    jl, _jt = struct.unpack("<II", data[12:20])
+    js = json.loads(data[20:20 + jl])
+    # высота 7 должна оказаться по оси Y, а не по Z
+    assert js["accessors"][0]["max"][1] == 7.0
+
+
+def test_glb_skips_empty_parts():
+    from isoliner3d.gltf import build_glb
+    import json
+    import struct
+    data = build_glb([{"verts": np.zeros((0, 3)),
+                       "faces": np.zeros((0, 3), np.int64)}])
+    jl, _jt = struct.unpack("<II", data[12:20])
+    js = json.loads(data[20:20 + jl])
+    assert js["meshes"] == [] and js["nodes"] == []
+
+
 def _load_prism():
     path = os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "viewer3d.py")

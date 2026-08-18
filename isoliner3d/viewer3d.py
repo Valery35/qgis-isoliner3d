@@ -428,6 +428,154 @@ def _prism(geom, cap_v, cap_f, zbot, ztop):
     return np.vstack(verts), np.vstack(faces)
 
 
+def _ring_normal(pts):
+    """Нормаль кольца по формуле Ньюэлла.
+
+    Работает и на невыпуклом кольце, и на слегка неплоском: даёт
+    осреднённую нормаль, а не нормаль первых трёх точек.
+    """
+    import numpy as np
+    p = np.asarray(pts, dtype=float)
+    q = np.roll(p, -1, axis=0)
+    nx = float(np.sum((p[:, 1] - q[:, 1]) * (p[:, 2] + q[:, 2])))
+    ny = float(np.sum((p[:, 2] - q[:, 2]) * (p[:, 0] + q[:, 0])))
+    nz = float(np.sum((p[:, 0] - q[:, 0]) * (p[:, 1] + q[:, 1])))
+    n = np.array([nx, ny, nz], dtype=float)
+    ln = float(np.linalg.norm(n))
+    return None if ln < 1e-12 else n / ln
+
+
+def _tessellate_ring3d(pts):
+    """Разбить кольцо на треугольники в его собственной плоскости.
+
+    Разбивка в плане не годится для вертикальных стенок: там кольцо
+    вырождается в линию. Поэтому кольцо кладётся в свою плоскость,
+    разбивается там и возвращается обратно. Вогнутость обрабатывается
+    заодно, отдельного случая для неё не нужно.
+    """
+    import numpy as np
+    p = np.asarray(pts, dtype=float)
+    if len(p) >= 2 and np.allclose(p[0], p[-1]):
+        p = p[:-1]
+    if len(p) < 3:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+    n = _ring_normal(p)
+    if n is None:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+    ref = np.array([0.0, 0.0, 1.0])
+    if abs(float(np.dot(ref, n))) > 0.9:
+        ref = np.array([1.0, 0.0, 0.0])
+    u = np.cross(n, ref)
+    u = u / max(float(np.linalg.norm(u)), 1e-12)
+    w = np.cross(n, u)
+    origin = p.mean(axis=0)
+    rel = p - origin
+    uu, ww = rel.dot(u), rel.dot(w)
+
+    from qgis.core import QgsGeometry, QgsPointXY
+    flat = QgsGeometry.fromPolygonXY(
+        [[QgsPointXY(float(a), float(b)) for a, b in zip(uu, ww)]])
+    tri = None
+    for name in ("constrainedDelaunayTriangulation",
+                 "delaunayTriangulation"):
+        fn = getattr(flat, name, None)
+        if fn is None:
+            continue
+        try:
+            res = fn()
+        except Exception:
+            res = None
+        if res is not None and not res.isEmpty():
+            tri = res
+            break
+    if tri is None:
+        # запасной путь: веер. Хуже, но лучше пустоты
+        faces = [(0, i, i + 1) for i in range(1, len(p) - 1)]
+        return (p.copy(), np.asarray(faces, dtype=np.int64))
+
+    verts, faces = [], []
+    for part in _parts_xyz(tri, 0.0):
+        ring = part[:3]
+        if len(ring) < 3:
+            continue
+        base = len(verts)
+        for a, b, _z in ring:
+            verts.append(origin + a * u + b * w)
+        faces.append((base, base + 1, base + 2))
+    if not faces:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+    return (np.asarray(verts, dtype=float),
+            np.asarray(faces, dtype=np.int64))
+
+
+def _tris_from_geometry(geom, both_sides=True):
+    """Треугольники объекта: каждое кольцо в своей плоскости.
+
+    `both_sides` разворачивает грани нормалью вверх, а не дублирует их.
+    Пояса между изолиниями не замкнуты, и у половины граней нормаль
+    смотрит вниз: такие уходили в чёрный при верной геометрии. Копия
+    грани этого не лечит: она ложится ровно на оригинал, и две грани
+    начинают спорить за глубину, отчего появляются полосы.
+    """
+    import numpy as np
+    verts, faces, base = [], [], 0
+    for ring in _parts_xyz(geom):
+        v, f = _tessellate_ring3d(ring)
+        if not len(f):
+            continue
+        verts.append(v)
+        faces.append(np.asarray(f, dtype=np.int64) + base)
+        base += len(v)
+    if not faces:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+    v_all, f_all = np.vstack(verts), np.vstack(faces)
+    if both_sides and len(f_all):
+        a = v_all[f_all[:, 0]]
+        b = v_all[f_all[:, 1]]
+        c = v_all[f_all[:, 2]]
+        nz = ((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1])
+              - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0]))
+        flip = nz < 0
+        if flip.any():
+            f_all = f_all.copy()
+            f_all[flip] = f_all[flip][:, ::-1]
+    return v_all, f_all
+
+
+def _is_closed(v, f, tol=1e-6):
+    """Замкнута ли оболочка: каждое ребро принадлежит двум граням.
+
+    Пояс между изолиниями открыт, и крышку ему строить не надо: попытка
+    закрыть открытую поверхность даёт мусор. Замкнутому телу крышка,
+    наоборот, обязательна, иначе на срезе видна изнанка.
+    """
+    import collections
+    if not len(f):
+        return False
+    edges = collections.Counter()
+    for tri in f:
+        for a, b in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
+            edges[(a, b) if a < b else (b, a)] += 1
+    return all(n == 2 for n in edges.values())
+
+
+def _bary_z(tri, xs, ys):
+    """Отметки точек внутри треугольника по его вершинам.
+
+    Нужна при обрезке грани: у новых вершин, появившихся на линии реза,
+    своей высоты нет, её берут из плоскости исходного треугольника.
+    """
+    import numpy as np
+    (x1, y1, z1), (x2, y2, z2), (x3, y3, z3) = tri
+    den = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3)
+    if abs(den) < 1e-12:
+        return np.full(np.shape(xs), (z1 + z2 + z3) / 3.0)
+    l1 = ((y2 - y3) * (xs - x3) + (x3 - x2) * (ys - y3)) / den
+    l2 = ((y3 - y1) * (xs - x3) + (x1 - x3) * (ys - y3)) / den
+    l3 = 1.0 - l1 - l2
+    return l1 * z1 + l2 * z2 + l3 * z3
+
+
 def _flat_z(geom, tol=1e-6):
     """Отметка плоского объекта или None, если Z меняется.
 
@@ -689,6 +837,19 @@ def _tool_icon(kind, size=18):
                   int(0.84 * s), int(0.52 * s), 200 * 16, 140 * 16)
         p.setBrush(QColor("#C2622C"))
         p.drawEllipse(QPointF(0.50 * s, 0.50 * s), 0.13 * s, 0.13 * s)
+    elif kind == "export":        # куб со стрелкой наружу
+        front = [(0.14, 0.42), (0.52, 0.42), (0.52, 0.80), (0.14, 0.80)]
+        pts_ = [QPointF(x * s, y * s) for x, y in front]
+        for a, b in zip(pts_, pts_[1:] + pts_[:1]):
+            p.drawLine(a, b)
+        pen2 = QPen(QColor("#0E7C66"))
+        pen2.setWidthF(2.0)
+        pen2.setCapStyle(cap)
+        p.setPen(pen2)
+        p.drawLine(QPointF(0.58 * s, 0.46 * s), QPointF(0.88 * s, 0.18 * s))
+        p.setBrush(QColor("#0E7C66"))
+        tri = [(0.90, 0.10), (0.92, 0.40), (0.62, 0.34)]
+        p.drawPolygon(*[QPointF(x * s, y * s) for x, y in tri])
     elif kind == "clear":         # перечёркнутый контур: снять обрезку
         pts = [(0.22, 0.30), (0.62, 0.22), (0.78, 0.58), (0.36, 0.74)]
         poly = [QPointF(x * s, y * s) for x, y in pts]
@@ -1167,6 +1328,10 @@ def _build_dialog(parent):
             self._hover = None       # точка под курсором для резинки
             self._show_sketch = True  # показывать ли контур и линию
             self._clip_now = None    # контур обрезки на время сборки
+            self._clip_geom_now = None   # он же геометрией, для резки тел
+            self._layer_colors_cache = {}   # цвета из стиля слоя
+            self._export = []        # части сцены для выгрузки в GLB
+            self._state_read = False  # читали ли состояние из проекта
             self._owners = []        # чьего слоя каждый элемент сцены
             self._warnings = []      # что сказать человеку после сборки
             self._opts = {}          # id слоя -> персональные настройки
@@ -1305,10 +1470,19 @@ def _build_dialog(parent):
             self.vec_poly.setToolTip(tr(
                 "Вложенные контуры уровней осмысленно смотреть линиями. "
                 "Заливка нужна телам пласта и полиэдрам."))
+            self.vec_base = QComboBox()
+            self.vec_base.setToolTip(tr(
+                "Низ призмы берётся с этой поверхности: подошва дома "
+                "садится на рельеф, а не на заданную отметку."))
+            self.vec_htop = QComboBox()
+            for label, key in ((tr("Верх: поле верха"), "field"),
+                               (tr("Верх: низ плюс высота из поля"),
+                                "add")):
+                self.vec_htop.addItem(label, key)
             self.vec_ztop = QComboBox()
             self.vec_ztop.setToolTip(tr(
-                "Поле верха призмы. Поле низа задаётся строкой "
-                "«Поле отметки»."))
+                "Поле верха призмы либо высоты над низом, смотря что "
+                "выбрано строкой выше."))
             self.vec_kind = QComboBox()
             for label, key in ((tr("Как есть"), "plain"),
                                (tr("Скважины (стволы по отметкам)"),
@@ -1326,12 +1500,15 @@ def _build_dialog(parent):
             vf.addRow(tr("Полигональный слой"), self.vec_poly)
             vf.addRow(tr("Источник высоты"), self.vec_zsrc)
             vf.addRow(tr("Поле отметки"), self.vec_zfield)
-            vf.addRow(tr("Поле верха призмы"), self.vec_ztop)
+            vf.addRow(tr("Низ призмы с поверхности"), self.vec_base)
+            vf.addRow(tr("Верх призмы"), self.vec_htop)
+            vf.addRow(tr("Поле верха или высоты"), self.vec_ztop)
             vf.addRow(tr("Цвет"), self.vec_color_btn)
             vf.addRow(tr("Поле подписи скважин"), self.wells_label)
             vf.addRow(tr("Поля отметок"), self.wells_fields)
             for w in (self.vec_kind, self.vec_poly, self.vec_zsrc,
-                      self.vec_zfield, self.vec_ztop, self.wells_label):
+                      self.vec_zfield, self.vec_ztop, self.vec_base,
+                      self.vec_htop, self.wells_label):
                 w.currentIndexChanged.connect(self._save_vec_opts)
             self.wells_fields.itemChanged.connect(self._save_vec_opts)
 
@@ -1393,6 +1570,9 @@ def _build_dialog(parent):
             btn_draw_save = tool(
                 "layer", tr("Сохранить нарисованный контур слоем проекта"),
                 self._draw_save)
+            btn_export = tool(
+                "export", tr("Выгрузить сцену в файл GLB"),
+                self._export_glb)
             btn_copy = tool(
                 "copy", tr("Положить кадр сцены в буфер обмена (Ctrl+C)"),
                 self._copy_png)
@@ -1447,7 +1627,8 @@ def _build_dialog(parent):
                       self.btn_undo,
                       self.btn_done, self.btn_line, self.btn_sketch,
                       btn_clip_off,
-                      btn_draw_save, btn_copy, btn_png, self.btn):
+                      btn_draw_save, btn_export, btn_copy, btn_png,
+                      self.btn):
                 b.setParent(self.tools)
                 tb.addWidget(b)
             # Полуширина коридора стоит здесь же: она нужна ровно тогда,
@@ -1551,6 +1732,60 @@ def _build_dialog(parent):
                 title = tr("Свойства слоя: %s") % lyr.name()
             self._props.setWindowTitle(title)
 
+        def _export_glb(self):
+            """Выгрузить показанное в файл GLB.
+
+            Выгружается ровно то, что видно: обрезали коридором, уйдёт
+            коридор. Иначе человек получит не ту модель, которую смотрел.
+            """
+            if not self._export:
+                self.info.setText(tr("Выгружать нечего: сцена пуста."))
+                return
+            from qgis.PyQt.QtWidgets import QFileDialog
+            fn, _ = QFileDialog.getSaveFileName(
+                self, tr("Выгрузить сцену"), "isoliner_3d.glb",
+                "glTF (*.glb)")
+            if not fn:
+                return
+            # Настоящие высоты верны для расчёта, но пласт в километры
+            # по площади и десятки метров по мощности сплющивается
+            # в блин. Поэтому спрашиваем, а не решаем за человека.
+            vex = float(self.vex.value() or 1.0)
+            keep_vex = False
+            if abs(vex - 1.0) > 1e-6:
+                from qgis.PyQt.QtWidgets import QMessageBox
+                ans = QMessageBox.question(
+                    self, tr("Выгрузить сцену"),
+                    tr("Применить вертикальное преувеличение %.2f?\n"
+                       "Да - модель как на экране.\n"
+                       "Нет - настоящие высоты, годные для расчёта.")
+                    % vex)
+                yes = getattr(getattr(QMessageBox, "StandardButton",
+                                      QMessageBox), "Yes")
+                keep_vex = ans == yes
+            try:
+                from .gltf import write_glb
+                import numpy as np
+                parts = self._export
+                if keep_vex:
+                    parts = []
+                    for part in self._export:
+                        v = np.asarray(part["verts"], dtype=float).copy()
+                        zc = float(np.mean(v[:, 2])) if len(v) else 0.0
+                        v[:, 2] = (v[:, 2] - zc) * vex + zc
+                        parts.append(dict(part, verts=v))
+                for part in parts:
+                    _log(tr("Часть %s: вершин %d, граней %d")
+                         % (part.get("name", "?"), len(part["verts"]),
+                            len(part["faces"])))
+                size = write_glb(fn, parts)
+                self.info.setText(
+                    tr("Выгружено частей: %d, файл %.1f МБ.")
+                    % (len(parts), size / (1024.0 * 1024.0)))
+            except Exception as err:
+                self.info.setText(tr("Выгрузка не удалась: %s") % err)
+                _log(tr("Выгрузка не удалась: %s") % err)
+
         def _copy_png(self):
             """Кадр сцены в буфер обмена.
 
@@ -1586,6 +1821,78 @@ def _build_dialog(parent):
             self._show_sketch = bool(on)
             self._draw_refresh(
                 closed=bool(self._draw_ring) and not self._draw_mode)
+
+        def _state_save(self):
+            """Сложить настройки сцены в проект QGIS.
+
+            Именно в проект, а не отдельным файлом: настройки описывают
+            те же слои и тот же участок, поэтому должны ехать вместе
+            с проектом и переживать передачу другому человеку.
+            """
+            import json
+            try:
+                state = {
+                    "checked": [
+                        self.layer_list.item(i).data(_USER_ROLE)
+                        for i in range(self.layer_list.count())
+                        if self.layer_list.item(i).checkState() == _CHECKED],
+                    "opts": self._opts,
+                    "vopts": self._vopts,
+                    "vex": float(self.vex.value()),
+                    "spacing": float(self.spacing.value()),
+                    "opacity": float(self.opacity.value()),
+                    "texside": int(self.texside.value()),
+                    "clip": self.clip_combo.currentData(),
+                    "side": self.clip_side.currentData(),
+                    "width": float(self.clip_width.value()),
+                    "ring": self._draw_ring,
+                    "path": self._draw_path,
+                }
+                QgsProject.instance().writeEntry(
+                    "Isoliner3D", "state", json.dumps(state,
+                                                      ensure_ascii=False))
+            except Exception as err:  # nosec
+                _log(tr("Не удалось сохранить состояние сцены: %s") % err)
+
+        def _state_load(self):
+            """Достать настройки сцены из проекта."""
+            import json
+            raw, ok = QgsProject.instance().readEntry("Isoliner3D", "state")
+            if not ok or not raw:
+                return False
+            try:
+                state = json.loads(raw)
+            except Exception:  # nosec
+                return False
+            self._loading_opts = True
+            try:
+                self._opts = dict(state.get("opts") or {})
+                self._vopts = dict(state.get("vopts") or {})
+                self._draw_ring = [tuple(p) for p in state.get("ring") or []]
+                self._draw_path = [tuple(p) for p in state.get("path") or []]
+                self.vex.setValue(state.get("vex", 5.0))
+                self.spacing.setValue(state.get("spacing", 0.0))
+                self.opacity.setValue(state.get("opacity", 0.0))
+                self.texside.setValue(int(state.get("texside", 2048)))
+                self.clip_width.setValue(state.get("width", 250.0))
+                i = _find_data(self.clip_combo, state.get("clip"))
+                self.clip_combo.setCurrentIndex(max(i, 0))
+                j = _find_data(self.clip_side, state.get("side"))
+                self.clip_side.setCurrentIndex(max(j, 0))
+                checked = set(state.get("checked") or [])
+                self.layer_list.blockSignals(True)
+                for i in range(self.layer_list.count()):
+                    it = self.layer_list.item(i)
+                    key = it.data(_USER_ROLE)
+                    if key == _SCENE_KEY:
+                        continue
+                    it.setCheckState(_CHECKED if key in checked
+                                     else _UNCHECKED)
+                self.layer_list.blockSignals(False)
+            finally:
+                self._loading_opts = False
+            self._sync_corridor()
+            return True
 
         def _clip_clear(self):
             """Убрать обрезку и наброски, вернуть сцену целиком."""
@@ -1727,6 +2034,11 @@ def _build_dialog(parent):
             self.draw_combo.blockSignals(False)
 
             self._load_props()
+            if not self._state_read:
+                self._state_read = True
+                if self._state_load():
+                    self.info.setText(tr("Настройки сцены взяты "
+                                         "из проекта."))
 
         def _current_layer(self):
             """Слой выделенной строки или None для «Сцены»."""
@@ -1777,7 +2089,7 @@ def _build_dialog(parent):
             return {"kind": "plain", "as_section": False, "draw": None,
                     "zsrc": "geom" if has_z else "field",
                     "poly": "solid" if has_z else "outline",
-                    "ztop": None,
+                    "ztop": None, "base": None, "htop": "field",
                     "zfield": None, "color": None,
                     "wells_label": None, "wells_fields": []}
 
@@ -1820,6 +2132,12 @@ def _build_dialog(parent):
                 self.vec_ztop.blockSignals(True)
                 self.vec_ztop.clear()
                 self.vec_ztop.addItem(tr("(нет)"), None)
+                self.vec_base.blockSignals(True)
+                self.vec_base.clear()
+                self.vec_base.addItem(tr("(нет)"), None)
+                for r in QgsProject.instance().mapLayers().values():
+                    if isinstance(r, QgsRasterLayer):
+                        self.vec_base.addItem(r.name(), r.id())
                 self.wells_label.blockSignals(True)
                 self.wells_label.clear()
                 self.wells_label.addItem(tr("(нет)"), None)
@@ -1837,6 +2155,11 @@ def _build_dialog(parent):
                 it_ = _find_data(self.vec_ztop, o.get("ztop"))
                 self.vec_ztop.setCurrentIndex(max(it_, 0))
                 self.vec_ztop.blockSignals(False)
+                ib = _find_data(self.vec_base, o.get("base"))
+                self.vec_base.setCurrentIndex(max(ib, 0))
+                self.vec_base.blockSignals(False)
+                ih = _find_data(self.vec_htop, o.get("htop", "field"))
+                self.vec_htop.setCurrentIndex(max(ih, 0))
                 il = _find_data(self.wells_label, o.get("wells_label"))
                 self.wells_label.setCurrentIndex(
                     il if il >= 0 else max(guess, 0))
@@ -1884,6 +2207,8 @@ def _build_dialog(parent):
             prism = (kind == "polygon"
                      and self.vec_poly.currentData() == "prism")
             self.vec_ztop.setEnabled(prism)
+            self.vec_base.setEnabled(prism)
+            self.vec_htop.setEnabled(prism)
             if prism:
                 # призме нужны оба поля, отметка низа обязательна
                 self.vec_zfield.setEnabled(True)
@@ -1924,6 +2249,8 @@ def _build_dialog(parent):
             o["kind"] = self.vec_kind.currentData() or "plain"
             o["poly"] = self.vec_poly.currentData() or "outline"
             o["ztop"] = self.vec_ztop.currentData()
+            o["base"] = self.vec_base.currentData()
+            o["htop"] = self.vec_htop.currentData() or "field"
             o["as_section"] = bool(self.sec_on.isChecked())
             o["draw"] = self.draw_combo.currentData()
             o["zsrc"] = self.vec_zsrc.currentData() or "geom"
@@ -1984,6 +2311,31 @@ def _build_dialog(parent):
             self._warn(tr("У слоя %s нет высоты Z, выберите отметку "
                           "из поля.") % lyr.name())
             return False
+
+        def _base_z(self, ft, geom, opts):
+            """Отметка низа призмы: из поля или с поверхности.
+
+            Поверхность нужна для построек: подошва садится на рельеф,
+            а не на общую для всех отметку. Берётся в центре объекта,
+            поэтому основание получается ровным, как фундамент.
+            """
+            lid = opts.get("base")
+            if not lid:
+                return self._field_value(ft, opts.get("zfield"))
+            lyr = QgsProject.instance().mapLayer(lid)
+            if lyr is None:
+                return self._field_value(ft, opts.get("zfield"))
+            try:
+                c = geom.centroid().asPoint()
+            except Exception:
+                return None
+            arr, gt = _read_raster(lyr.source(), 1, None)
+            if arr is None:
+                return None
+            z = sample_bilinear(arr, gt, c.x(), c.y())
+            if z is None or z != z:
+                return None
+            return float(z)
 
         @staticmethod
         def _field_value(ft, name):
@@ -2091,6 +2443,39 @@ def _build_dialog(parent):
             """Отмеченные растры."""
             return self._checked_of(QgsRasterLayer)
 
+        def _layer_colors(self, lyr):
+            """Цвет объектов по стилю слоя: fid -> строка цвета.
+
+            Легенду заводить не нужно: раскраска уже лежит в стиле слоя
+            и сохраняется вместе с проектом. Сцена спрашивает цвет
+            у слоя, поэтому карта и объём выглядят одинаково.
+            """
+            key = lyr.id()
+            if key in self._layer_colors_cache:
+                return self._layer_colors_cache[key]
+            out = {}
+            try:
+                from qgis.core import QgsRenderContext
+                rnd = lyr.renderer()
+                if rnd is not None:
+                    rnd = rnd.clone()
+                    ctx = QgsRenderContext()
+                    rnd.startRender(ctx, lyr.fields())
+                    for ft in lyr.getFeatures():
+                        sym = rnd.symbolForFeature(ft, ctx)
+                        if sym is not None:
+                            out[ft.id()] = sym.color().name()
+                    rnd.stopRender(ctx)
+            except Exception:  # nosec
+                out = {}
+            self._layer_colors_cache[key] = out
+            # Диагностика: по этой строке видно, читается ли стиль
+            # вообще и какие цвета из него приходят.
+            sample = list(out.values())[:5]
+            _log(tr("Стиль слоя %s: цветов %d, первые %s")
+                 % (lyr.name(), len(out), ", ".join(sample) or "нет"))
+            return out
+
         def _body_meshes(self, prof=None):
             """(verts, faces, name, цвет) по отмеченным полигонам с Z.
 
@@ -2103,10 +2488,12 @@ def _build_dialog(parent):
                 if self._geom_kind(lyr) != "polygon":
                     continue
                 o = self._opts_of(lyr)
+                rings0, lines0 = self._clip_ctx()
                 mode = o.get("poly", "outline")
                 if mode not in ("solid", "prism"):
                     continue          # такой слой рисуется линиями
                 col = o.get("color")
+                by_style = {} if col else self._layer_colors(lyr)
                 zsrc = o.get("zsrc", "geom")
                 if zsrc == "geom" and not _layer_has_z(lyr):
                     self._warn(tr("У слоя %s нет высоты Z, выберите "
@@ -2128,21 +2515,45 @@ def _build_dialog(parent):
                     if g is None or g.isEmpty():
                         continue
                     if mode == "prism":
-                        zb = self._field_value(ft, o.get("zfield"))
-                        zt = self._field_value(ft, o.get("ztop"))
+                        cg = self._clip_geom()
+                        if cg is not None:
+                            side = self.clip_side.currentData()
+                            try:
+                                g = g.difference(cg) if side == "out" \
+                                    else g.intersection(cg)
+                            except Exception:  # nosec
+                                pass
+                            if g is None or g.isEmpty():
+                                continue
+                        zb = self._base_z(ft, g, o)
+                        h = self._field_value(ft, o.get("ztop"))
+                        if o.get("htop") == "add":
+                            # верх это низ плюс высота: подошва дома
+                            # на рельефе, высота в атрибуте
+                            zt = None if (zb is None or h is None) \
+                                else zb + h
+                        else:
+                            zt = h
                         if zb is None or zt is None:
                             n_noz += 1
                             continue
                         if zt < zb:
                             zb, zt = zt, zb
-                        cv, cf = _tri_cached(lyr, ft, g, zt, prof)
+                        if self._clip_geom() is not None:
+                            # геометрия после обрезки своя, ключ кэша
+                            # по объекту тут соврал бы
+                            cv, cf = _tessellate(g, zt)
+                        else:
+                            cv, cf = _tri_cached(lyr, ft, g, zt, prof)
                         v, f = _prism(g, cv, cf, zb, zt)
                         if not len(f):
                             continue
                         k += 1
                         nm = (("%s #%d" % (lyr.name(), k)) if multi
                               else lyr.name())
-                        out.append((v, f, nm, col, lyr.id()))
+                        out.append((v, f, nm,
+                                    col or by_style.get(ft.id()),
+                                    lyr.id()))
                         continue
                     zfix = None if zsrc == "geom" else \
                         (self._feature_z(ft, o) or 0.0)
@@ -2154,24 +2565,45 @@ def _build_dialog(parent):
                             n_flat += 1
                             zlo = flat if zlo is None else min(zlo, flat)
                             zhi = flat if zhi is None else max(zhi, flat)
-                        # и плоский контур, и скат разбираются одинаково
-                        # честно. Веер давал лучи через фигуру и терял
-                        # внутренние кольца, поясу между изолиниями это
-                        # ломало и форму, и отметки.
-                        v, f = _tri_cached(lyr, ft, g, flat, prof)
+                        # Плоский контур разбирается в плане, объект
+                        # с переменной Z по кольцам, каждое в своей
+                        # плоскости: вертикальная стенка в плане
+                        # вырождается в линию, и разбивка по плану
+                        # даёт мусор.
+                        if flat is None:
+                            v, f = _tris_from_geometry(g)
+                            if _is_closed(v, f) and (rings0 or lines0):
+                                v, f = self._clip_tris(v, f)
+                                cv, cf = self._cap_cut(v, f)
+                                if len(cf):
+                                    f = np.vstack([f, cf + len(v)])
+                                    v = np.vstack([v, cv])
+                                if not len(f):
+                                    continue
+                                k += 1
+                                nm = (("%s #%d" % (lyr.name(), k))
+                                      if multi else lyr.name())
+                                out.append((v, f, nm,
+                                            col or by_style.get(ft.id()),
+                                            lyr.id()))
+                                continue
+                        else:
+                            v, f = _tri_cached(lyr, ft, g, flat, prof)
                     else:
                         v, f = _tri_cached(lyr, ft, g, zfix, prof)
                     if not len(f):
                         continue
-                    if len(v):
-                        cxx = float(np.mean(v[:, 0]))
-                        cyy = float(np.mean(v[:, 1]))
-                        if not self._point_kept(cxx, cyy):
+                    rings_c, lines_c = self._clip_ctx()
+                    if len(f) and (rings_c or lines_c):
+                        # Пояса это открытые поверхности, крышка на срезе
+                        # им не нужна: режем сами грани по контуру.
+                        v, f = self._clip_tris(v, f)
+                        if not len(f):
                             continue
                     k += 1
                     nm = ("%s #%d" % (lyr.name(), k)) if multi else lyr.name()
-                    out.append((v, f.astype(np.int64), nm, col,
-                                lyr.id()))
+                    out.append((v, f.astype(np.int64), nm,
+                                col or by_style.get(ft.id()), lyr.id()))
                 if n_flat and not n_solid:
                     self._warn(tr(
                         "Слой %s: все %d объектов плоские, отметки "
@@ -2533,6 +2965,203 @@ def _build_dialog(parent):
                                     zlo, zhi, att))
             return out
 
+        def _clip_tris(self, v, f):
+            """Обрезать треугольники по области обрезки.
+
+            Грани, целиком внутри, остаются как есть, целиком снаружи
+            выбрасываются, а пересечённые режутся по контуру: у пояса
+            встречаются треугольники крупнее коридора, и отбор по центру
+            для них не годится, они торчали за краем.
+            """
+            import numpy as np
+            cg = self._clip_geom()
+            side = self.clip_side.currentData()
+            inside_v = self._points_kept(v[:, 0], v[:, 1])
+            tri_in = inside_v[f]
+            n_in = tri_in.sum(axis=1)
+            keep_all = n_in == 3
+            mixed = (n_in > 0) & (n_in < 3)
+            out_v = [v]
+            out_f = [f[keep_all]]
+            base = len(v)
+            if cg is not None and mixed.any():
+                from qgis.core import QgsGeometry, QgsPointXY
+                for idx in np.nonzero(mixed)[0]:
+                    tri = v[f[idx]]
+                    poly = QgsGeometry.fromPolygonXY(
+                        [[QgsPointXY(float(x), float(y))
+                          for x, y in tri[:, :2]]
+                         + [QgsPointXY(float(tri[0, 0]),
+                                       float(tri[0, 1]))]])
+                    try:
+                        cut = poly.difference(cg) if side == "out" \
+                            else poly.intersection(cg)
+                    except Exception:  # nosec
+                        continue
+                    if cut is None or cut.isEmpty():
+                        continue
+                    cv, cf = _tessellate(cut, 0.0)
+                    if not len(cf):
+                        continue
+                    cv = cv.copy()
+                    cv[:, 2] = _bary_z(tri, cv[:, 0], cv[:, 1])
+                    out_v.append(cv)
+                    out_f.append(np.asarray(cf, dtype=np.int64) + base)
+                    base += len(cv)
+            faces = np.vstack(out_f) if out_f else np.zeros((0, 3),
+                                                            dtype=np.int64)
+            return np.vstack(out_v), faces.astype(np.int64)
+
+        def _cap_cut(self, v, f):
+            """Крышка на срезе замкнутой оболочки.
+
+            После резки граней в оболочке остаётся отверстие, и сквозь
+            него видна изнанка. Отверстие ограничено рёбрами, лежащими
+            на контуре обрезки. Эти рёбра собираются в кольца, кольцо
+            перекладывается в координаты «путь вдоль контура на отметку»,
+            где оно плоское, там разбивается и возвращается обратно.
+            """
+            import numpy as np
+            cg = self._clip_geom()
+            if cg is None or not len(f):
+                return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+            try:
+                line = cg.boundary()
+            except Exception:  # nosec
+                return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+            if line is None or line.isEmpty():
+                return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+
+            # рёбра, принадлежащие одной грани, это край отверстия
+            import collections
+            edges = collections.Counter()
+            for tri in f:
+                for a, b in ((tri[0], tri[1]), (tri[1], tri[2]),
+                             (tri[2], tri[0])):
+                    edges[(a, b) if a < b else (b, a)] += 1
+            border = [e for e, n in edges.items() if n == 1]
+            if not border:
+                return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+
+            from qgis.core import QgsGeometry, QgsPointXY
+            tol = max(cg.boundingBox().width(),
+                      cg.boundingBox().height()) * 1e-4 + 1e-6
+
+            def on_cut(i):
+                p = QgsGeometry.fromPointXY(
+                    QgsPointXY(float(v[i, 0]), float(v[i, 1])))
+                return line.distance(p) <= tol
+
+            keep_edges = [e for e in border if on_cut(e[0]) and on_cut(e[1])]
+            if not keep_edges:
+                return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+
+            # путь вдоль контура для каждой вершины среза
+            spos = {}
+            for e in keep_edges:
+                for i in e:
+                    if i in spos:
+                        continue
+                    p = QgsGeometry.fromPointXY(
+                        QgsPointXY(float(v[i, 0]), float(v[i, 1])))
+                    try:
+                        spos[i] = float(line.lineLocatePoint(p))
+                    except Exception:  # nosec
+                        return (np.zeros((0, 3)),
+                                np.zeros((0, 3), dtype=np.int64))
+
+            # кольца из рёбер среза
+            adj = collections.defaultdict(list)
+            for a, b in keep_edges:
+                adj[a].append(b)
+                adj[b].append(a)
+            seen, loops = set(), []
+            for start in adj:
+                if start in seen:
+                    continue
+                loop, cur, prev = [start], start, None
+                seen.add(start)
+                while True:
+                    nxt = [x for x in adj[cur] if x != prev]
+                    nxt = [x for x in nxt if x not in seen or x == start]
+                    if not nxt:
+                        break
+                    step = nxt[0]
+                    if step == start:
+                        break
+                    loop.append(step)
+                    seen.add(step)
+                    prev, cur = cur, step
+                if len(loop) >= 3:
+                    loops.append(loop)
+            if not loops:
+                return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+
+            out_v, out_f, base = [], [], 0
+            for loop in loops:
+                ss = [spos[i] for i in loop]
+                zz = [float(v[i, 2]) for i in loop]
+                flat = QgsGeometry.fromPolygonXY(
+                    [[QgsPointXY(a, b) for a, b in zip(ss, zz)]])
+                cv, cf = _tessellate(flat, 0.0)
+                if not len(cf):
+                    continue
+                pts = []
+                for s_, z_, _q in cv:
+                    try:
+                        pnt = line.interpolate(float(s_)).asPoint()
+                    except Exception:  # nosec
+                        pnt = None
+                    if pnt is None:
+                        pts = []
+                        break
+                    pts.append((pnt.x(), pnt.y(), float(z_)))
+                if not pts:
+                    continue
+                out_v.append(np.asarray(pts, dtype=float))
+                out_f.append(np.asarray(cf, dtype=np.int64) + base)
+                base += len(pts)
+            if not out_f:
+                return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+            return np.vstack(out_v), np.vstack(out_f)
+
+        def _clip_geom(self):
+            """Область обрезки как геометрия QGIS или None.
+
+            Нужна, чтобы резать тела по-настоящему, а не выбрасывать
+            их целиком по центру: пересечение даёт новый контур,
+            и по нему призма строится заново вместе с крышками. Срез
+            получается закрытым, а не дырой в оболочке.
+            """
+            if self._clip_geom_now is not None:
+                return self._clip_geom_now or None
+            from qgis.core import QgsGeometry, QgsPointXY
+            rings, lines = self._clip_ctx()
+            mode = self.clip_side.currentData()
+            geom = None
+            try:
+                if rings:
+                    polys = [[[QgsPointXY(x, y) for x, y in ring]]
+                             for ring in rings]
+                    parts = [QgsGeometry.fromPolygonXY(pl) for pl in polys]
+                    geom = parts[0]
+                    for g2 in parts[1:]:
+                        geom = geom.combine(g2)
+                elif lines and mode == "corridor":
+                    w = float(self.clip_width.value())
+                    parts = []
+                    for pts in lines:
+                        ln = QgsGeometry.fromPolylineXY(
+                            [QgsPointXY(x, y) for x, y in pts])
+                        parts.append(ln.buffer(w, 12))
+                    geom = parts[0]
+                    for g2 in parts[1:]:
+                        geom = geom.combine(g2)
+            except Exception:  # nosec
+                geom = None
+            self._clip_geom_now = geom if geom is not None else False
+            return geom
+
         def _clip_ctx(self):
             """Контур и линии обрезки, посчитанные один раз за сборку.
 
@@ -2542,6 +3171,64 @@ def _build_dialog(parent):
             if self._clip_now is None:
                 self._clip_now = (self._clip_rings(), self._clip_lines())
             return self._clip_now
+
+        def _points_kept(self, xs, ys):
+            """Отбор сразу для множества точек.
+
+            Поточечная проверка на десятках тысяч треугольников занимала
+            десятки секунд: то же самое считается разом по массиву.
+            """
+            import numpy as np
+            xs = np.asarray(xs, dtype=float)
+            ys = np.asarray(ys, dtype=float)
+            rings, lines = self._clip_ctx()
+            if not rings and not lines:
+                return np.ones(xs.shape, dtype=bool)
+            mode = self.clip_side.currentData()
+            if rings:
+                inside = np.zeros(xs.shape, dtype=bool)
+                for ring in rings:
+                    pts = list(ring)
+                    if pts[0] != pts[-1]:
+                        pts = pts + [pts[0]]
+                    p = np.asarray(pts, dtype=float)
+                    x1, y1 = p[:-1, 0], p[:-1, 1]
+                    x2, y2 = p[1:, 0], p[1:, 1]
+                    for i in range(len(x1)):
+                        cross = (y1[i] > ys) != (y2[i] > ys)
+                        with np.errstate(divide="ignore", invalid="ignore"):
+                            xx = x1[i] + (ys - y1[i]) * (x2[i] - x1[i]) \
+                                / (y2[i] - y1[i])
+                        inside ^= cross & (xs < xx)
+                return ~inside if mode == "out" else inside
+            keep = np.zeros(xs.shape, dtype=bool)
+            width = float(self.clip_width.value())
+            for pts in lines:
+                p = np.asarray(pts, dtype=float)
+                a, b = p[:-1], p[1:]
+                d = b - a
+                seg2 = (d ** 2).sum(axis=1)
+                seg2[seg2 == 0] = 1e-12
+                best = np.full(xs.shape, np.inf)
+                sign = np.zeros(xs.shape)
+                for i in range(len(a)):
+                    tt = ((xs - a[i, 0]) * d[i, 0]
+                          + (ys - a[i, 1]) * d[i, 1]) / seg2[i]
+                    tt = np.clip(tt, 0.0, 1.0)
+                    px = a[i, 0] + tt * d[i, 0]
+                    py = a[i, 1] + tt * d[i, 1]
+                    dist = np.hypot(xs - px, ys - py)
+                    closer = dist < best
+                    best = np.where(closer, dist, best)
+                    cr = d[i, 0] * (ys - a[i, 1]) - d[i, 1] * (xs - a[i, 0])
+                    sign = np.where(closer, np.sign(cr), sign)
+                if mode == "left":
+                    keep |= sign > 0
+                elif mode == "right":
+                    keep |= sign < 0
+                else:
+                    keep |= best <= width
+            return keep
 
         def _point_kept(self, x, y):
             """Показана ли точка после обрезки.
@@ -3063,8 +3750,17 @@ def _build_dialog(parent):
             if not pts:
                 self.view.update()
                 return
-            arr = np.array([(x - cx, y - cy, (z - cz) * vex + 1e-9)
-                            for x, y, z in pts], dtype='float32')
+            # Разметка кладётся на один уровень над сценой. Высота
+            # вершины берётся с поверхности только ради попадания луча,
+            # для обрезки важно плановое положение, а разброс отметок
+            # при вертикальном преувеличении читается как ошибка.
+            ztop = pk.get("ztop")
+            if ztop is None:
+                lvl = 0.0
+            else:
+                lvl = (float(ztop) - cz) * vex + pk.get("span", 1.0) * 0.02
+            arr = np.array([(x - cx, y - cy, lvl)
+                            for x, y, _z in pts], dtype='float32')
             self._draw_dots = gl.GLScatterPlotItem(
                 pos=arr, color=(0.95, 0.35, 0.1, 1.0), size=9.0,
                 pxMode=True)
@@ -3271,6 +3967,28 @@ def _build_dialog(parent):
             except Exception:  # nosec
                 pass
 
+        def _keep_for_export(self, name, verts, faces, colors=None):
+            """Отложить часть сцены для выгрузки.
+
+            Координаты приводятся к настоящим: центр сцены возвращается
+            на место, вертикальное преувеличение снимается. Преувеличение
+            это способ смотреть, а не свойство модели, и в файле ему
+            не место.
+            """
+            import numpy as np
+            pk = self._pick or {}
+            cx, cy = pk.get("cx", 0.0), pk.get("cy", 0.0)
+            cz, vex = pk.get("cz", 0.0), pk.get("vex", 1.0) or 1.0
+            v = np.asarray(verts, dtype=float).copy()
+            v[:, 0] += cx
+            v[:, 1] += cy
+            v[:, 2] = v[:, 2] / vex + cz
+            self._export.append({"name": name, "verts": v,
+                                 "faces": np.asarray(faces),
+                                 "colors": colors})
+            _log(tr("В выгрузку: %s, вершин %d, граней %d")
+                 % (name, len(v), len(np.asarray(faces))))
+
         def _add_item(self, item, owner=None):
             """Положить элемент в сцену, запомнив, чьего он слоя.
 
@@ -3316,6 +4034,9 @@ def _build_dialog(parent):
         def _rebuild_scene(self):
             prof = _Prof()
             self._clip_now = None
+            self._clip_geom_now = None
+            self._layer_colors_cache = {}
+            self._export = []
             self._warnings = []
             for m in self._items:
                 self.view.removeItem(m)
@@ -3493,6 +4214,16 @@ def _build_dialog(parent):
                                           alpha, prof, o)
                     if item is not None:
                         self._add_item(item, lid)
+                        # В GLB текстура пока не уходит: для неё нужны
+                        # координаты текстуры у каждой вершины и сама
+                        # картинка внутри файла. Поверхность выгружается
+                        # ровным цветом, чтобы не пропасть вовсе.
+                        lyr_e = QgsProject.instance().mapLayer(lid)
+                        self._keep_for_export(
+                            lyr_e.name() if lyr_e else "surface",
+                            v, faces,
+                            np.tile(np.array(color[:3] + (1.0,)),
+                                    (len(v), 1)))
                         continue
                 if attr is not None and lid in attr[0]:
                     vals, vmin, vmax, rng = attr
@@ -3507,6 +4238,11 @@ def _build_dialog(parent):
                                          color=color[:3] + (alpha,),
                                          glOptions=gopt)
                 self._add_item(item, lid)
+                lyr_e = QgsProject.instance().mapLayer(lid)
+                self._keep_for_export(
+                    lyr_e.name() if lyr_e else "surface", verts, faces,
+                    np.tile(np.array(color[:3] + (1.0,)),
+                            (len(verts), 1)))
             # тела (полиэдры/полигоны с Z): плоские грани, окраска палитрой
             # Объекты собираются в один меш на сцену, а цвет каждого
             # хранится в его вершинах. Отдельный элемент на объект стоил
@@ -3542,9 +4278,17 @@ def _build_dialog(parent):
                     md = gl.MeshData(vertexes=bv, faces=bf)
                     md.setVertexColors(np.vstack(allc))
                     prof.count("tris", len(bf)).count("verts", len(bv))
+                    # Без затенения: цвет берётся из стиля слоя, и
+                    # затенение его умножает, уводя оранжевый в бурый.
+                    # Пояса плоские, светотень им ничего не добавляет,
+                    # а совпадение с картой важнее.
                     item = gl.GLMeshItem(meshdata=md, smooth=False,
-                                         shader='shaded', glOptions=gopt)
+                                         shader=None, glOptions=gopt)
                     self._add_item(item, lid_b)
+                    lyr_e = QgsProject.instance().mapLayer(lid_b)
+                    self._keep_for_export(
+                        lyr_e.name() if lyr_e else "body", bv, bf,
+                        np.vstack(allc))
             if attr is not None:
                 self._show_legend(attr[1], attr[2])
             else:
@@ -3553,7 +4297,7 @@ def _build_dialog(parent):
 
             self._pick_marker = None
             self._pick = dict(cx=cx, cy=cy, cz=cz, vex=vex, span=span,
-                              layers=[])
+                              ztop=float(max(zs_)), layers=[])
             for k, (verts, faces, color, lid, as_bed, src, o,
                     _sa, _gt, _zo) in enumerate(meshes):
                 zb = 1 if as_bed else int(o.get("zband", 1))
@@ -3847,6 +4591,7 @@ def _build_dialog(parent):
             # заново, уже по новому центру.
             self._draw_refresh(
                 closed=bool(self._draw_ring) and not self._draw_mode)
+            self._state_save()
             prof.add("scene").count("items", len(self._items))
             for w in self._warnings[:3]:
                 msg += " " + w

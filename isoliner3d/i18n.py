@@ -108,6 +108,8 @@ TRANSLATIONS = {
     'Блоков выгружено: %d.': 'Blocks exported: %d.',
     'Блочная модель (центроиды)': 'Block model (centroids)',
     'Блочная модель: %s': 'Block model: %s',
+    'В выгрузку: %s, вершин %d, граней %d':
+        'To the export: %s, %d vertices, %d faces',
     'В определении разреза нет полей ox и oy: чертёж наложить не по чему. '
     'Постройте разрез текущей версией Isoliner.':
         'The section definition has no ox and oy fields: there is nothing to '
@@ -116,12 +118,21 @@ TRANSLATIONS = {
     'В слое %s объектов %d, показаны первые %d.':
         'The layer %s holds %d features, the first %d are shown.',
     'Вертикальное преувеличение': 'Vertical exaggeration',
+    'Верх призмы': 'Prism top',
+    'Верх: низ плюс высота из поля': 'Top: the bottom plus a height field',
+    'Верх: поле верха': 'Top: the top field',
     'Вид сверху, план': 'Top view, a plan',
     'Вложенные контуры уровней осмысленно смотреть линиями. Заливка нужна '
     'телам пласта и полиэдрам.':
         'Nested level contours make sense as lines. The fill is for bed '
         'bodies and polyhedra.',
     'Все': 'All',
+    'Выгружать нечего: сцена пуста.': 'Nothing to export: the scene is empty.',
+    'Выгружено частей: %d, файл %.1f МБ.':
+        'Exported parts: %d, the file is %.1f MB.',
+    'Выгрузить сцену': 'Export the scene',
+    'Выгрузить сцену в файл GLB': 'Export the scene to a GLB file',
+    'Выгрузка не удалась: %s': 'The export failed: %s',
     'Выдать как TIN (триангулировать)': 'Output as TIN (triangulate)',
     'Граней: %d.': 'Patches: %d.',
     'Грид не открылся.': 'The grid did not open.',
@@ -209,6 +220,8 @@ TRANSLATIONS = {
     'Мощность, ед. карты': 'Thickness, map units',
     'Нарисованная линия': 'The drawn line',
     'Нарисованный контур': 'The drawn contour',
+    'Настройки сцены взяты из проекта.':
+        'The scene settings are taken from the project.',
     'Нативный тип {0} на этой сборке недоступен - вывод как MultiPolygon Z. '
     'Нативный PolyhedralSurface / TIN и QSFCGAL доступны с QGIS 3.40.':
         'The native {0} type is unavailable on this build, output as '
@@ -223,6 +236,13 @@ TRANSLATIONS = {
         'Could not split the suite into layers (%s) - output as one layer.',
     'Не удалось собрать геометрию из WKT.':
         'Could not build geometry from WKT.',
+    'Не удалось сохранить состояние сцены: %s':
+        'The scene state could not be saved: %s',
+    'Низ призмы берётся с этой поверхности: подошва дома садится на рельеф, '
+    'а не на заданную отметку.':
+        'The bottom of the prism is taken from this surface: a building sits '
+        'on the relief rather than on a fixed elevation.',
+    'Низ призмы с поверхности': 'Prism bottom from a surface',
     'Ничего': 'None',
     'Нужен многоканальный грид пласта (каналы 1 и 2).':
         'A multiband bed grid is required (bands 1 and 2).',
@@ -304,10 +324,11 @@ TRANSLATIONS = {
     'Показывать плоскостью разреза': 'Show as a section plane',
     'Показывать разметку: контур и линию разреза':
         'Show the markup: the contour and the section line',
-    'Поле верха призмы': 'Prism top field',
-    'Поле верха призмы. Поле низа задаётся строкой «Поле отметки».':
-        'The top field of the prism. The bottom is set by the «Elevation '
-        'field» row.',
+    'Поле верха или высоты': 'The top or height field',
+    'Поле верха призмы либо высоты над низом, смотря что выбрано строкой '
+    'выше.':
+        'The field of the prism top or of the height above the bottom, '
+        'depending on the row above.',
     'Поле запаса': 'Reserve field',
     'Поле кода домена (число, необязательно)':
         'Domain code field (numeric, optional)',
@@ -332,6 +353,10 @@ TRANSLATIONS = {
         'Editing the properties rebuilds the scene at once. On a heavy scene '
         'untick this and use the button.',
     'Призмой (от поля до поля)': 'As a prism (from field to field)',
+    'Применить вертикальное преувеличение %.2f?\nДа - модель как на '
+    'экране.\nНет - настоящие высоты, годные для расчёта.':
+        'Apply the vertical exaggeration %.2f?\nYes - the model as on '
+        'screen.\nNo - true elevations, fit for calculation.',
     'Пример': 'Example',
     'Прозрачность поверхностей (процентов)': 'Surface transparency (percent)',
     'Пропущено: %s': 'Skipped: %s',
@@ -512,6 +537,8 @@ TRANSLATIONS = {
     'Сохранить снимок': 'Save the snapshot',
     'Справа от линии': 'To the right of the line',
     'Справка (руководство PDF)…': 'Help (PDF manual)…',
+    'Стиль слоя %s: цветов %d, первые %s':
+        'The style of the layer %s: %d colours, the first are %s',
     'Сторона текстуры (пикселей)': 'Texture side (pixels)',
     'Сторона текстуры по длинной оси охвата. Больше значение - детальнее '
     'карта на поверхности и больше видеопамяти.':
@@ -580,6 +607,7 @@ TRANSLATIONS = {
     'Файл руководства не найден: %s': 'The manual file was not found: %s',
     'Фильтр слоёв…': 'Filter layers…',
     'Цвет': 'Colour',
+    'Часть %s: вершин %d, граней %d': 'Part %s: %d vertices, %d faces',
     'Чертежа для разреза %d в выбранных слоях нет: похоже, чертёж и '
     'определение из разных построений.':
         'There is no drawing for section %d in the chosen layers: the '

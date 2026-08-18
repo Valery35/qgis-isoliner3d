@@ -297,6 +297,38 @@ TEXTS = {
                "interface is bilingual, the language comes from the QGIS "
                "locale. The tools work in models and in batch mode."),
 
+"fam.eyebrow":("Набор плагинов", "The set of plugins"),
+"fam.h2":     ("От точек наблюдений до объёмной модели",
+               "From observation points to a volumetric model"),
+"fam.sub":    ("Isoliner3D работает не сам по себе. Три плагина делят "
+               "путь на части, и каждый занят своей: расчёт, порядок "
+               "в контурах, показ и подсчёт. Все три работают "
+               "независимо, ставить весь набор не обязательно.",
+               "Isoliner3D does not work on its own. Three plugins split "
+               "the way into parts, each busy with its own: the "
+               "computation, the order in the contours, the display and "
+               "the count. All three work independently, installing the "
+               "whole set is not required."),
+"fam.c1.h":   ("Isoliner", "Isoliner"),
+"fam.c1.p":   ("Кригинг с вариограммами, минимальная кривизна, изолинии, "
+               "рельеф и водосборы, разрезы с чертежами, геологическая "
+               "модель пласта. Готовит гриды и пояса, которые "
+               "показывает Isoliner3D.",
+               "Kriging with variograms, minimum curvature, isolines, "
+               "relief and catchments, sections with drawings, "
+               "a geological bed model. It prepares the grids and belts "
+               "that Isoliner3D shows."),
+"fam.c1.a":   ("Открыть в каталоге QGIS", "Open in the QGIS catalogue"),
+"fam.c2.h":   ("Topoliner", "Topoliner"),
+"fam.c2.p":   ("Чистка топологии: висячие узлы, самопересечения, щели "
+               "и нахлёсты между смежными полигонами, прореживание "
+               "с сохранением топологии. Рваная топология на карте "
+               "превращается в рваную оболочку в объёме.",
+               "Topology cleaning: dangling nodes, self-intersections, "
+               "gaps and overlaps between adjacent polygons, thinning "
+               "that preserves topology. A torn topology on the map "
+               "turns into a torn shell in three dimensions."),
+"fam.c2.a":   ("Открыть в каталоге QGIS", "Open in the QGIS catalogue"),
 "ftr.line1":  ("лицензия GNU GPL v2 или новее · QGIS 3.16 и новее",
                "GNU GPL v2 or later · QGIS 3.16 and newer"),
 "ftr.line2":  ("Разработано ООО «Информ++»", "Developed by Inform++ LLC"),
@@ -437,6 +469,7 @@ figcaption{margin-top:10px;font-size:14px;color:var(--ink-soft)}
         <a href="#texture" data-i18n="nav.cases"></a>
         <a href="#tools" data-i18n="nav.tools"></a>
         <a href="#docs" data-i18n="nav.docs"></a>
+        <a href="#family" data-i18n="fam.eyebrow"></a>
       </nav>
       <div class="lang">
         <button type="button" data-lang="ru">RU</button>
@@ -536,6 +569,24 @@ figcaption{margin-top:10px;font-size:14px;color:var(--ink-soft)}
          href="https://plugins.qgis.org/plugins/isoliner3d/"></a>
       <a class="btn btn-ghost" data-i18n="cta.code2"
          href="https://github.com/Valery35/qgis-isoliner3d"></a>
+    </div>
+  </div>
+</section>
+
+<section id="family">
+  <div class="wrap">
+    <div class="eyebrow" data-i18n="fam.eyebrow"></div>
+    <h2 data-i18n="fam.h2"></h2>
+    <p class="sub" data-i18n="fam.sub"></p>
+    <div class="pair">
+      <div class="card"><h3 data-i18n="fam.c1.h"></h3>
+        <p data-i18n="fam.c1.p"></p>
+        <p><a href="https://plugins.qgis.org/plugins/grid_isolines/"
+              data-i18n="fam.c1.a"></a></p></div>
+      <div class="card"><h3 data-i18n="fam.c2.h"></h3>
+        <p data-i18n="fam.c2.p"></p>
+        <p><a href="https://plugins.qgis.org/plugins/topoliner/"
+              data-i18n="fam.c2.a"></a></p></div>
     </div>
   </div>
 </section>

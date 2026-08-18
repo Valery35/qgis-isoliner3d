@@ -158,6 +158,43 @@ def test_cylinder():
     assert len(ve) == 0 and len(fe) == 0
 
 
+def test_vertical_span_finds_the_body():
+    """Вертикальный луч даёт интервал, который тело занимает по высоте."""
+    from isoliner3d.mesh3d import vertical_span
+    v = np.array([[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0],
+                  [0, 0, 5], [10, 0, 5], [10, 10, 5], [0, 10, 5]], float)
+    f = np.array([[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7]], np.int64)
+    lo, hi = vertical_span(v, f, 5, 5)
+    assert (lo, hi) == (0.0, 5.0)
+    assert vertical_span(v, f, 20, 5) is None
+
+
+def test_cap_ribbon_closes_the_cut():
+    """Крышка на срезе: лента между низом и верхом вдоль линии реза.
+
+    Без неё вырезанный кусок выглядит дырой в оболочке: видно изнанку
+    вместо разреза.
+    """
+    from isoliner3d.mesh3d import cap_ribbon
+    v = np.array([[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0],
+                  [0, 0, 5], [10, 0, 5], [10, 10, 5], [0, 10, 5]], float)
+    f = np.array([[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7]], np.int64)
+    cv, cf = cap_ribbon(v, f, [(2, 2), (8, 8)])
+    assert len(cf) == 2 and len(cv) == 4
+    assert sorted({round(z, 1) for z in cv[:, 2]}) == [0.0, 5.0]
+    assert cf.max() < len(cv)
+
+
+def test_cap_ribbon_skips_outside_stations():
+    """Там, где тела нет, лента не строится."""
+    from isoliner3d.mesh3d import cap_ribbon
+    v = np.array([[0, 0, 0], [10, 0, 0], [10, 10, 0], [0, 10, 0],
+                  [0, 0, 5], [10, 0, 5], [10, 10, 5], [0, 10, 5]], float)
+    f = np.array([[0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7]], np.int64)
+    cv, cf = cap_ribbon(v, f, [(20, 20), (30, 30)])
+    assert len(cf) == 0 and len(cv) == 0
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
