@@ -291,4 +291,20 @@ document.querySelectorAll('.lang button').forEach(function(b){
 var saved = null;
 try { saved = localStorage.getItem('isoliner3d-lang'); } catch (e) {}
 apply(saved || 'ru');
+
+// Переход по адресу с решёткой случается до подстановки текстов:
+// страница в этот момент почти пустая, секции стоят вплотную, и браузер
+// попадает почти в начало. Тексты появляются, страница вырастает,
+// а прокрутка остаётся на месте. Поэтому доводим её сами.
+(function () {
+  var id = (location.hash || '').slice(1);
+  if (!id) return;
+  var go = function () {
+    var el = document.getElementById(id);
+    if (el) el.scrollIntoView({block: 'start'});
+  };
+  go();
+  setTimeout(go, 0);
+  window.addEventListener('load', go);
+})();
 </script>
