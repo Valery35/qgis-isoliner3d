@@ -185,16 +185,47 @@ class FakeFeature(object):
 def test_body_budget_counts_vertices():
     """Тысяча мелких поясов проходит, десяток кварталов-гигантов нет."""
     small = [FakeFeature(300) for _ in range(1174)]
-    assert len(v3._body_budget(small, 1)) == 1174
+    assert len(v3._body_budget(small, 1)[0]) == 1174
     huge = [FakeFeature(200000) for _ in range(10)]
-    assert len(v3._body_budget(huge, 1)) == 3
+    assert len(v3._body_budget(huge, 1)[0]) == 3
     # хотя бы один объект берётся всегда, каким бы тяжёлым он ни был
-    assert len(v3._body_budget([FakeFeature(10 ** 7)], 1)) == 1
+    assert len(v3._body_budget([FakeFeature(10 ** 7)], 1)[0]) == 1
 
 
 def test_body_budget_object_ceiling():
     tiny = [FakeFeature(1) for _ in range(v3._MAX_BODIES + 50)]
-    assert len(v3._body_budget(tiny, 1)) == v3._MAX_BODIES
+    assert len(v3._body_budget(tiny, 1)[0]) == v3._MAX_BODIES
+
+
+def test_body_budget_reports_what_it_spent():
+    """Возвращаются и набранные вершины, и сам бюджет.
+
+    Без этих чисел сообщение об урезании читается как нехватка
+    памяти, а крутить пользователю нечего.
+    """
+    feats = [FakeFeature(1000) for _ in range(10)]
+    keep, used, budget = v3._body_budget(feats, 1)
+    assert len(keep) == 10
+    assert used == 10000
+    assert budget == v3.MAX_VERTS_SCENE
+
+
+def test_body_budget_divisor_changes_what_fits():
+    """Делитель бюджета решает, влезет слой целиком или нет.
+
+    Ровно этот случай и наблюдался: 279 тел по 1300 вершин влезают
+    при делителе один и обрезаются при двух.
+    """
+    feats = [FakeFeature(1300) for _ in range(279)]
+    assert len(v3._body_budget(feats, 1)[0]) == 279
+    assert len(v3._body_budget(feats, 2)[0]) < 279
+
+
+def test_body_budget_cap_can_be_raised():
+    """Поднятый потолок пропускает то, что не влезало."""
+    feats = [FakeFeature(1300) for _ in range(279)]
+    assert len(v3._body_budget(feats, 2)[0]) < 279
+    assert len(v3._body_budget(feats, 2, cap=1200000)[0]) == 279
 
 
 if __name__ == "__main__":

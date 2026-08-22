@@ -207,9 +207,16 @@ def _load_tri():
         calls["n"] += 1
         return np.zeros((4, 3)), np.zeros((2, 3), dtype=np.int64)
 
+    spatial = {"n": 0}
+
+    def fake_spatial(geom, both_sides=True):
+        spatial["n"] += 1
+        return np.zeros((6, 3)), np.zeros((3, 3), dtype=np.int64)
+
     ns["_tessellate"] = fake
+    ns["_tris_from_geometry"] = fake_spatial
     ns["tri_cache_clear"]()
-    return ns, calls
+    return ns, calls, spatial
 
 
 class _Box(object):
@@ -258,7 +265,7 @@ def test_triangulation_is_cached_per_feature():
     На пятистах контурах она занимала шесть секунд и повторялась при
     каждом нажатии «Обновить сцену», хотя геометрия не менялась.
     """
-    ns, calls = _load_tri()
+    ns, calls, _sp = _load_tri()
     tri, lyr, geom = ns["_tri_cached"], _Lyr(), _Geom2()
     for _ in range(3):
         tri(lyr, _Feat(1), geom, None)
@@ -270,7 +277,7 @@ def test_triangulation_is_cached_per_feature():
 
 def test_triangulation_key_separates_elevation():
     """Та же геометрия на другой отметке это другая разбивка."""
-    ns, calls = _load_tri()
+    ns, calls, _sp = _load_tri()
     tri, lyr, geom = ns["_tri_cached"], _Lyr(), _Geom2()
     tri(lyr, _Feat(1), geom, None)
     tri(lyr, _Feat(1), geom, 125.0)
@@ -278,6 +285,38 @@ def test_triangulation_key_separates_elevation():
     assert ns["tri_cache_size"]()[0] == 2
     ns["tri_cache_clear"]()
     assert ns["tri_cache_size"]() == (0, 0)
+
+
+def test_spatial_triangulation_is_cached():
+    """Тела с переменной отметкой тоже разбираются один раз.
+
+    Именно этот путь и не был закэширован: слой из 237 тел собирался
+    семнадцать секунд, и столько же на каждое нажатие кнопки.
+    """
+    ns, _calls, spatial = _load_tri()
+    tri, lyr, geom = ns["_tri_cached"], _Lyr(), _Geom2()
+    for _ in range(4):
+        tri(lyr, _Feat(1), geom, None, spatial=True)
+    assert spatial["n"] == 1, spatial
+    tri(lyr, _Feat(2), geom, None, spatial=True)
+    assert spatial["n"] == 2, spatial
+    ns["tri_cache_clear"]()
+
+
+def test_spatial_and_flat_keys_do_not_collide():
+    """Разбивка по кольцам и разбивка в плане это разные результаты.
+
+    У одного объекта они обе законны, и подменять одну другой нельзя:
+    в плане вертикальная стенка вырождается в линию.
+    """
+    ns, calls, spatial = _load_tri()
+    tri, lyr, geom = ns["_tri_cached"], _Lyr(), _Geom2()
+    flat_v, _flat_f = tri(lyr, _Feat(1), geom, None)
+    sp_v, _sp_f = tri(lyr, _Feat(1), geom, None, spatial=True)
+    assert calls["n"] == 1 and spatial["n"] == 1
+    assert len(flat_v) != len(sp_v)
+    assert ns["tri_cache_size"]()[0] == 2
+    ns["tri_cache_clear"]()
 
 
 if __name__ == "__main__":

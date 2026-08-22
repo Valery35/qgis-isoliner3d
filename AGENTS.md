@@ -48,18 +48,22 @@ v3.2.0`, домен codeload из контейнера доступен.
 | `__init__.py` | `classFactory`, точка входа QGIS |
 | `plugin.py` | регистрация провайдера, пункт меню и кнопка тулбара, панель `Isoliner3D`. Пункт 3D добавляется только если `viewer3d.is_available()`, провайдер - всегда |
 | `provider.py` | провайдер Processing, id `isoliner3d` |
-| `algorithms.py` | группа «Пласт и блочная модель»: хелперы, базовый класс `IsolinerAlgorithm`, семь инструментов, список `ALGORITHMS` |
+| `algorithms.py` | две группы: «Пласт и блочная модель» (1.01-1.07) и «Объёмная интерполяция» (2.01-2.04). Хелперы, базовый класс `IsolinerAlgorithm`, список `ALGORITHMS` |
 | `trace.py` | журнал сеанса, нужен базовому классу алгоритмов |
 | `texmesh.py` | текстура на поверхности: свой элемент сцены с шейдером, расчёт текстурных координат, рендер карты проекта |
 | `demo_map.py` | рисование проверочной карты для инструмента 1.08, чистый NumPy |
-| `viewer3d.py` | сам просмотрщик: диалог, три вкладки, сцена, опрос кликом, снимок PNG. Около 1270 строк |
+| `viewer3d.py` | сам просмотрщик: диалог, три вкладки, сцена, опрос кликом, снимок PNG. Около 5000 строк |
 | `mesh3d.py` | чистый NumPy: `grid_to_mesh_arrays`, `bed_to_mesh_arrays`, `polygon_mask`, `sample_bilinear`, `grid_to_2dm`, `thin_labels_xy`, `fraction_inside_bbox`, `cylinder` |
 | `polyhedral.py` | полиэдры и TIN: `wkt_to_tris`, `slice_triangles`, сборка тел |
+| `interp3d.py` | объёмная интерполяция: ячеечный указатель, блочный расчёт расстояний, проверка с исключением по одной |
+| `iso3d.py` | изоповерхность маршем по тетраэдрам, проверка замкнутости по рёбрам |
+| `voxel.py` | воксельная модель куба: отбрасывание невидимых граней, слияние в прямоугольники, защипы по ребру |
+| `demo3d.py` | модель демонстрационной залежи и разбуривание: три типа тела, опробование интервалами, логнормальный шум |
 | `i18n.py` | словарь RU в EN, `tr`, `set_language`, `missing_keys` |
 | `icon.svg`, `icon_3d.svg` | иконки панели и меню |
 | `libs/` | вложенные pyqtgraph 0.14.0 и PyOpenGL 3.1.10, заморожены |
 | `doc/` | `Isoliner3D.pdf` и `Isoliner3D_en.pdf`, открываются кнопкой Справка и кнопкой справки в диалогах инструментов |
-| `tests/` | десять headless-тестов |
+| `tests/` | шестнадцать headless-наборов |
 | `LICENSE` | GPL-2.0-or-later |
 
 Вне папки модуля, в корне репозитория: `README.md` и `README.en.md`
@@ -226,7 +230,7 @@ LOW, все до одного B101 (`assert`) и все в `tests/`, котор�
 
 ## Тесты
 
-Десять файлов, все headless, QGIS не требуется:
+Шестнадцать файлов, все headless, QGIS не требуется:
 
 ```
 python isoliner3d/tests/test_mesh3d.py
@@ -239,6 +243,12 @@ python isoliner3d/tests/test_prof.py
 python isoliner3d/tests/test_cache.py
 python isoliner3d/tests/test_texmesh.py
 python isoliner3d/tests/test_flakes.py
+python isoliner3d/tests/test_tessellate.py
+python isoliner3d/tests/test_iso3d.py
+python isoliner3d/tests/test_interp3d.py
+python isoliner3d/tests/test_demo3d.py
+python isoliner3d/tests/test_voxel.py
+python isoliner3d/tests/test_ramp.py
 ```
 
 `test_viewer3d.py` проверяет, что модуль импортируется без QGIS.
@@ -246,7 +256,12 @@ python isoliner3d/tests/test_flakes.py
 локальной переменной. `test_i18n.py` разбирает AST и требует английский
 перевод для каждой строки в `tr()`, а также печатает мёртвые ключи
 таблицы. `test_prof.py` проверяет счётчики перестройки сцены, `test_cache.py` - кэш
-чтения (GDAL там подменяется заглушкой, в контейнере его нет).
+чтения и кэш триангуляции (GDAL там подменяется заглушкой, в контейнере
+его нет). `test_voxel.py` проверяет отбрасывание граней, слияние, размен
+слияния на замкнутость и защипы по ребру. `test_demo3d.py` закрепляет
+поведение демонстрационной залежи. `test_ramp.py` проверяет раскраску
+по шкале слоя, вырезая функцию из `viewer3d.py`, потому что импорт модуля
+целиком тянет QGIS.
 
 `test_flakes.py` гоняет pyflakes по всем модулям и требует ноль
 неопределённых имён и мёртвых импортов. Он появился не от любви к чистоте:

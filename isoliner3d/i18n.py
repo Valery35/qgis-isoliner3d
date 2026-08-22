@@ -81,8 +81,262 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'Задать свой цвет': 'Set a custom colour',
+    'Смещение по вертикали, м': 'Vertical offset, m',
+    'Сдвиг слоя по вертикали в метрах, поверх выбранного источника '
+    'высоты. Небольшой подъём убирает спор за глубину, когда линия '
+    'лежит ровно на поверхности.':
+        'A vertical shift of the layer in metres, applied on top of '
+        'the chosen elevation source. A small lift removes the depth '
+        'fight when a line lies exactly on the surface.',
+    'Отметка с поверхности': 'Elevation from a surface',
+    'Поверхность отметки': 'Elevation surface',
+    'Поверхность, с которой берётся отметка. Значение читается '
+    'в каждой вершине, поэтому объект ложится на рельеф, а не '
+    'встаёт на общую отметку. Там, где у поверхности нет данных, '
+    'объект обрезается.':
+        'The surface the elevation is taken from. The value is read '
+        'at every vertex, so the feature follows the relief instead '
+        'of standing at one common elevation. Where the surface has '
+        'no data, the feature is cut away.',
+    'У слоя %s не выбрана поверхность отметки или она '
+    'не открылась.':
+        'Layer %s has no elevation surface chosen, or it did not '
+        'open.',
+    'Снять обрезку, наброски и точку опроса':
+        'Clear the clip, the sketches and the query point',
+    'Точка опроса убрана.': 'The query point is cleared.',
+    'Перепроецировано слоёв: %d.': 'Layers reprojected: %d.',
+    'шкала слоя %s': 'layer %s ramp',
+    'Стиль слоя %s: цветов %d, скрыто классами %d, первые %s':
+        'Layer %s style: %d colours, %d hidden by classes, first %s',
+    'Предел вершин в сцене (тысяч)': 'Vertex limit for the scene (thousands)',
+    'В слое %s объектов %d, показаны первые %d: набрано %d вершин '
+    'из %d. Предел вершин меняется в свойствах сцены.':
+        'Layer %s has %d features, the first %d are shown: %d vertices '
+        'of %d were taken. The vertex limit is set in the scene '
+        'properties.',
+    'Сколько вершин отдаётся на всю сцену. Бюджет делится между '
+    'слоями, и объекты, на которые его не хватило, в сцену не попадают: '
+    'об этом пишет строка состояния. Поднимайте, если тела показаны '
+    'не полностью.':
+        'How many vertices the whole scene gets. The budget is split '
+        'between layers, and features it did not stretch to are left '
+        'out of the scene: the status line says so. Raise it if bodies '
+        'are shown incomplete.',
+    'Обновить сцену: настройки изменились':
+        'Rebuild the scene: settings have changed',
+    'Настройки изменились. Нажмите «Обновить сцену».':
+        'Settings have changed. Press «Rebuild the scene».',
+    'Обычно сцена считается по кнопке «Обновить сцену», а отметки '
+    'и ползунки только записывают, что показать. С этой галкой '
+    'сцена пересобирается сразу на каждую правку: удобно '
+    'на лёгких данных.':
+        'Normally the scene is computed by the «Rebuild the scene» '
+        'button, and the check marks and sliders only record what '
+        'to show. With this box ticked the scene is rebuilt on '
+        'every edit at once: handy on light data.',
+    'Проб много: интерполяция в объёме считает узел по всем '
+    'пробам, и время растёт с их числом. Увеличьте длину пробы '
+    'или уменьшите число скважин.':
+        'There are many samples: interpolation in three dimensions '
+        'weighs every node against all of them, and the time grows '
+        'with their number. Raise the sample length or reduce the '
+        'number of boreholes.',
+    'Слой %s: видимых граней %d, это больше предела %d. Поднимите '
+    'отсечку, уменьшите число интервалов окраски или загрубите '
+    'куб.':
+        'Layer %s: %d visible faces, which is above the limit of '
+        '%d. Raise the cutoff, reduce the number of colour '
+        'intervals, or coarsen the cube.',
+    'Убирать защипы по ребру': 'Remove edge pinches',
+    'Защипов по ребру: %d.': 'Edge pinches: %d.',
+    'Защипы убраны, добавлено ячеек: %d.':
+        'Pinches removed, cells added: %d.',
+    'Защипы оставлены: рёбра в них принадлежат четырём граням, '
+    'и замкнутой оболочка не будет.':
+        'Pinches are kept: their edges belong to four faces, and '
+        'the shell will not be watertight.',
+    'Строит тело по отсечке коробками ячеек: MULTIPOLYGON Z, объект на '
+    'интервал окраски.\n\nСтроятся только видимые грани. Грань между двумя '
+    'занятыми соседями не видна никогда, поэтому её отбрасывают: на кубе '
+    'двести на двести на сто это сто двадцать шесть тысяч граней вместо '
+    'двадцати четырёх миллионов.\n\nФлаг «Сливать соседние грани» делает '
+    'сцену лёгкой, но ломает замкнутость: длинный прямоугольник упирается в '
+    'два коротких, общего ребра у них нет. Для подсчёта объёма и проверки '
+    'замкнутости флаг надо снять, тогда каждое ребро принадлежит ровно двум '
+    'граням.\n\nПоля: cls (интервал окраски), vmin и vmax (границы '
+    'интервала), faces (граней в объекте), shell (единица у тела).\n\nЗащип '
+    'по ребру это касание двух ячеек одной диагональю. Дырой он не является и'
+    ' объём не портит, но ребро в нём принадлежит четырём граням, и проверка '
+    'замкнутости такое тело отвергает. Флаг «Убирать защипы по ребру» '
+    'заполняет угол одной ячейкой, и касание становится по грани.':
+        'Builds a body from cells above the cutoff as boxes: MULTIPOLYGON Z, '
+        'one feature per colour interval.\n\nOnly visible faces are built. A '
+        'face between two occupied neighbours is never seen, so it is '
+        'dropped: on a two hundred by two hundred by one hundred cube that is'
+        ' one hundred and twenty six thousand faces instead of twenty four '
+        'million.\n\nThe «Merge neighbouring faces» flag makes the scene '
+        'light but breaks watertightness: a long rectangle meets two short '
+        'ones and they share no edge. For volume computation and for a '
+        'watertightness check the flag must be cleared, and then every edge '
+        'belongs to exactly two faces.\n\nFields: cls (colour interval), vmin'
+        ' and vmax (interval bounds), faces (faces in the feature), shell '
+        '(one for a body).\n\nAn edge pinch is two cells touching along a '
+        'single diagonal. It is not a hole and does not spoil the volume, but'
+        ' its edge belongs to four faces and a watertightness check rejects '
+        'such a body. The «Remove edge pinches» flag fills the corner with '
+        'one cell, and the contact becomes a face contact.',
+    '2.03 Куб в блочную модель': '2.03 Cube to a block model',
+    '2.04 Тело куба вокселями': '2.04 Cube body as voxels',
+    'Куб значений (каналы это уровни)':
+        'Cube of values (bands are levels)',
+    'Отсечка': 'Cutoff',
+    'Применять отсечку': 'Apply the cutoff',
+    'Контур подсчёта': 'Computation contour',
+    'Интервалов окраски (0 - без классов)':
+        'Colour intervals (0 means no classes)',
+    'Интервалов окраски (0 - одним телом)':
+        'Colour intervals (0 means a single body)',
+    'Плотность, т/м3 (0 - без пересчёта)':
+        'Density, t/m3 (0 means no conversion)',
+    'Сливать соседние грани': 'Merge neighbouring faces',
+    'Блочная модель': 'Block model',
+    'Тело вокселями': 'Body as voxels',
+    'Не задан куб значений.': 'No cube of values is set.',
+    'Слою нужен многоканальный грид: каналы это уровни куба.':
+        'The layer needs a multiband grid: bands are cube levels.',
+    'Не удалось создать слой блочной модели.':
+        'Could not create the block model layer.',
+    'Не удалось создать слой тела.': 'Could not create the body layer.',
+    'Занятых ячеек не осталось: проверьте отсечку и контур.':
+        'No occupied cells are left: check the cutoff and the contour.',
+    'По отсечке ячеек не осталось.': 'No cells are left at the cutoff.',
+    'Модель слишком велика: поднимите отсечку или уменьшите число интервалов.':
+        'The model is too large: raise the cutoff or reduce the number of '
+        'intervals.',
+    'Куб: %d x %d x %d, отметка первого уровня %.3f, шаг %.3f.':
+        'Cube: %d x %d x %d, first level at %.3f, step %.3f.',
+    'Контур оставил ячеек в плане: %d из %d.':
+        'The contour left %d cells of %d in plan.',
+    'Блоков: %d из %d ячеек куба, объём блока %.3f м3.':
+        'Blocks: %d of %d cube cells, block volume %.3f m3.',
+    'Значения: %.3f .. %.3f.': 'Values: %.3f .. %.3f.',
+    'Суммарная масса: %.0f т.': 'Total mass: %.0f t.',
+    'Ячеек: %d, видимых граней: %d, треугольников: %d.':
+        'Cells: %d, visible faces: %d, triangles: %d.',
+    'Объектов: %d.': 'Features: %d.',
+    'Грани слиты. Замкнутой такая оболочка не будет: для подсчёта объёма '
+    'снимите флаг слияния.':
+        'Faces are merged. Such a shell will not be watertight: clear the '
+        'merge flag to compute volume.',
+    'Слияние делает сцену в разы легче, но оболочка перестаёт быть замкнутой:'
+    ' длинный прямоугольник упирается в два коротких, общего ребра у них нет.'
+    ' Снимите флаг, если по этой модели считается объём.':
+        'Merging makes the scene many times lighter, but the shell stops '
+        'being watertight: a long rectangle meets two short ones and they '
+        'share no edge. Clear the flag if volume is computed on this model.',
+    'Переводит куб значений в блочную модель: точку-центроид на каждую '
+    'занятую ячейку.\n\nПоля: bid (номер блока), lev (уровень), row и col '
+    '(ячейка грида), x, y, z (центр блока), dx, dy, dz (размер блока), vol '
+    '(объём), val (значение), cls (номер интервала окраски), при заданной '
+    'плотности ещё dens и ore_t.\n\nПропуски и ячейки ниже отсечки не '
+    'выгружаются. Модель выходит разреженной, и весит она на порядок меньше '
+    'полного параллелепипеда с пустыми краями.\n\nДальше работает векторный '
+    'аппарат QGIS: фильтры выражениями, соединение внешних таблиц, '
+    'калькулятор полей. Тот же слой показывается коробками в окне просмотра.':
+        'Turns a cube of values into a block model: one centroid point per '
+        'occupied cell.\n\nFields: bid (block number), lev (level), row and '
+        'col (grid cell), x, y, z (block centre), dx, dy, dz (block size), '
+        'vol (volume), val (value), cls (colour interval number), and dens '
+        'with ore_t when a density is given.\n\nGaps and cells below the '
+        'cutoff are not written out. The model comes out sparse and weighs an'
+        ' order of magnitude less than a full box with empty edges.\n\nThe '
+        'usual QGIS vector machinery works from there: expression filters, '
+        'joins of external tables, the field calculator. The same layer is '
+        'shown as boxes in the viewer.',
+    'X левого нижнего угла': 'X of the lower left corner',
+    'Y левого нижнего угла': 'Y of the lower left corner',
+    'Ширина площадки, м': 'Site width, m',
+    'Высота площадки, м (0 - как ширина)':
+        'Site height, m (0 means the same as the width)',
+    'Охват площадки (если задан, он и берётся)':
+        'Site extent (when set, it wins)',
+    'Воксели по кубу': 'Voxels from the cube',
+    'Отсечка куба': 'Cube cutoff',
+    'Интервалов окраски': 'Colour intervals',
+    'На сколько интервалов раскладывается содержание при окраске вокселей. '
+    'Соседние грани одного интервала сливаются в один прямоугольник, поэтому '
+    'чем меньше интервалов, тем легче сцена.':
+        'How many intervals the grade is split into when colouring voxels. '
+        'Neighbouring faces of one interval merge into a single rectangle, so'
+        ' the fewer the intervals, the lighter the scene.',
+    'Воксели %s: ячеек %d, видимых граней %d, прямоугольников %d.':
+        'Voxels %s: cells %d, visible faces %d, rectangles %d.',
+    'Слой %s: по отсечке %.3f ячеек не осталось.':
+        'Layer %s: no cells left at the cutoff of %.3f.',
+    'Слой %s: воксельная модель слишком велика. Поднимите отсечку или '
+    'уменьшите число интервалов окраски.':
+        'Layer %s: the voxel model is too large. Raise the cutoff or reduce '
+        'the number of colour intervals.',
+    '2.01 Демонстрационные скважины в объёме':
+        '2.01 Demonstration boreholes in three dimensions',
+    'Тип залежи': 'Deposit type',
+    'Пласт со складкой и падением': 'Folded and dipping bed',
+    'Линза': 'Lens',
+    'Крутая жила': 'Steep vein',
+    'Длина пробы, м': 'Sample length, m',
+    'Отметка поверхности, м': 'Surface elevation, m',
+    'Глубина разбуривания, м': 'Drilling depth, m',
+    'Шум опробования, доля': 'Sampling noise, a share',
+    'Содержание в ядре сверх фона': 'Core grade above background',
+    'Фон во вмещающих породах': 'Background in the host rock',
+    'Общий наклон содержаний, доля': 'Overall grade trend, a share',
+    'Доля недобуренных скважин': 'Share of holes stopped short',
+    'Наклон стволов, градусов': 'Hole inclination, degrees',
+    'Пробы с содержаниями': 'Samples with grades',
+    'Не удалось создать слой проб.':
+        'Could not create the sample layer.',
+    'Скважин: %d, проб: %d, длина пробы %.2f м.':
+        'Boreholes: %d, samples: %d, sample length %.2f m.',
+    'Площадка: %.0f x %.0f м от (%.0f, %.0f).':
+        'Site: %.0f x %.0f m from (%.0f, %.0f).',
+    'Устья: %.1f .. %.1f м, забои: %.1f .. %.1f м.':
+        'Collars: %.1f .. %.1f m, hole bottoms: %.1f .. %.1f m.',
+    'Содержание: %.3f .. %.3f, отсечка %.3f.':
+        'Grade: %.3f .. %.3f, cutoff %.3f.',
+    'Проб внутри тела: %d из %d.':
+        'Samples inside the body: %d of %d.',
+    'Ни одна проба не попала в тело: проверьте глубину разбуривания и охват '
+    'площадки.':
+        'No sample fell inside the body: check the drilling depth and the '
+        'site extent.',
+    'Создаёт скважины с опробованием по интервалам: сеть со сбивкой, разная '
+    'глубина, часть скважин недобурена, устья по рельефу.\n\nТип залежи '
+    'задаёт геометрию тела. Пласт со складкой и падением нужен, чтобы '
+    'увидеть, как уровни куба режут залежь поперёк. Линза изотропна и проще '
+    'всех. Крутая жила проверяет обратный случай, когда тело почти '
+    'вертикально.\n\nПоля: hole (номер скважины), from_m и to_m (интервал '
+    'пробы от устья вниз), grade (содержание с шумом), truth (содержание по '
+    'модели, без шума), zone (единица внутри тела).\n\nШум логнормальный, '
+    'отрицательных содержаний не возникает. Граница тела проходит там, где '
+    'содержание падает до половины ядра над фоном - это и есть отсечка, она '
+    'печатается в журнал.':
+        'Creates boreholes sampled by intervals: a jittered grid, varying '
+        'depth, some holes stopped short, collars following the '
+        'relief.\n\nThe deposit type sets the shape of the body. A folded and'
+        ' dipping bed shows the main point: cube levels cut the deposit '
+        'across. A lens is isotropic and the simplest case. A steep vein is '
+        'the opposite extreme, where the body is nearly vertical.\n\nFields: '
+        'hole (borehole number), from_m and to_m (sample interval measured '
+        'down from the collar), grade (assay with noise), truth (grade from '
+        'the model, no noise), zone (one inside the body).\n\nNoise is '
+        'lognormal, so no negative grades appear. The boundary of the body is'
+        ' where the grade falls to half the core value above background - '
+        'that is the cutoff, and it is printed to the log.',
     ' Вершин: %d.': ' Vertices: %d.',
     '(нет)': '(none)',
+    '1. Пласт и блочная модель': '1. The bed and block model',
     '1.01 Собрать грид пласта': '1.01 Assemble a bed grid',
     '1.02 Калькулятор пласта': '1.02 Bed calculator',
     '1.03 Грид пласта в блочную модель': '1.03 Bed grid to a block model',
@@ -90,6 +344,8 @@ TRANSLATIONS = {
     '1.05 Домены в канал пласта': '1.05 Domains to a bed band',
     '1.06 Разность запасов (списание)': '1.06 Reserve difference (write-off)',
     '1.07 Создать пример данных (демо)': '1.07 Create sample data (demo)',
+    '2. 3D-интерполяция': '2. 3D interpolation',
+    '2.02 Интерполяция точек в объёме': '2.02 Interpolating points in 3D',
     '3D-просмотр недоступен в этой установке плагина.':
         'The 3D viewer is not available in this plugin installation.',
     '3D-просмотр поверхностей': '3D surface viewer',
@@ -105,6 +361,9 @@ TRANSLATIONS = {
         'production is missing a feature - contact us: '
         'https://www.informpp.ru/главная-страница/предприятиям',
     'Авто': 'Auto',
+    'Анизотропия (вертикаль к горизонтали)':
+        'The anisotropy (vertical to horizontal)',
+    'Ближний сосед': 'The nearest neighbour',
     'Блоков выгружено: %d.': 'Blocks exported: %d.',
     'Блочная модель (центроиды)': 'Block model (centroids)',
     'Блочная модель: %s': 'Block model: %s',
@@ -134,6 +393,7 @@ TRANSLATIONS = {
     'Выгрузить сцену в файл GLB': 'Export the scene to a GLB file',
     'Выгрузка не удалась: %s': 'The export failed: %s',
     'Выдать как TIN (триангулировать)': 'Output as TIN (triangulate)',
+    'Глубина скважины, м': 'The depth of a hole, m',
     'Граней: %d.': 'Patches: %d.',
     'Грид не открылся.': 'The grid did not open.',
     'Грид не открылся: %s': 'Grid could not be opened: %s',
@@ -162,10 +422,12 @@ TRANSLATIONS = {
     'Загружено алгоритмов: %d': 'Algorithms loaded: %d',
     'Задайте грид или охват: карте нужны границы.':
         'Give a grid or an extent: the map needs its bounds.',
-    'Задать свой цвет': 'Set a custom colour',
     'Замкнуть контур и обрезать сцену': 'Close the contour and clip the scene',
     'Запасы металла': 'Metal reserves',
     'Запасы руды': 'Ore reserves',
+    'Заполнено узлов: %d из %d': 'Nodes filled: %d of %d',
+    'Зерно случайности': 'The random seed',
+    'Изоповерхность по кубу': 'An isosurface from a cube',
     'Инструмент: %s': 'Tool: %s',
     'Источник высоты': 'Elevation source',
     'Как есть': 'As is',
@@ -202,6 +464,7 @@ TRANSLATIONS = {
     'Кровля (растр)': 'Roof (raster)',
     'Куб': 'Cube',
     'Куб (демо)': 'Cube (demo)',
+    'Куб значений': 'A cube of values',
     'Кусок': 'The piece',
     'Линий: %d.': 'Lines: %d.',
     'Линия готова: вершин %d, коридор %.0f.':
@@ -212,12 +475,15 @@ TRANSLATIONS = {
         'section definition fields.',
     'Масштаб Z (вертикальное преувеличение)':
         'Z scale (vertical exaggeration)',
+    'Метод': 'The method',
     'Меш записан: %s (узлов %d, треугольников %d).':
         'Mesh written: %s (%d nodes, %d triangles).',
     'Модель «было» (центроиды)': 'The "before" model (centroids)',
     'Модель «стало» (центроиды)': 'The "after" model (centroids)',
     'Мощность средняя / мин / макс': 'Thickness mean / min / max',
     'Мощность, ед. карты': 'Thickness, map units',
+    'Наибольшее число точек': 'The largest number of points',
+    'Наименьшее число точек': 'The smallest number of points',
     'Нарисованная линия': 'The drawn line',
     'Нарисованный контур': 'The drawn contour',
     'Настройки сцены взяты из проекта.':
@@ -252,6 +518,7 @@ TRANSLATIONS = {
     'Оболочка НЕ замкнута: открытых рёбер %d.':
         'Shell is NOT closed: open edges %d.',
     'Оболочка замкнута (водонепроницаема).': 'Shell is closed (watertight).',
+    'Обратные расстояния': 'Inverse distances',
     'Обрезка по контуру': 'Clip by a contour',
     'Обрезка снята, сцена показана целиком.':
         'The clip is off, the whole scene is shown.',
@@ -265,6 +532,10 @@ TRANSLATIONS = {
     'Отметка из поля': 'Elevation from a field',
     'Отметьте слой на вкладке «Слои» или «Векторы».':
         'Tick a layer on the «Layers» or the «Vectors» tab.',
+    'Отсечка: внутрь тела попадает всё, что не меньше этого значения. Каналы '
+    'грида считаются уровнями куба.':
+        'The cutoff: everything not less than this value goes inside the '
+        'body. The bands of the grid are taken as the levels of the cube.',
     'Отчёт (HTML)': 'Report (HTML)',
     'Охват (окно вида) - размещение и размер':
         'Extent (map view) - placement and size',
@@ -310,7 +581,6 @@ TRANSLATIONS = {
         'Scene rebuild: %.2f s in total (%s). Triangles %s, vertices %s, '
         'items %d, memory about %.0f MB, grids read %d, taken from cache %d.',
     'Пласт (демо)': 'Bed (demo)',
-    'Пласт и блочная модель': 'Bed and block model',
     'Пластов в свите': 'Beds in the suite',
     'Плоско, на нуле': 'Flat, at zero',
     'Плоскостей разреза: %d.': 'Section planes: %d.',
@@ -330,6 +600,7 @@ TRANSLATIONS = {
         'The field of the prism top or of the height above the bottom, '
         'depending on the row above.',
     'Поле запаса': 'Reserve field',
+    'Поле значения': 'The value field',
     'Поле кода домена (число, необязательно)':
         'Domain code field (numeric, optional)',
     'Поле отметки': 'Elevation field',
@@ -361,6 +632,7 @@ TRANSLATIONS = {
     'Прозрачность поверхностей (процентов)': 'Surface transparency (percent)',
     'Пропущено: %s': 'Skipped: %s',
     'Прореживание узлов (каждый N-й)': 'Node thinning (every Nth)',
+    'Радиус поиска, м (0 - авто)': 'The search radius, m (0 is automatic)',
     'Разбиение тела пласта (ячеек по стороне)':
         'Bed body resolution (cells per side)',
     'Разнос по Z (шаг вниз)': 'Z spacing (step down)',
@@ -412,6 +684,8 @@ TRANSLATIONS = {
     'Свойства сцены: двойной клик': 'Scene properties: double-click',
     'Свойства…': 'Properties…',
     'Своя высота геометрии (Z)': 'The geometry\'s own elevation (Z)',
+    'Сетка: %d x %d x %d, узлов %d': 'The grid: %d x %d x %d, %d nodes',
+    'Скважин': 'Holes',
     'Скважин: %d.': 'Boreholes: %d.',
     'Скважины (стволы по отметкам)': 'Boreholes (stems by elevations)',
     'Скопировать не удалось: %s': 'The copy failed: %s',
@@ -421,15 +695,18 @@ TRANSLATIONS = {
         'The layer %s: all %d features are flat, elevations from %.1f to '
         '%.1f. There is no volume in the geometry, use the prism display for '
         'steps.',
+    'Слой %s: по отсечке %.3f ничего не построено.':
+        'The layer %s: nothing was built at the cutoff %.3f.',
     'Слой %s: у %d объектов нет отметок низа или верха.':
         'The layer %s: %d features have no bottom or top elevation.',
     'Слой меша не загрузился: %s': 'Mesh layer failed to load: %s',
+    'Слою %s нужен многоканальный грид: каналы это уровни куба.':
+        'The layer %s needs a multiband grid: the bands are the levels of '
+        'the cube.',
     'Слоёв по вертикали (деление колонки)': 'Vertical layers (column split)',
     'Смещение Z': 'Z offset',
     'Снимок скопирован в буфер обмена.': 'The snapshot is on the clipboard.',
     'Снимок сохранён: %s': 'Snapshot saved: %s',
-    'Снять обрезку и убрать наброски':
-        'Remove the clip and clear the sketches',
     'Снять последнюю вершину': 'Remove the last vertex',
     'Собирает многоканальный грид пласта по конвенции плагина: канал 1 - '
     'кровля, канал 2 - подошва, каналы 3 и далее - параметры (содержание, '
@@ -537,8 +814,7 @@ TRANSLATIONS = {
     'Сохранить снимок': 'Save the snapshot',
     'Справа от линии': 'To the right of the line',
     'Справка (руководство PDF)…': 'Help (PDF manual)…',
-    'Стиль слоя %s: цветов %d, первые %s':
-        'The style of the layer %s: %d colours, the first are %s',
+    'Степень обратных расстояний': 'The power of the inverse distances',
     'Сторона текстуры (пикселей)': 'Texture side (pixels)',
     'Сторона текстуры по длинной оси охвата. Больше значение - детальнее '
     'карта на поверхности и больше видеопамяти.':
@@ -550,6 +826,19 @@ TRANSLATIONS = {
     'Сцена': 'Scene',
     'Сцена: %s треугольников, объектов %d, %.2f с.':
         'Scene: %s triangles, %d items, %.2f s.',
+    'Считает значение в узлах объёмной сетки по точкам с '
+    'высотой.\n\nАнизотропия это отношение вертикального масштаба к '
+    'горизонтальному. Без неё ближайшей точкой окажется соседняя скважина, а '
+    'не соседний замер в той же точке плана.\n\nУзлы, где точек в радиусе '
+    'меньше нужного, остаются пропуском: пустота лучше выдуманного '
+    'значения.':
+        'Computes the value at the nodes of a volumetric grid from points '
+        'with an elevation.\n\nThe anisotropy is the ratio of the vertical '
+        'scale to the horizontal one. Without it the nearest point turns out '
+        'to be a neighbouring hole rather than the neighbouring sample in '
+        'the same plan position.\n\nNodes where there are fewer points '
+        'within the radius than required stay empty: emptiness is more '
+        'honest than an invented value.',
     'Считает по многоканальному гриду пласта (канал 1 - кровля, канал 2 - '
     'подошва): мощность, объём, тоннаж руды через плотность и, если задан '
     'канал содержания, средневзвешенное по мощности содержание и тоннаж '
@@ -594,8 +883,11 @@ TRANSLATIONS = {
     'Тетраэдр': 'Tetrahedron',
     'Тетраэдр (демо)': 'Tetrahedron (demo)',
     'Тип геометрии: %s Z.': 'Geometry type: %s Z.',
+    'Точек с высотой и значением меньше двух.':
+        'There are fewer than two points with an elevation and a value.',
     'Точек: %d.': 'Points: %d.',
     'Точечный слой': 'Point layer',
+    'Точки с высотой': 'Points with an elevation',
     'Триангуляций из кэша: %d.': 'Triangulations from cache: %d.',
     'У слоя %s не выбрано поле отметки.':
         'No elevation field is chosen for the layer %s.',
@@ -622,6 +914,8 @@ TRANSLATIONS = {
     'Чертёж разреза не наложился: %s':
         'The section drawing was not draped: %s',
     'Чертёж разреза не отрисовался.': 'The section drawing did not render.',
+    'Шаг по вертикали, м': 'The vertical step, m',
+    'Шаг по горизонтали, м': 'The horizontal step, m',
     'Экспортирует гриды поверхностей в mesh-слои стандартного формата 2DM '
     '(MDAL). Такие слои понимают профильный инструмент QGIS, '
     'mesh-калькулятор, штатный 3D-вид и сторонние программы, а пачка '
@@ -661,5 +955,6 @@ TRANSLATIONS = {
     'растр': 'raster',
     'сцена': 'scene',
     'точки': 'points',
+    'уровень %d': 'level %d',
     'чтение': 'reading',
 }

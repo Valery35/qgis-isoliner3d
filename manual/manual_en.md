@@ -61,18 +61,48 @@ The layer type is marked in the row, because the set of properties depends
 on it. The first row is a pinned **Scene**: the scene-wide settings are the
 same kind of list object as a layer.
 
-The tick includes a layer in the scene and acts at once, without a rebuild.
-The properties open on a double click or with the right button, the
-properties window is not modal and changes its content when another row is
-selected. Editing any property rebuilds the scene by itself, and on a heavy
-scene the automation can be switched off by the **Update automatically**
-tick in the scene properties, which brings back a manual rebuild button.
+The list order follows the map tree, from top to bottom. The drawing
+priority comes from the same order: the upper map layer is drawn over the
+lower one where the geometry coincides. The list follows the tree by
+itself, so layers can be added and reordered without touching the window.
 
-A panel of icons sits over the scene at the top left: top view, parallel
-projection, contour drawing, markup visibility, clip removal, saving the
-contour as a layer, copying and saving a snapshot.
+The tick includes a layer in the scene and acts at once, without a rebuild:
+the items already sit in video memory. The properties open on a double
+click or with the right button, the properties window is not modal and
+changes its content when another row is selected.
+
+The scene is computed by the **Rebuild the scene** button, which stands
+first on the icon panel and is separated from the rest. Ticks and sliders
+only record what to show. While the shown scene lags behind the settings
+the button is highlighted and the status line says what to press. The
+**Update automatically** tick in the scene properties brings back the
+former behaviour and suits light data.
+
+The vertex budget is set in the scene properties by the **Vertex limit for
+the scene (thousands)** row and is shared between the layers drawn as
+bodies. If a layer ran out of budget, the status line names the numbers:
+how many vertices were taken and what the limit is.
+
+A panel of icons sits over the scene at the top left: rebuilding the scene,
+top view, parallel projection, contour drawing, markup visibility, clip
+removal, saving the contour as a layer, copying and saving a snapshot.
 
 ![A stack of surfaces coloured by an attribute grid. The scale bar with the range sits under the buttons.](images/viewer_surfaces_stack.png){width=78%}
+
+## The coordinate reference system
+
+The scene lives in the project CRS, just as the map canvas does. Layers in
+other systems are reprojected on the fly, and the number of reprojected
+layers is printed to the status line. The elevation is left alone, it is
+already in metres.
+
+Changing the CRS of a layer in QGIS does not move the stored coordinates,
+it changes how they are read. So a layer given the right system will fall
+into place only after the scene is recomputed.
+
+Raster values are read in the raster's own grid: colouring, the click query
+and the ray search of the surface take the point back. Raster clipping is
+also computed on its grid, so the contour is taken into the layer's system.
 
 # A raster layer: the settings
 
@@ -121,9 +151,21 @@ and shade by which the eye recognises form would be gone. The scene grids
 themselves do not go into the texture: draping a surface onto itself makes
 no sense.
 
+Separately from that list works the **layer's own ramp**. If the raster is
+styled with a continuous ramp, a discrete one, an exact one or a palette of
+classes, the surface is coloured exactly as the raster on the canvas: the
+same styling is read. Values outside the ramp are clamped to its ends, gaps
+go grey.
+
 The colouring priority is this: the texture, then the layer's own band,
-then the external raster, then the palette. The scale is one per scene, the bar with the
-range appears under the buttons, no-data cells stay grey.
+then the external raster, then the layer ramp, then the palette. What was
+chosen by hand beats the styling. The layer ramp in turn beats the shared
+scene scale: the shared one is stretched over all layers at once, and the
+colouring would drift away from the map exactly where it was asked to match
+it.
+
+The shared scale is one per scene, the bar with the range appears under the
+buttons, no-data cells stay grey.
 
 ![The **Layers** tab: the filter, the **All** and **None** buttons, a set of two bed bodies and the **Layer settings** panel of the selected layer.](images/viewer_layers_tab.png){width=86%}
 
@@ -146,6 +188,40 @@ settings.
 # Vector layers: elevation, boreholes, the section
 
 ![The **Vectors** tab: the section plane, the boreholes, the label field and the elevation fields. The scene shows the section ribbon with boreholes on a bed body.](images/viewer_vectors_tab.png){width=86%}
+
+The set of properties adapts to the layer: a row that does not apply is
+removed together with its label rather than greyed out. A point layer has
+no prism rows, lines and polygons have no point-type row, the borehole
+fields are visible only in borehole mode, the section only for line layers.
+
+## The elevation source
+
+**Own geometry elevation (Z)** takes the value from the vertices. The entry
+is unavailable to a layer without Z.
+
+**Elevation from a field** puts the whole feature at one elevation, as
+befits a contour.
+
+**Elevation from a surface** takes the value off a chosen raster. It is
+read at every vertex, so the feature follows the relief instead of standing
+at one common elevation. Where the surface has no data, the feature is cut
+away: a point is dropped, a polyline is broken into pieces, and a body
+triangle with a gap at any vertex is not built at all. Zero will not do
+here, it is an elevation, not the absence of one. At the very edge of the
+data the value is filled from the nearest cell: bilinear sampling needs
+four neighbours and stays silent on the border even where the cell exists.
+
+**Flat, at zero** puts the layer into the zero plane.
+
+On top of any source works the **Vertical offset, m**. A small lift removes
+the depth fight when a line lies exactly on the surface it was taken from.
+
+## Colour
+
+A vector layer has no colour of its own. The feature colour comes from the
+layer styling: categories, graduated classes, rules. Contours coloured by
+elevation arrive in the scene with their own scale. A class unticked in the
+layer legend does not reach the scene at all.
 
 ## Boreholes
 
@@ -248,7 +324,9 @@ A click on a surface or a body queries the model. A ray is cast from the
 camera through the cursor, the nearest intersection with the surface is
 found, and the status line prints the layer name, the point coordinates and
 the values of all the bands by name, plus the thickness for a bed. The hit
-is marked with a red ball until the next click or a scene rebuild.
+is marked with a red ball. It can be cleared in three ways: a click on
+empty space, the Esc key outside drawing mode, and the clear button on the
+panel, which removes the clip, the sketches and the point at once.
 
 Dragging is separated from querying: rotating the scene with the mouse
 works as usual, the query fires only on a click without movement.
@@ -496,6 +574,158 @@ grid colouring to **Texture: Map (demo)** and update the scene. If the
 corner marks are where they belong and the graticule cells are square, the
 draping works correctly.
 
+# The Interpolation in three dimensions group
+
+The second group of the Processing toolbox works with a cube of values.
+A cube is a multiband grid where a band is a horizontal level, and the
+elevation of the first level and the step live in the `Z0` and `DZ`
+metadata.
+
+## 2.01 Demonstration boreholes in three dimensions
+
+Data with a known truth inside: the grade is set by a model and the noise
+is added separately. Methods of interpolation in three dimensions are
+compared on such points, because the error is measured against the model
+rather than by eye.
+
+**Deposit type** sets the shape of the body. A folded and dipping bed is
+there to show the main point: cube levels cut the deposit across. A lens
+is isotropic and the simplest case, a steep vein is the opposite extreme,
+where the body is nearly vertical.
+
+The borehole grid is jittered, the collars follow the relief, the depths
+differ and some holes are stopped short. A regular grid of equal depth
+would give interpolation too easy a task.
+
+Sampling goes by intervals. Fields: `hole` the borehole number, `from_m`
+and `to_m` the sample interval measured down from the collar, `grade` the
+assay with noise, `truth` the grade from the model without noise, `zone`
+one inside the body. The noise is lognormal, so no negative grades appear.
+
+The boundary of the body is where the grade falls to half the core value
+above background. That is the cutoff, and it is printed to the log
+together with the number of samples and the range of grades.
+
+The site rectangle is set either by an extent or by the coordinates of the
+lower left corner, the width and the height.
+
+## 2.02 Interpolation of points in three dimensions
+
+Nearest neighbour and inverse distances. **Anisotropy** is the ratio of
+the vertical scale to the horizontal one: when drilling with boreholes
+there is an order of magnitude more data along the vertical, and without
+anisotropy the interpolation would pull values vertically harder than it
+should.
+
+Nodes with fewer points within the radius than the given minimum stay
+a gap.
+
+Distances are computed in blocks of nodes, so the time grows with the
+number of samples rather than with its square. A thousand samples on
+a forty by forty by forty six cube take about a second.
+
+## 2.03 Cube to a block model
+
+One centroid point per occupied cell. A cube as a set of bands is
+addressable by nothing: a band is a number, not an elevation, and neither
+an expression filter nor the attribute table works on it. A block model
+gives the cell back its number, coordinates, size and value.
+
+Fields: `bid`, `lev` the level, `row` and `col` the grid cell, `x`, `y`,
+`z` the block centre, `dx`, `dy`, `dz` the block size, `vol` the volume,
+`val` the value, `cls` the colour interval number, and `dens` with `ore_t`
+when a density is given.
+
+Gaps and cells below the cutoff are not written out, so the model comes
+out sparse and weighs an order of magnitude less than a full box with
+empty edges. A contour limits the export to a computation block.
+
+## 2.04 Cube body as voxels
+
+The same thing the scene shows as voxels, but as a layer: MULTIPOLYGON Z,
+one feature per colour interval. Fields: `cls`, `vmin` and `vmax` the
+interval bounds, `faces` the number of faces, `shell` one for a body.
+
+The **Merge neighbouring faces** flag makes the layer light but breaks
+watertightness. For volume computation the flag is cleared.
+
+Edge pinches are counted separately. A pinch is two cells touching along
+a single diagonal: it is not a hole and does not spoil the volume, but its
+edge belongs to four faces and a watertightness check rejects such a body.
+The **Remove edge pinches** flag fills the corner with one cell, and the
+contact becomes a face contact. On the demonstration bed of seventeen
+thousand cells there is exactly one such pinch, and two added cells cure
+it.
+
+# A cube of values: an isosurface and voxels
+
+A multiband grid is read not only as a bed but also as a cube of values:
+a band is a horizontal level. That is what the result of a volumetric
+interpolation looks like, say grades from sampling points.
+
+In the properties of a raster layer choose the **An isosurface from
+a cube** mode and set the **cutoff**. Everything not less than that value
+goes inside the body. The elevation of the first level and the vertical
+step are taken from the grid metadata, the `Z0` and `DZ` fields. Without
+them the count starts from zero with a step of one.
+
+The shell is built by a march over tetrahedra. A tetrahedron is divided
+unambiguously, so neighbouring cells meet face to face and the body comes
+out closed: every edge belongs to exactly two faces. That is needed not
+for beauty: the volume is computed from it and the closed cut at clipping
+is built from it.
+
+Gaps in the data stay outside the body: emptiness does not attract
+the shell.
+
+From there such a body lives as any other: it is clipped by a contour and
+a corridor, coloured, exported to GLB.
+
+## Voxels
+
+The second way to show a cube is the **Voxels from the cube** mode. A cell
+is drawn as a box: the grid step across, the level step down, that is
+exactly the volume it stands for in the computation. The colour comes from
+the grade interval, and the number of intervals is set by the **Colour
+intervals** row.
+
+What has to be counted is faces, not cells. A face between two occupied
+neighbours is never seen, so it is dropped: on a filled two hundred by two
+hundred by one hundred cube that is one hundred and twenty six thousand
+faces instead of twenty four million. Neighbouring faces of one interval
+merge into a rectangle, and the demonstration bed of four million cells
+gives thirty four thousand rectangles and two and a half megabytes of
+scene.
+
+The cost is driven by the surface area, not by the number of cells. A
+compact deposit is cheap, one scattered by the cutoff gives millions of
+faces and does not reach the scene: the size is estimated before building,
+and above the limit the log gets the number and the advice to raise the
+cutoff or reduce the number of intervals.
+
+Merging costs watertightness: a long rectangle meets two short ones and
+they share no edge. For display that does not matter, for volume
+computation the merging is switched off by the **Merge neighbouring faces**
+tick, and then every edge belongs to exactly two faces.
+
+Clipping voxels is a selection of cells, so no cap has to be built and the
+cut comes out flat by itself.
+
+# Exporting the scene
+
+The icon of a cube with an arrow on the panel over the scene writes what
+is shown into a GLB file. The format is opened by browser viewers, Blender
+and Windows, so the model can be sent by mail as a single file.
+
+What is visible is exported, the clipping included, with colours in the
+vertices. The texture is not exported yet, a surface with a map goes out
+in a flat colour.
+
+The export asks about the vertical exaggeration. True elevations are right
+for calculation and for matching other data, the model as on screen is
+needed for display: a bed kilometres across and tens of metres thick
+would otherwise flatten into a pancake.
+
 # The neighbouring plugins
 
 Isoliner3D does not work on its own. Three plugins cover the way from
@@ -532,6 +762,12 @@ All three work independently: installing the whole set is not required.
 | Fewer labels than boreholes | The thinning is at work, the cap is 500 labels. | This is by design. Move the camera closer or feed a thinned stock layer. |
 | The surface looks coarser than the source grid | The automatic thinning to 60 thousand nodes has kicked in. | This is by design. For detail on a fragment, cut the piece of the grid you need and feed it as a separate layer. |
 | The section ribbon runs far beyond the pile | The line was fed without the `zmin` and `zmax` fields, so the ribbon is stretched over the scene span. | Feed the section definition layer from Isoliner. |
+| A layer sits far away from the rest | The layer CRS is not the one recorded. | Assign the right system and press **Rebuild the scene**: the status line will report the number of reprojected layers. |
+| Editing a property changes nothing | The scene is computed by the button. | Press **Rebuild the scene**: while the shown scene lags behind, the button is highlighted. |
+| Bodies are shown incomplete | The vertex budget ran out, the status line names the numbers. | Raise the **Vertex limit for the scene** in the scene properties. |
+| Contours are now visible, now sunk into the surface | The geometry coincides and the depth fight begins. | Raise the layer in the map tree or give it a **Vertical offset, m**. |
+| Part of the features vanished with elevation from a surface | The surface has no data there. | That is intended: a gap is not a zero. Check the extent of the elevation grid. |
+| Voxels are not built and the log names a face count | The model is larger than the responsiveness limit. | Raise the cutoff, reduce the number of colour intervals, or coarsen the cube. |
 
 # Appendix. The multiband grid convention
 

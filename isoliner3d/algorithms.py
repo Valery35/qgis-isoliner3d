@@ -69,9 +69,11 @@ from qgis.core import (
 
 from .mesh3d import grid_to_2dm, polygon_mask, sample_bilinear
 
-GROUP4 = _tr("Пласт и блочная модель")
+GROUP4 = _tr("1. Пласт и блочная модель")
 GROUP4_ID = "bed_block_model"
 GRP_MESH3D = _tr("Поверхности 3D")
+GROUP5 = _tr("2. 3D-интерполяция")
+GROUP5_ID = "interp3d"
 
 # держим пост-процессоры живыми, иначе их соберёт сборщик мусора Python
 _KEEP_ALIVE = []
@@ -276,7 +278,7 @@ def _save_values(alg, parameters):
 
 
 def _write_grid_tiff(path, array, geotr, crs_wkt, nodata, nx, ny,
-                     band_names=None):
+                     band_names=None, meta=None):
     """Пишет Float32 GeoTIFF с геопривязкой и nodata. array - один 2D-массив
     (один канал) или список массивов (многоканальный грид); band_names -
     подписи каналов той же длины."""
@@ -287,6 +289,10 @@ def _write_grid_tiff(path, array, geotr, crs_wkt, nodata, nx, ny,
     ds.SetGeoTransform(geotr)
     if crs_wkt:
         ds.SetProjection(crs_wkt)
+    if meta:
+        # конвенция куба: отметка первого уровня и шаг по вертикали.
+        # Без них потребитель не знает, на какой высоте лежит канал
+        ds.SetMetadata({str(k): str(v) for k, v in meta.items()})
     for i, a in enumerate(arrs, 1):
         band = ds.GetRasterBand(i)
         band.SetNoDataValue(nodata)
@@ -322,6 +328,14 @@ class IsolinerAlgorithm(QgsProcessingAlgorithm):
             except Exception:  # nosec
                 pass
             raise
+
+    def tr(self, text, *args):
+        """Перевод строки инструмента.
+
+        В QGIS 4 базовый класс Processing этот метод больше не даёт,
+        а им пользуются все инструменты, поэтому держим свой.
+        """
+        return _tr(text)
 
     def _process(self, parameters, context, feedback):
         raise NotImplementedError
@@ -1551,6 +1565,864 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
 # --- 2. Топография -----------------------------------------------------
 
 
+class Demo3DPointsAlgorithm(IsolinerAlgorithm):
+    """Демонстрационные скважины с опробованием по интервалам.
+
+    Данные с известной истиной внутри: содержание задано моделью,
+    шум добавляется отдельно. На таких точках сравнивают методы
+    объёмной интерполяции, потому что ошибку считают по расхождению
+    с заложенной моделью, а не на глаз.
+
+    Типов залежи три. Пласт со складкой и падением показывает главное:
+    горизонтальные уровни куба режут залежь поперёк. Линза даёт простой
+    случай, крутая жила - обратный крайний.
+    """
+
+    KIND = "KIND"
+    HOLES = "HOLES"
+    SAMPLE = "SAMPLE"
+    EXTENT = "EXTENT"
+    X0 = "X0"
+    Y0 = "Y0"
+    SIZE = "SIZE"
+    SIZE_Y = "SIZE_Y"
+    TOP = "TOP"
+    DEPTH = "DEPTH"
+    CORE = "CORE"
+    BACK = "BACK"
+    TREND = "TREND"
+    NOISE = "NOISE"
+    INCLINE = "INCLINE"
+    SHORT = "SHORT"
+    SEED = "SEED"
+    OUTPUT = "OUTPUT"
+
+    def name(self):
+        return "demo_points_3d"
+
+    def displayName(self):
+        return self.tr("2.01 Демонстрационные скважины в объёме")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Создаёт скважины с опробованием по интервалам: сеть со "
+            "сбивкой, разная глубина, часть скважин недобурена, устья "
+            "по рельефу.\n\nТип залежи задаёт геометрию тела. Пласт со "
+            "складкой и падением нужен, чтобы увидеть, как уровни куба "
+            "режут залежь поперёк. Линза изотропна и проще всех. Крутая "
+            "жила проверяет обратный случай, когда тело почти "
+            "вертикально.\n\nПоля: hole (номер скважины), from_m и to_m "
+            "(интервал пробы от устья вниз), grade (содержание с шумом), "
+            "truth (содержание по модели, без шума), zone (единица "
+            "внутри тела).\n\nШум логнормальный, отрицательных "
+            "содержаний не возникает. Граница тела проходит там, где "
+            "содержание падает до половины ядра над фоном - это и есть "
+            "отсечка, она печатается в журнал.")
+            + _credit())
+
+    def createInstance(self):
+        return Demo3DPointsAlgorithm()
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterEnum(
+            self.KIND, self.tr("Тип залежи"),
+            options=[self.tr("Пласт со складкой и падением"),
+                     self.tr("Линза"),
+                     self.tr("Крутая жила")],
+            defaultValue=_dv(self, self.KIND, 0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.HOLES, self.tr("Скважин"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.HOLES, 25),
+            minValue=2, maxValue=2000))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.SAMPLE, self.tr("Длина пробы, м"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.SAMPLE, 3.0), minValue=0.05))
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Охват площадки (если задан, он и берётся)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.X0, self.tr("X левого нижнего угла"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.X0, 0.0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.Y0, self.tr("Y левого нижнего угла"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.Y0, 0.0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.SIZE, self.tr("Ширина площадки, м"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.SIZE, 1000.0), minValue=1.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.SIZE_Y, self.tr("Высота площадки, м (0 - как ширина)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.SIZE_Y, 0.0), minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.TOP, self.tr("Отметка поверхности, м"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.TOP, 0.0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.DEPTH, self.tr("Глубина разбуривания, м"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.DEPTH, 200.0), minValue=1.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.NOISE, self.tr("Шум опробования, доля"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.NOISE, 0.12),
+            minValue=0.0, maxValue=2.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.SEED, self.tr("Зерно случайности"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.SEED, 1)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.CORE, self.tr("Содержание в ядре сверх фона"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.CORE, 8.0), minValue=0.001)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.BACK, self.tr("Фон во вмещающих породах"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.BACK, 0.3), minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.TREND, self.tr("Общий наклон содержаний, доля"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.TREND, 0.15),
+            minValue=0.0, maxValue=2.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SHORT, self.tr("Доля недобуренных скважин"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.SHORT, 0.15),
+            minValue=0.0, maxValue=0.9)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.INCLINE, self.tr("Наклон стволов, градусов"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.INCLINE, 0.0),
+            minValue=0.0, maxValue=60.0)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Пробы с содержаниями"),
+            QgsProcessing.SourceType.TypeVectorPoint))
+
+    def _process(self, parameters, context, feedback):
+        from qgis.core import (QgsFields, QgsField, QgsFeature, QgsGeometry,
+                               QgsPoint, QgsWkbTypes)
+        from . import demo3d
+
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        kind = demo3d.KINDS[self.parameterAsEnum(
+            parameters, self.KIND, context)]
+        holes = self.parameterAsInt(parameters, self.HOLES, context)
+        sample = self.parameterAsDouble(parameters, self.SAMPLE, context)
+        size = self.parameterAsDouble(parameters, self.SIZE, context)
+        size_y = self.parameterAsDouble(parameters, self.SIZE_Y, context)
+        ext = self.parameterAsExtent(parameters, self.EXTENT, context)
+        if ext is not None and not ext.isEmpty():
+            x0, y0 = ext.xMinimum(), ext.yMinimum()
+            w, h = ext.width(), ext.height()
+        else:
+            x0 = self.parameterAsDouble(parameters, self.X0, context)
+            y0 = self.parameterAsDouble(parameters, self.Y0, context)
+            w = size
+            h = size_y if size_y > 0 else size
+        top = self.parameterAsDouble(parameters, self.TOP, context)
+        depth = self.parameterAsDouble(parameters, self.DEPTH, context)
+        core = self.parameterAsDouble(parameters, self.CORE, context)
+        back = self.parameterAsDouble(parameters, self.BACK, context)
+        trend = self.parameterAsDouble(parameters, self.TREND, context)
+        noise = self.parameterAsDouble(parameters, self.NOISE, context)
+        incline = self.parameterAsDouble(parameters, self.INCLINE, context)
+        short = self.parameterAsDouble(parameters, self.SHORT, context)
+        seed = self.parameterAsInt(parameters, self.SEED, context)
+
+        model = demo3d.make_model(kind, x0, y0, w, h, top, depth,
+                                  core=core, back=back)
+        rng = np.random.RandomState(seed)
+        xs, ys, collar, length = demo3d.hole_layout(
+            model, holes, rng, short_share=short)
+        feedback.setProgress(15)
+        if feedback.isCanceled():
+            return {self.OUTPUT: None}
+        data = demo3d.hole_samples(model, xs, ys, collar, length, rng,
+                                   sample=sample, noise=noise,
+                                   incline=incline, trend=trend)
+        feedback.setProgress(55)
+
+        fields = QgsFields()
+        fields.append(QgsField("hole", QVariant.Int))
+        fields.append(QgsField("from_m", QVariant.Double))
+        fields.append(QgsField("to_m", QVariant.Double))
+        fields.append(QgsField("grade", QVariant.Double))
+        fields.append(QgsField("truth", QVariant.Double))
+        fields.append(QgsField("zone", QVariant.Int))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.PointZ, context.project().crs())
+        if sink is None:
+            raise QgsProcessingException(
+                self.tr("Не удалось создать слой проб."))
+
+        total = int(data["hole"].size)
+        step = max(total // 40, 1)
+        for i in range(total):
+            if feedback.isCanceled():
+                break
+            ft = QgsFeature(fields)
+            ft.setGeometry(QgsGeometry(QgsPoint(
+                float(data["x"][i]), float(data["y"][i]),
+                float(data["z"][i]))))
+            ft.setAttributes([int(data["hole"][i]),
+                              float(data["from_m"][i]),
+                              float(data["to_m"][i]),
+                              float(data["grade"][i]),
+                              float(data["truth"][i]),
+                              int(data["zone"][i])])
+            sink.addFeature(ft)
+            if i % step == 0:
+                feedback.setProgress(55 + 45.0 * i / max(total, 1))
+        _set_output_name(context, dest, self.tr("Пробы с содержаниями"))
+
+        cut = demo3d.cutoff_for(model)
+        in_zone = int(data["zone"].sum())
+        feedback.pushInfo(self.tr("Скважин: %d, проб: %d, длина пробы %.2f м.")
+                          % (int(xs.size), total, sample))
+        feedback.pushInfo(self.tr("Площадка: %.0f x %.0f м от (%.0f, %.0f).")
+                          % (w, h, x0, y0))
+        feedback.pushInfo(self.tr("Устья: %.1f .. %.1f м, забои: %.1f .. "
+                                  "%.1f м.")
+                          % (float(collar.min()), float(collar.max()),
+                             float((collar - length).min()),
+                             float((collar - length).max())))
+        feedback.pushInfo(self.tr("Содержание: %.3f .. %.3f, отсечка %.3f.")
+                          % (float(data["grade"].min()),
+                             float(data["grade"].max()), cut))
+        feedback.pushInfo(self.tr("Проб внутри тела: %d из %d.")
+                          % (in_zone, total))
+        if total > 2000:
+            feedback.pushWarning(self.tr(
+                "Проб много: интерполяция в объёме считает узел по всем "
+                "пробам, и время растёт с их числом. Увеличьте длину "
+                "пробы или уменьшите число скважин."))
+        if in_zone == 0:
+            feedback.pushWarning(self.tr(
+                "Ни одна проба не попала в тело: проверьте глубину "
+                "разбуривания и охват площадки."))
+        _save_values(self, _saved)
+        return {self.OUTPUT: dest}
+
+
+class Interp3DAlgorithm(IsolinerAlgorithm):
+    """Интерполяция точек в объёме: куб значений многоканальным гридом.
+
+    Канал это горизонтальный уровень, отметка первого уровня и шаг
+    пишутся в метаданные. Конвенция та же, что у блочной модели,
+    поэтому куб сразу читается остальными инструментами и показывается
+    изоповерхностью в окне просмотра.
+
+    Методы пока два, ближний сосед и обратные расстояния. Кригинг
+    встанет третьим в ту же обвязку.
+    """
+
+    def name(self):
+        return "interpolate_3d"
+
+    def displayName(self):
+        return self.tr("2.02 Интерполяция точек в объёме")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def shortHelpString(self):
+        return self.tr(
+            "Считает значение в узлах объёмной сетки по точкам "
+            "с высотой.\n\n"
+            "Анизотропия это отношение вертикального масштаба "
+            "к горизонтальному. Без неё ближайшей точкой окажется "
+            "соседняя скважина, а не соседний замер в той же точке "
+            "плана.\n\n"
+            "Узлы, где точек в радиусе меньше нужного, остаются "
+            "пропуском: пустота лучше выдуманного значения."
+        )
+
+    def createInstance(self):
+        return Interp3DAlgorithm()
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "INPUT", self.tr("Точки с высотой"),
+            [QgsProcessing.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            "FIELD", self.tr("Поле значения"),
+            parentLayerParameterName="INPUT",
+            type=QgsProcessingParameterField.Numeric))
+        self.addParameter(QgsProcessingParameterEnum(
+            "METHOD", self.tr("Метод"),
+            options=[self.tr("Ближний сосед"),
+                     self.tr("Обратные расстояния")], defaultValue=1))
+        self.addParameter(QgsProcessingParameterNumber(
+            "CELL", self.tr("Шаг по горизонтали, м"),
+            QgsProcessingParameterNumber.Double, defaultValue=25.0,
+            minValue=1e-6))
+        self.addParameter(QgsProcessingParameterNumber(
+            "CELLZ", self.tr("Шаг по вертикали, м"),
+            QgsProcessingParameterNumber.Double, defaultValue=5.0,
+            minValue=1e-6))
+        self.addParameter(QgsProcessingParameterNumber(
+            "ANISO", self.tr("Анизотропия (вертикаль к горизонтали)"),
+            QgsProcessingParameterNumber.Double, defaultValue=20.0,
+            minValue=1e-6))
+        self.addParameter(QgsProcessingParameterNumber(
+            "RADIUS", self.tr("Радиус поиска, м (0 - авто)"),
+            QgsProcessingParameterNumber.Double, defaultValue=0.0,
+            minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            "POWER", self.tr("Степень обратных расстояний"),
+            QgsProcessingParameterNumber.Double, defaultValue=2.0,
+            minValue=0.1, maxValue=10.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            "MAXPTS", self.tr("Наибольшее число точек"),
+            QgsProcessingParameterNumber.Integer, defaultValue=16,
+            minValue=1))
+        self.addParameter(QgsProcessingParameterNumber(
+            "MINPTS", self.tr("Наименьшее число точек"),
+            QgsProcessingParameterNumber.Integer, defaultValue=1,
+            minValue=1))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            "OUTPUT", self.tr("Куб значений")))
+
+    def _process(self, parameters, context, feedback):
+        import numpy as np
+        from .interp3d import interpolate, grid_nodes
+
+        src = self.parameterAsSource(parameters, "INPUT", context)
+        field = self.parameterAsString(parameters, "FIELD", context)
+        method = ("nearest", "idw")[
+            self.parameterAsEnum(parameters, "METHOD", context)]
+        cell = self.parameterAsDouble(parameters, "CELL", context)
+        cellz = self.parameterAsDouble(parameters, "CELLZ", context)
+        aniso = self.parameterAsDouble(parameters, "ANISO", context)
+        radius = self.parameterAsDouble(parameters, "RADIUS", context)
+        power = self.parameterAsDouble(parameters, "POWER", context)
+        maxp = self.parameterAsInt(parameters, "MAXPTS", context)
+        minp = self.parameterAsInt(parameters, "MINPTS", context)
+        out_path = self.parameterAsOutputLayer(parameters, "OUTPUT", context)
+
+        xs, ys, zs, vals = [], [], [], []
+        for ft in src.getFeatures():
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            p = g.constGet()
+            try:
+                z = float(p.z())
+            except Exception:
+                z = 0.0
+            if z != z:
+                continue
+            try:
+                v = float(ft[field])
+            except (TypeError, ValueError, KeyError):
+                v = float("nan")   # не except/continue: сканер даёт B112
+            if v != v:
+                continue
+            xs.append(float(p.x()))
+            ys.append(float(p.y()))
+            zs.append(z)
+            vals.append(v)
+        if len(vals) < 2:
+            raise QgsProcessingException(
+                self.tr("Точек с высотой и значением меньше двух."))
+
+        pts = np.column_stack([xs, ys, zs])
+        vals = np.asarray(vals, dtype=float)
+        pad = cell
+        x0, x1 = pts[:, 0].min() - pad, pts[:, 0].max() + pad
+        y0, y1 = pts[:, 1].min() - pad, pts[:, 1].max() + pad
+        z0, z1 = pts[:, 2].min() - cellz, pts[:, 2].max() + cellz
+        nx = max(int(np.ceil((x1 - x0) / cell)), 1)
+        ny = max(int(np.ceil((y1 - y0) / cell)), 1)
+        nz = max(int(np.ceil((z1 - z0) / cellz)) + 1, 1)
+        feedback.pushInfo(self.tr("Сетка: %d x %d x %d, узлов %d")
+                          % (nx, ny, nz, nx * ny * nz))
+
+        nodes = grid_nodes(x0, y1, z0, nx, ny, nz, cell, cell, cellz)
+        vol = np.full(nx * ny * nz, np.nan)
+        step = max(nz // 20, 1)
+        per_level = nx * ny
+        for k in range(nz):
+            if feedback.isCanceled():
+                break
+            a, b = k * per_level, (k + 1) * per_level
+            vol[a:b] = interpolate(
+                pts, vals, nodes[a:b], method=method,
+                radius=(radius if radius > 0 else None), anisotropy=aniso,
+                power=power, max_points=maxp, min_points=minp)
+            if k % step == 0:
+                feedback.setProgress(100.0 * k / max(nz, 1))
+        vol = vol.reshape(nz, ny, nx)
+
+        filled = int(np.isfinite(vol).sum())
+        feedback.pushInfo(self.tr("Заполнено узлов: %d из %d")
+                          % (filled, vol.size))
+
+        gt = (x0, cell, 0.0, y1, 0.0, -cell)
+        crs = src.sourceCrs()
+        _write_grid_tiff(out_path, [vol[k] for k in range(nz)], gt,
+                         crs.toWkt() if crs is not None else "",
+                         float("nan"), nx, ny,
+                         [self.tr("уровень %d") % (k + 1)
+                          for k in range(nz)],
+                         meta={"Z0": "%.6f" % z0, "DZ": "%.6f" % cellz})
+        return {"OUTPUT": out_path}
+
+
+def _read_cube(path):
+    """Куб значений из многоканального грида.
+
+    Канал это горизонтальный уровень. Отметка первого уровня и шаг
+    лежат в метаданных, их пишет инструмент 2.02. Если метаданных нет,
+    считаем от нуля с единичным шагом: лучше показать форму, чем
+    отказаться совсем.
+    """
+    ds = gdal.Open(path)
+    if ds is None or ds.RasterCount < 2:
+        return None, None, 0.0, 1.0
+    gt = ds.GetGeoTransform()
+    meta = ds.GetMetadata() or {}
+    z0 = float(meta.get("Z0", meta.get("z0", 0.0)) or 0.0)
+    dz = float(meta.get("DZ", meta.get("dz", 1.0)) or 1.0)
+    bands = []
+    for b in range(1, ds.RasterCount + 1):
+        band = ds.GetRasterBand(b)
+        arr = band.ReadAsArray().astype(float)
+        nd = band.GetNoDataValue()
+        if nd is not None:
+            arr[arr == nd] = np.nan
+        bands.append(arr)
+    ds = None
+    return np.stack(bands, axis=0), gt, z0, dz
+
+
+def _contour_rings(alg, parameters, key, context):
+    """Кольца полигонов контура, если слой задан."""
+    lyr = alg.parameterAsVectorLayer(parameters, key, context)
+    if lyr is None:
+        return []
+    rings = []
+    for ft in lyr.getFeatures():
+        g = ft.geometry()
+        if g is None or g.isEmpty():
+            continue
+        try:
+            polys = g.asMultiPolygon()
+        except Exception:  # nosec
+            polys = []
+        if not polys:
+            try:
+                one = g.asPolygon()
+            except Exception:  # nosec
+                one = []
+            polys = [one] if one else []
+        for poly in polys:
+            for ring in poly:
+                rings.append([(p.x(), p.y()) for p in ring])
+    return rings
+
+
+class CubeToBlocksAlgorithm(IsolinerAlgorithm):
+    """Куб значений в блочную модель: точка-центроид на ячейку.
+
+    Куб как набор каналов ничем не адресуется: канал это не отметка,
+    а номер, и ни фильтр выражением, ни таблица атрибутов по нему
+    не работают. Блочная модель возвращает ячейке номер, координаты,
+    размер и значение, и дальше работает обычный векторный аппарат
+    QGIS.
+
+    Выгружаются только занятые ячейки. Пропуски и всё, что не прошло
+    отсечку, в слой не идут: разреженная модель весит на порядок
+    меньше полного параллелепипеда с пустыми краями.
+    """
+
+    CUBE = "CUBE"
+    CUTOFF = "CUTOFF"
+    USE_CUTOFF = "USE_CUTOFF"
+    CONTOUR = "CONTOUR"
+    CLASSES = "CLASSES"
+    DENS = "DENS"
+    OUTPUT = "OUTPUT"
+
+    def name(self):
+        return "cube_to_block_model"
+
+    def displayName(self):
+        return self.tr("2.03 Куб в блочную модель")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Переводит куб значений в блочную модель: точку-центроид "
+            "на каждую занятую ячейку.\n\nПоля: bid (номер блока), lev "
+            "(уровень), row и col (ячейка грида), x, y, z (центр "
+            "блока), dx, dy, dz (размер блока), vol (объём), val "
+            "(значение), cls (номер интервала окраски), при заданной "
+            "плотности ещё dens и ore_t.\n\nПропуски и ячейки ниже "
+            "отсечки не выгружаются. Модель выходит разреженной, "
+            "и весит она на порядок меньше полного параллелепипеда "
+            "с пустыми краями.\n\nДальше работает векторный аппарат "
+            "QGIS: фильтры выражениями, соединение внешних таблиц, "
+            "калькулятор полей. Тот же слой показывается коробками "
+            "в окне просмотра.")
+            + _credit())
+
+    def createInstance(self):
+        return CubeToBlocksAlgorithm()
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.CUBE, self.tr("Куб значений (каналы это уровни)")))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.USE_CUTOFF, self.tr("Применять отсечку"),
+            defaultValue=_dv(self, self.USE_CUTOFF, False)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CUTOFF, self.tr("Отсечка"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.CUTOFF, 0.0)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.CONTOUR, self.tr("Контур подсчёта"),
+            [QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.CLASSES, self.tr("Интервалов окраски (0 - без классов)"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.CLASSES, 8),
+            minValue=0, maxValue=64)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.DENS, self.tr("Плотность, т/м3 (0 - без пересчёта)"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.DENS, 0.0), minValue=0.0)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Блочная модель"),
+            QgsProcessing.SourceType.TypeVectorPoint))
+
+    def _process(self, parameters, context, feedback):
+        from qgis.core import (QgsFields, QgsField, QgsFeature, QgsGeometry,
+                               QgsPoint, QgsWkbTypes)
+        from . import voxel
+
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        lyr = self.parameterAsRasterLayer(parameters, self.CUBE, context)
+        if lyr is None:
+            raise QgsProcessingException(self.tr("Не задан куб значений."))
+        vol, gt, z0, dz = _read_cube(lyr.source())
+        if vol is None:
+            raise QgsProcessingException(self.tr(
+                "Слою нужен многоканальный грид: каналы это уровни куба."))
+        nz, ny, nx = vol.shape
+        feedback.pushInfo(self.tr("Куб: %d x %d x %d, отметка первого "
+                                  "уровня %.3f, шаг %.3f.")
+                          % (nx, ny, nz, z0, dz))
+
+        rings = _contour_rings(self, parameters, self.CONTOUR, context)
+        if rings:
+            flat = polygon_mask(rings, gt, (ny, nx))
+            vol = np.where(flat[None, :, :], vol, np.nan)
+            feedback.pushInfo(self.tr("Контур оставил ячеек в плане: %d "
+                                      "из %d.")
+                              % (int(flat.sum()), flat.size))
+
+        use_cut = self.parameterAsBool(parameters, self.USE_CUTOFF, context)
+        cut = self.parameterAsDouble(parameters, self.CUTOFF, context)
+        if use_cut:
+            occ = voxel.occupancy(vol, cut)
+        else:
+            occ = np.isfinite(vol)
+        n_cells = int(occ.sum())
+        if not n_cells:
+            raise QgsProcessingException(self.tr(
+                "Занятых ячеек не осталось: проверьте отсечку и контур."))
+
+        nclass = self.parameterAsInt(parameters, self.CLASSES, context)
+        vals_in = vol[occ]
+        vmin, vmax = float(vals_in.min()), float(vals_in.max())
+        if nclass > 1 and vmax > vmin:
+            edges = np.linspace(vmin, vmax, nclass + 1)[1:-1]
+            cls = voxel.quantize(vol, edges)
+        else:
+            cls = np.zeros(vol.shape, dtype=np.int32)
+        dens = self.parameterAsDouble(parameters, self.DENS, context)
+
+        dx = abs(gt[1])
+        dy = abs(gt[5])
+        cell_vol = dx * dy * abs(dz)
+        fields = QgsFields()
+        for nm, tp in (("bid", QVariant.Int), ("lev", QVariant.Int),
+                       ("row", QVariant.Int), ("col", QVariant.Int),
+                       ("x", QVariant.Double), ("y", QVariant.Double),
+                       ("z", QVariant.Double), ("dx", QVariant.Double),
+                       ("dy", QVariant.Double), ("dz", QVariant.Double),
+                       ("vol", QVariant.Double), ("val", QVariant.Double),
+                       ("cls", QVariant.Int)):
+            fields.append(QgsField(nm, tp))
+        if dens > 0:
+            fields.append(QgsField("dens", QVariant.Double))
+            fields.append(QgsField("ore_t", QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.PointZ, lyr.crs())
+        if sink is None:
+            raise QgsProcessingException(
+                self.tr("Не удалось создать слой блочной модели."))
+
+        idx = np.argwhere(occ)
+        step = max(len(idx) // 50, 1)
+        for n, (k, i, j) in enumerate(idx):
+            if feedback.isCanceled():
+                break
+            x = gt[0] + (j + 0.5) * gt[1]
+            y = gt[3] + (i + 0.5) * gt[5]
+            z = z0 + k * dz
+            val = float(vol[k, i, j])
+            attrs = [n + 1, int(k) + 1, int(i), int(j), float(x), float(y),
+                     float(z), dx, dy, abs(dz), cell_vol, val,
+                     int(cls[k, i, j])]
+            if dens > 0:
+                attrs.extend([dens, cell_vol * dens])
+            ft = QgsFeature(fields)
+            ft.setGeometry(QgsGeometry(QgsPoint(float(x), float(y),
+                                                float(z))))
+            ft.setAttributes(attrs)
+            sink.addFeature(ft)
+            if n % step == 0:
+                feedback.setProgress(100.0 * n / max(len(idx), 1))
+        _set_output_name(context, dest, self.tr("Блочная модель"))
+        feedback.pushInfo(self.tr("Блоков: %d из %d ячеек куба, "
+                                  "объём блока %.3f м3.")
+                          % (n_cells, vol.size, cell_vol))
+        feedback.pushInfo(self.tr("Значения: %.3f .. %.3f.") % (vmin, vmax))
+        if dens > 0:
+            feedback.pushInfo(self.tr("Суммарная масса: %.0f т.")
+                              % (n_cells * cell_vol * dens))
+        _save_values(self, _saved)
+        return {self.OUTPUT: dest}
+
+
+class CubeVoxelBodyAlgorithm(IsolinerAlgorithm):
+    """Тело куба вокселями: слой граней вместо набора каналов.
+
+    То же, что показывается в окне просмотра, но слоем: MULTIPOLYGON Z
+    из прямоугольных граней. Слой открывается в любом просмотрщике,
+    режется и считается обычными средствами.
+
+    Строятся только видимые грани. Соседние грани одного интервала
+    сливаются в прямоугольник, и на этом сцена делается лёгкой.
+    Слияние стоит замкнутости: длинный прямоугольник упирается
+    в два коротких, общего ребра у них нет. Для подсчёта объёма
+    слияние надо выключить.
+    """
+
+    CUBE = "CUBE"
+    CUTOFF = "CUTOFF"
+    CONTOUR = "CONTOUR"
+    CLASSES = "CLASSES"
+    MERGE = "MERGE"
+    UNPINCH = "UNPINCH"
+    OUTPUT = "OUTPUT"
+
+    def name(self):
+        return "cube_voxel_body"
+
+    def displayName(self):
+        return self.tr("2.04 Тело куба вокселями")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Строит тело по отсечке коробками ячеек: MULTIPOLYGON Z, "
+            "объект на интервал окраски.\n\nСтроятся только видимые "
+            "грани. Грань между двумя занятыми соседями не видна "
+            "никогда, поэтому её отбрасывают: на кубе двести на двести "
+            "на сто это сто двадцать шесть тысяч граней вместо "
+            "двадцати четырёх миллионов.\n\nФлаг «Сливать соседние "
+            "грани» делает сцену лёгкой, но ломает замкнутость: "
+            "длинный прямоугольник упирается в два коротких, общего "
+            "ребра у них нет. Для подсчёта объёма и проверки "
+            "замкнутости флаг надо снять, тогда каждое ребро "
+            "принадлежит ровно двум граням.\n\nПоля: cls (интервал "
+            "окраски), vmin и vmax (границы интервала), faces (граней "
+            "в объекте), shell (единица у тела).\n\nЗащип по ребру "
+            "это касание двух ячеек одной диагональю. Дырой он "
+            "не является и объём не портит, но ребро в нём принадлежит "
+            "четырём граням, и проверка замкнутости такое тело "
+            "отвергает. Флаг «Убирать защипы по ребру» заполняет угол "
+            "одной ячейкой, и касание становится по грани.")
+            + _credit())
+
+    def createInstance(self):
+        return CubeVoxelBodyAlgorithm()
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.CUBE, self.tr("Куб значений (каналы это уровни)")))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CUTOFF, self.tr("Отсечка"),
+            QgsProcessingParameterNumber.Double,
+            defaultValue=_dv(self, self.CUTOFF, 0.0)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.CONTOUR, self.tr("Контур подсчёта"),
+            [QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CLASSES, self.tr("Интервалов окраски (0 - одним телом)"),
+            QgsProcessingParameterNumber.Integer,
+            defaultValue=_dv(self, self.CLASSES, 0),
+            minValue=0, maxValue=64))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.MERGE, self.tr("Сливать соседние грани"),
+            defaultValue=_dv(self, self.MERGE, True)))
+        self.addParameter(QgsProcessingParameterBoolean(
+            self.UNPINCH, self.tr("Убирать защипы по ребру"),
+            defaultValue=_dv(self, self.UNPINCH, True)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Тело вокселями"),
+            QgsProcessing.SourceType.TypeVectorPolygon))
+
+    def _process(self, parameters, context, feedback):
+        from qgis.core import (QgsFields, QgsField, QgsFeature, QgsGeometry,
+                               QgsPoint, QgsPolygon, QgsLineString,
+                               QgsMultiPolygon, QgsWkbTypes)
+        from . import voxel
+
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        lyr = self.parameterAsRasterLayer(parameters, self.CUBE, context)
+        if lyr is None:
+            raise QgsProcessingException(self.tr("Не задан куб значений."))
+        vol, gt, z0, dz = _read_cube(lyr.source())
+        if vol is None:
+            raise QgsProcessingException(self.tr(
+                "Слою нужен многоканальный грид: каналы это уровни куба."))
+        nz, ny, nx = vol.shape
+        rings = _contour_rings(self, parameters, self.CONTOUR, context)
+        if rings:
+            flat = polygon_mask(rings, gt, (ny, nx))
+            vol = np.where(flat[None, :, :], vol, np.nan)
+
+        cut = self.parameterAsDouble(parameters, self.CUTOFF, context)
+        occ = voxel.occupancy(vol, cut)
+        n_cells = int(occ.sum())
+        if not n_cells:
+            raise QgsProcessingException(self.tr(
+                "По отсечке ячеек не осталось."))
+        nclass = self.parameterAsInt(parameters, self.CLASSES, context)
+        merge = self.parameterAsBool(parameters, self.MERGE, context)
+        pinches = voxel.pinch_edges(occ)
+        if pinches:
+            feedback.pushInfo(self.tr("Защипов по ребру: %d.") % pinches)
+        if pinches and self.parameterAsBool(parameters, self.UNPINCH,
+                                            context):
+            occ, added = voxel.unpinch(occ)
+            n_cells = int(occ.sum())
+            feedback.pushInfo(self.tr("Защипы убраны, добавлено ячеек: %d.")
+                              % added)
+        elif pinches:
+            feedback.pushWarning(self.tr(
+                "Защипы оставлены: рёбра в них принадлежат четырём "
+                "граням, и замкнутой оболочка не будет."))
+        vals_in = vol[occ]
+        vmin, vmax = float(vals_in.min()), float(vals_in.max())
+        if nclass > 1 and vmax > vmin:
+            bounds = np.linspace(vmin, vmax, nclass + 1)
+            cls = voxel.quantize(vol, bounds[1:-1])
+        else:
+            nclass = 1
+            bounds = np.array([vmin, vmax])
+            cls = np.zeros(vol.shape, dtype=np.int32)
+
+        feedback.setProgress(20)
+        verts, faces, tri_cls, over = voxel.voxel_mesh(
+            occ, gt, z0, dz, classes=cls, merge=merge)
+        if over:
+            raise QgsProcessingException(self.tr(
+                "Модель слишком велика: поднимите отсечку или уменьшите "
+                "число интервалов."))
+        feedback.setProgress(60)
+        feedback.pushInfo(self.tr("Ячеек: %d, видимых граней: %d, "
+                                  "треугольников: %d.")
+                          % (n_cells, voxel.visible_faces(occ), len(faces)))
+
+        fields = QgsFields()
+        for nm, tp in (("cls", QVariant.Int), ("vmin", QVariant.Double),
+                       ("vmax", QVariant.Double), ("faces", QVariant.Int),
+                       ("shell", QVariant.Int)):
+            fields.append(QgsField(nm, tp))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.MultiPolygonZ, lyr.crs())
+        if sink is None:
+            raise QgsProcessingException(
+                self.tr("Не удалось создать слой тела."))
+
+        made = 0
+        for c in range(nclass):
+            sel = tri_cls == c
+            if not sel.any():
+                continue
+            mp = QgsMultiPolygon()
+            for tri in faces[sel]:
+                ring = QgsLineString()
+                for vi in (tri[0], tri[1], tri[2], tri[0]):
+                    p = verts[vi]
+                    ring.addVertex(QgsPoint(float(p[0]), float(p[1]),
+                                            float(p[2])))
+                poly = QgsPolygon()
+                poly.setExteriorRing(ring)
+                mp.addGeometry(poly)
+            ft = QgsFeature(fields)
+            ft.setGeometry(QgsGeometry(mp))
+            ft.setAttributes([c, float(bounds[c]), float(bounds[c + 1]),
+                              int(sel.sum()), 1])
+            sink.addFeature(ft)
+            made += 1
+            feedback.setProgress(60 + 40.0 * made / max(nclass, 1))
+        _set_output_name(context, dest, self.tr("Тело вокселями"))
+        feedback.pushInfo(self.tr("Объектов: %d.") % made)
+        if merge:
+            feedback.pushInfo(self.tr(
+                "Грани слиты. Замкнутой такая оболочка не будет: "
+                "для подсчёта объёма снимите флаг слияния."))
+        _save_values(self, _saved)
+        return {self.OUTPUT: dest}
+
+
 ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
@@ -1558,5 +2430,9 @@ ALGORITHMS = [
     SectionSurfacesToMeshAlgorithm,
     DomainsToGridAlgorithm,
     ReserveDeltaAlgorithm,
+    Demo3DPointsAlgorithm,
+    Interp3DAlgorithm,
+    CubeToBlocksAlgorithm,
+    CubeVoxelBodyAlgorithm,
     PolyhedralDemoAlgorithm,
 ]

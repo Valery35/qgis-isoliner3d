@@ -45,8 +45,15 @@ place in space and a map draped over the relief.
   set separately and does not depend on the mesh density.
 - The section drawing draped onto the ribbon, several sections at once.
 - Click query: the layer name, the coordinates, all band values, the
+- A cube of values is shown as an isosurface at a cutoff: a closed body fit for volume computation.
+- A cube of values is shown as voxels: a cell as a box, coloured by grade interval. Only visible faces are built and neighbouring faces of one interval merge, so a cube of millions of cells stays light.
+- Colour comes from the layer styling: a raster ramp, categories and graduated classes of a vector. A class unticked in the legend does not reach the scene.
+- The scene lives in the project CRS: layers in other systems are reprojected, just as on the map canvas.
+- The elevation of a vector layer comes from the geometry, from a field or from a surface. When draped, the value is read at every vertex, and where there is no data the feature is cut away.
+- The layer order follows the map tree, the upper layer is drawn over the lower one. The list follows the tree by itself.
 - Clipping the scene by a contour or a line: the piece inside, everything but it, a side of the line, a corridor of a given width along the profile. Both surfaces and vectors are cut.
 - Markup right in the scene: a contour and a line are drawn by clicks on the surface and saved as a project layer.
+- The scene is computed by the «Rebuild the scene» button, the visibility ticks only record what to show.
 - A parallel projection and a top view as a plan.
   thickness.
 - A PNG snapshot for reports.
@@ -65,6 +72,16 @@ NumPy and GDAL and need no kriging.
 | 1.05 Domains to a bed band | Area polygons as an extra grid band | A bed grid |
 | 1.06 Reserve difference (write-off) | The difference of two block models per cell | Points |
 | 1.07 Create sample data (demo) | Bodies with Z and a test map for the texture | A layer or a raster |
+
+The **Interpolation in three dimensions** group works with a cube of
+values: a grid band is a horizontal level.
+
+| Tool | What it does | Output |
+|---|---|---|
+| 2.01 Demonstration boreholes in three dimensions | A folded bed, a lens or a steep vein, sampled by intervals | Points |
+| 2.02 Interpolation of points in three dimensions | Nearest neighbour and inverse distances with anisotropy | A cube of values |
+| 2.03 Cube to a block model | A centroid per occupied cell, block size and volume | Points |
+| 2.04 Cube body as voxels | A body above the cutoff as cell boxes, one feature per interval | MULTIPOLYGON Z |
 
 A bed grid assembled by the first tool is read by the 3D window as a body:
 computed and looked at right away.

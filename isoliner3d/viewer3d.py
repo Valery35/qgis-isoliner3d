@@ -35,6 +35,12 @@ _CMAP = [(0.267, 0.005, 0.329), (0.229, 0.322, 0.546),
          (0.993, 0.906, 0.144)]
 
 
+# Предел видимых граней у вокселей: выше этого сцена
+# перестаёт быть отзывчивой, и вместо показа выдаётся
+# число и совет, что покрутить.
+_VOX_FACE_LIMIT = 1500000
+
+
 def colormap(t):
     """t в [0..1] (массив) -> RGBA (N, 4). NaN -> серый."""
     import numpy as np
@@ -105,10 +111,144 @@ PALETTE = [
 ]
 
 
-def _layer_budget(n_layers):
+def ramp_colors(values, breaks, cols, kind="interpolated"):
+    """Раскраска значений по шкале слоя.
+
+    `breaks` это возрастающие значения шкалы, `cols` цвета в тех же
+    точках, RGBA от нуля до единицы. Вид шкалы повторяет QGIS:
+    непрерывная тянет цвет между соседними точками, ступенчатая
+    отдаёт цвет первой точки, которая не меньше значения, точная
+    красит только совпадения.
+
+    Значения вне шкалы прижимаются к её концам, пропуски уходят
+    серым: пустое место не должно выглядеть данными.
+    """
+    import numpy as np
+    v = np.asarray(values, dtype=float)
+    breaks = np.asarray(breaks, dtype=float)
+    cols = np.asarray(cols, dtype=float)
+    out = np.empty(v.shape + (4,), dtype=float)
+    bad = ~np.isfinite(v)
+    safe = np.where(bad, breaks[0] if len(breaks) else 0.0, v)
+    if not len(breaks):
+        out[...] = (0.6, 0.6, 0.6, 1.0)
+        return out
+    if kind == "interpolated":
+        for c in range(4):
+            out[..., c] = np.interp(safe, breaks, cols[:, c])
+    elif kind == "discrete":
+        idx = np.searchsorted(breaks, safe, side="left")
+        out[...] = cols[np.clip(idx, 0, len(breaks) - 1)]
+    else:
+        idx = np.searchsorted(breaks, safe, side="left")
+        idx = np.clip(idx, 0, len(breaks) - 1)
+        hit = np.isclose(breaks[idx], safe)
+        out[...] = cols[idx]
+        out[~hit] = (0.6, 0.6, 0.6, 1.0)
+    out[bad] = (0.6, 0.6, 0.6, 1.0)
+    return out
+
+
+def _ramp_from_renderer(lyr):
+    """Шкала слоя из его оформления: (канал, значения, цвета, вид).
+
+    Читается то же самое, что рисует карту, поэтому поверхность
+    в сцене выходит той же расцветки, что и растр на холсте.
+    Возвращает None, если у слоя обычная серая заливка или
+    оформление не разобралось.
+    """
+    import numpy as np
+    try:
+        rnd = lyr.renderer()
+    except Exception:  # nosec
+        return None
+    if rnd is None:
+        return None
+    band = 1
+    for name in ("band", "inputBand", "grayBand"):
+        fn = getattr(rnd, name, None)
+        if fn is not None:
+            try:
+                band = int(fn())
+                break
+            except Exception:  # nosec
+                continue
+    items, kind = None, "interpolated"
+    shader = getattr(rnd, "shader", None)
+    if shader is not None:
+        try:
+            fn = rnd.shader().rasterShaderFunction()
+            items = list(fn.colorRampItemList())
+            ctype = int(fn.colorRampType())
+            kind = {0: "interpolated", 1: "discrete",
+                    2: "exact"}.get(ctype, "interpolated")
+        except Exception:  # nosec
+            items = None
+    if items is None and hasattr(rnd, "classes"):
+        try:
+            cls = list(rnd.classes())
+            items = [(c.value, c.color) for c in cls]
+            kind = "exact"
+        except Exception:  # nosec
+            items = None
+        rows = []
+        for val, col in (items or []):
+            rows.append((float(val), col))
+    else:
+        rows = []
+        for it in (items or []):
+            try:
+                rows.append((float(it.value), it.color))
+            except Exception:  # nosec
+                continue
+    rows = [r for r in rows if r[0] == r[0] and abs(r[0]) != float("inf")]
+    if len(rows) < 2:
+        return None
+    rows.sort(key=lambda r: r[0])
+    breaks = np.array([r[0] for r in rows], dtype=float)
+    cols = np.array([[r[1].redF(), r[1].greenF(), r[1].blueF(),
+                      r[1].alphaF()] for r in rows], dtype=float)
+    return band, breaks, cols, kind
+
+
+def _map_order(proj):
+    """Слои в порядке дерева карты, сверху вниз.
+
+    `mapLayers` отдаёт словарь без всякого порядка, и список в окне
+    получался случайным. Порядок дерева задаёт и очерёдность в списке,
+    и приоритет при отрисовке: верхний слой карты рисуется поверх
+    нижнего.
+    """
+    root = None
+    try:
+        root = proj.layerTreeRoot()
+    except Exception:  # nosec
+        root = None
+    if root is None:
+        return list(proj.mapLayers().values())
+    out = []
+    try:
+        for lyr in root.layerOrder():
+            if lyr is not None:
+                out.append(lyr)
+    except Exception:  # nosec
+        out = []
+    if not out:
+        try:
+            for node in root.findLayers():
+                lyr = node.layer()
+                if lyr is not None:
+                    out.append(lyr)
+        except Exception:  # nosec
+            out = []
+    return out or list(proj.mapLayers().values())
+
+
+def _layer_budget(n_layers, cap=None):
     """Сколько вершин достаётся одному слою при данном их числе."""
     n = max(1, int(n_layers))
-    return max(MIN_VERTS_LAYER, MAX_VERTS_SCENE // n)
+    total = int(cap or MAX_VERTS_SCENE)
+    return max(MIN_VERTS_LAYER, total // n)
 
 
 def _auto_step(arr, budget=None):
@@ -133,26 +273,30 @@ _MAX_BODIES = 2000
 _MAX_LINES = 1500
 
 
-def _body_budget(feats, n_layers=1):
+def _body_budget(feats, n_layers=1, cap=None):
     """Какие объекты слоя берём в сцену.
 
     Считать объекты неправильно: тысяча мелких поясов дешевле десятка
     кадастровых кварталов с миллионом вершин. Поэтому копим вершины и
     останавливаемся по бюджету слоя, а число объектов держим потолком
     от разрастания самих мешей.
+
+    Возвращает (объекты, набрано вершин, бюджет): числа нужны, чтобы
+    в строке состояния было видно не только сколько отброшено,
+    но и чего именно не хватило.
     """
-    budget = _layer_budget(n_layers)
+    budget = _layer_budget(n_layers, cap)
     out, total = [], 0
     for ft in feats:
         try:
             n = ft.geometry().constGet().nCoordinates()
-        except Exception:
+        except Exception:  # nosec
             n = 0
         if out and (total + n > budget or len(out) >= _MAX_BODIES):
             break
         out.append(ft)
         total += n
-    return out
+    return out, total, budget
 
 
 def _tri_rings(tri):
@@ -262,7 +406,7 @@ def _fill_z(tris, src, nd=6):
 
 
 def _tessellate(geom, zfix=None):
-    """Полигон в треугольники честно, с учётом вогнутости и дыр.
+    """Полигон в треугольники строго, с учётом вогнутости и дыр.
 
     Веерная триангуляция `polyhedral.wkt_to_tris` рассчитана на выпуклые
     грани полиэдров и на произвольном контуре даёт лучи через всю фигуру.
@@ -341,18 +485,27 @@ def _tri_key(lyr, ft, geom, zfix):
                round(b.xMaximum(), 3), round(b.yMaximum(), 3))
     except Exception:
         box = None
-    z = None if zfix is None else round(float(zfix), 6)
+    if zfix is None or isinstance(zfix, str):
+        z = zfix
+    else:
+        z = round(float(zfix), 6)
     return (lyr.id(), int(ft.id()), n, box, z)
 
 
-def _tri_cached(lyr, ft, geom, zfix, prof=None):
+def _tri_cached(lyr, ft, geom, zfix, prof=None, spatial=False):
     """Триангуляция с кэшем: геометрия между сборками не меняется.
 
     Разбивка пятисот контуров занимала шесть секунд и повторялась
     на каждое нажатие «Обновить сцену», хотя объекты те же самые.
+
+    `spatial` включает разбор объекта по кольцам, каждое в своей
+    плоскости. Так разбираются тела и пояса с переменной отметкой:
+    в плане вертикальная стенка вырождается в линию, и плоская
+    разбивка даёт мусор. Ключ у этого пути свой, чтобы результаты
+    двух разных разбивок одного объекта не путались.
     """
     global _TRI_BYTES
-    key = _tri_key(lyr, ft, geom, zfix)
+    key = _tri_key(lyr, ft, geom, "3d" if spatial else zfix)
     hit = _TRI_CACHE.get(key)
     if hit is not None:
         if prof is not None:
@@ -360,7 +513,8 @@ def _tri_cached(lyr, ft, geom, zfix, prof=None):
         return hit
     if prof is not None:
         prof.count("tess")
-    v, f = _tessellate(geom, zfix)
+    v, f = (_tris_from_geometry(geom) if spatial
+            else _tessellate(geom, zfix))
     nbytes = int(getattr(v, "nbytes", 0)) + int(getattr(f, "nbytes", 0))
     if nbytes <= _TRI_LIMIT:
         while _TRI_ORDER and _TRI_BYTES + nbytes > _TRI_LIMIT:
@@ -580,7 +734,7 @@ def _flat_z(geom, tol=1e-6):
     """Отметка плоского объекта или None, если Z меняется.
 
     Плоский контур (ступень рельефа, подсчётный блок, плита на отметке)
-    надо разбивать честной триангуляцией: веер даёт лучи через фигуру.
+    надо разбивать настоящей триангуляцией: веер даёт лучи через фигуру.
     Обход идёт по всем вершинам с выходом на первом же расхождении.
     Прежний потолок в 4096 вершин судил о фигуре по началу контура: у
     пояса между изолиниями обход идёт сначала по одной границе, и первые
@@ -1331,6 +1485,9 @@ def _build_dialog(parent):
             self._clip_geom_now = None   # он же геометрией, для резки тел
             self._layer_colors_cache = {}   # цвета из стиля слоя
             self._export = []        # части сцены для выгрузки в GLB
+            self._vox_colors = {}    # цвета граней вокселей по слою
+            self._dirty = False      # сцена отстала от настроек
+            self._style_ramp = {}    # цвета вершин по шкале слоя
             self._state_read = False  # читали ли состояние из проекта
             self._owners = []        # чьего слоя каждый элемент сцены
             self._warnings = []      # что сказать человеку после сборки
@@ -1352,11 +1509,16 @@ def _build_dialog(parent):
             self.opacity.setRange(0.0, 95.0)
             self.opacity.setValue(0.0)
             self.opacity.setDecimals(0)
+            self.vert_cap = QSpinBox()
+            self.vert_cap.setRange(100, 8000)
+            self.vert_cap.setSingleStep(100)
+            self.vert_cap.setValue(MAX_VERTS_SCENE // 1000)
             self.texside = QSpinBox()
             self.texside.setRange(256, 8192)
             self.texside.setSingleStep(512)
             self.texside.setValue(2048)
-            for w in (self.vex, self.spacing, self.opacity, self.texside):
+            for w in (self.vex, self.spacing, self.opacity, self.texside,
+                      self.vert_cap):
                 w.valueChanged.connect(lambda *_a: self._schedule_rebuild())
             self.clip_combo = QComboBox()
             self.clip_combo.setToolTip(tr(
@@ -1384,10 +1546,17 @@ def _build_dialog(parent):
                     w.valueChanged
                 sig.connect(lambda *_a: self._schedule_rebuild())
             self.auto_rebuild = QCheckBox(tr("Обновлять автоматически"))
-            self.auto_rebuild.setChecked(True)
+            self.auto_rebuild.setChecked(False)
             self.auto_rebuild.setToolTip(tr(
-                "Правка свойств сразу пересобирает сцену. На тяжёлой "
-                "сцене снимите галку и пользуйтесь кнопкой."))
+                "Обычно сцена считается по кнопке «Обновить сцену», "
+                "а отметки и ползунки только записывают, что показать. "
+                "С этой галкой сцена пересобирается сразу на каждую "
+                "правку: удобно на лёгких данных."))
+            self.vert_cap.setToolTip(tr(
+                "Сколько вершин отдаётся на всю сцену. Бюджет делится "
+                "между слоями, и объекты, на которые его не хватило, "
+                "в сцену не попадают: об этом пишет строка состояния. "
+                "Поднимайте, если тела показаны не полностью."))
             self.texside.setToolTip(tr(
                 "Сторона текстуры по длинной оси охвата. Больше значение - "
                 "детальнее карта на поверхности и больше видеопамяти."))
@@ -1398,6 +1567,7 @@ def _build_dialog(parent):
             sf.addRow(tr("Прозрачность поверхностей (процентов)"),
                       self.opacity)
             sf.addRow(tr("Сторона текстуры (пикселей)"), self.texside)
+            sf.addRow(tr("Предел вершин в сцене (тысяч)"), self.vert_cap)
             sf.addRow(tr("Обрезка по контуру"), self.clip_combo)
             sf.addRow(tr("Кусок"), self.clip_side)
             sf.addRow(self.auto_rebuild)
@@ -1428,7 +1598,9 @@ def _build_dialog(parent):
             self.mode_combo = QComboBox()
             for label, key in ((tr("Авто"), "auto"),
                                (tr("Поверхность"), "surface"),
-                               (tr("Тело пласта"), "body")):
+                               (tr("Тело пласта"), "body"),
+                               (tr("Изоповерхность по кубу"), "iso"),
+                               (tr("Воксели по кубу"), "vox")):
                 self.mode_combo.addItem(label, key)
             self.zband = QComboBox()
             self.color_combo = QComboBox()
@@ -1437,6 +1609,12 @@ def _build_dialog(parent):
             self.color_btn.setToolTip(tr("Задать свой цвет"))
             self.color_btn.clicked.connect(self._pick_solid_color)
             self.aband = QComboBox()
+            self.iso_level = QDoubleSpinBox()
+            self.iso_level.setRange(-1e9, 1e9)
+            self.iso_level.setDecimals(3)
+            self.iso_level.setToolTip(tr(
+                "Отсечка: внутрь тела попадает всё, что не меньше этого "
+                "значения. Каналы грида считаются уровнями куба."))
             of = QFormLayout(self.opt_box)
             of.addRow(tr("Режим"), self.mode_combo)
             of.addRow(tr("Канал высот (Z)"), self.zband)
@@ -1445,6 +1623,27 @@ def _build_dialog(parent):
             crow.addWidget(self.color_btn, 0)
             of.addRow(tr("Окраска"), crow)
             of.addRow(tr("Канал атрибута"), self.aband)
+            self.vox_classes = QSpinBox()
+            self.vox_classes.setRange(1, 32)
+            self.vox_classes.setValue(8)
+            self.vox_classes.setToolTip(tr(
+                "На сколько интервалов раскладывается содержание при "
+                "окраске вокселей. Соседние грани одного интервала "
+                "сливаются в один прямоугольник, поэтому чем меньше "
+                "интервалов, тем легче сцена."))
+            self.vox_merge = QCheckBox(tr("Сливать соседние грани"))
+            self.vox_merge.setChecked(True)
+            self.vox_merge.setToolTip(tr(
+                "Слияние делает сцену в разы легче, но оболочка перестаёт "
+                "быть замкнутой: длинный прямоугольник упирается в два "
+                "коротких, общего ребра у них нет. Снимите флаг, если "
+                "по этой модели считается объём."))
+            of.addRow(tr("Отсечка куба"), self.iso_level)
+            of.addRow(tr("Интервалов окраски"), self.vox_classes)
+            of.addRow("", self.vox_merge)
+            self.iso_level.valueChanged.connect(self._save_opts)
+            self.vox_classes.valueChanged.connect(self._save_opts)
+            self.vox_merge.toggled.connect(self._save_opts)
             for w in (self.mode_combo, self.zband, self.aband):
                 w.currentIndexChanged.connect(self._save_opts)
             self.color_combo.currentIndexChanged.connect(self._color_changed)
@@ -1459,8 +1658,24 @@ def _build_dialog(parent):
             self.vec_zsrc = QComboBox()
             for label, key in ((tr("Своя высота геометрии (Z)"), "geom"),
                                (tr("Отметка из поля"), "field"),
+                               (tr("Отметка с поверхности"), "surf"),
                                (tr("Плоско, на нуле"), "flat")):
                 self.vec_zsrc.addItem(label, key)
+            self.vec_zoff = QDoubleSpinBox()
+            self.vec_zoff.setRange(-100000.0, 100000.0)
+            self.vec_zoff.setDecimals(2)
+            self.vec_zoff.setSingleStep(1.0)
+            self.vec_zoff.setValue(0.0)
+            self.vec_zoff.setToolTip(tr(
+                "Сдвиг слоя по вертикали в метрах, поверх выбранного "
+                "источника высоты. Небольшой подъём убирает спор "
+                "за глубину, когда линия лежит ровно на поверхности."))
+            self.vec_zsurf = QComboBox()
+            self.vec_zsurf.setToolTip(tr(
+                "Поверхность, с которой берётся отметка. Значение "
+                "читается в каждой вершине, поэтому объект ложится "
+                "на рельеф, а не встаёт на общую отметку. Там, где "
+                "у поверхности нет данных, объект обрезается."))
             self.vec_zfield = QComboBox()
             self.vec_poly = QComboBox()
             for label, key in ((tr("Контуром"), "outline"),
@@ -1488,10 +1703,6 @@ def _build_dialog(parent):
                                (tr("Скважины (стволы по отметкам)"),
                                 "wells")):
                 self.vec_kind.addItem(label, key)
-            self.vec_color_btn = QPushButton()
-            self.vec_color_btn.setFixedSize(46, 22)
-            self.vec_color_btn.setToolTip(tr("Задать свой цвет"))
-            self.vec_color_btn.clicked.connect(self._pick_vec_color)
             self.wells_label = QComboBox()
             self.wells_fields = QListWidget()
             self.wells_fields.setMaximumHeight(150)
@@ -1500,16 +1711,18 @@ def _build_dialog(parent):
             vf.addRow(tr("Полигональный слой"), self.vec_poly)
             vf.addRow(tr("Источник высоты"), self.vec_zsrc)
             vf.addRow(tr("Поле отметки"), self.vec_zfield)
+            vf.addRow(tr("Поверхность отметки"), self.vec_zsurf)
+            vf.addRow(tr("Смещение по вертикали, м"), self.vec_zoff)
             vf.addRow(tr("Низ призмы с поверхности"), self.vec_base)
             vf.addRow(tr("Верх призмы"), self.vec_htop)
             vf.addRow(tr("Поле верха или высоты"), self.vec_ztop)
-            vf.addRow(tr("Цвет"), self.vec_color_btn)
             vf.addRow(tr("Поле подписи скважин"), self.wells_label)
             vf.addRow(tr("Поля отметок"), self.wells_fields)
             for w in (self.vec_kind, self.vec_poly, self.vec_zsrc,
-                      self.vec_zfield, self.vec_ztop, self.vec_base,
-                      self.vec_htop, self.wells_label):
+                      self.vec_zfield, self.vec_zsurf, self.vec_ztop,
+                      self.vec_base, self.vec_htop, self.wells_label):
                 w.currentIndexChanged.connect(self._save_vec_opts)
+            self.vec_zoff.valueChanged.connect(self._save_vec_opts)
             self.wells_fields.itemChanged.connect(self._save_vec_opts)
 
             # --- разрез: свойство линейного слоя, а не отдельная вкладка
@@ -1565,8 +1778,8 @@ def _build_dialog(parent):
                 self._toggle_sketch, True)
             self.btn_sketch.setChecked(True)
             btn_clip_off = tool(
-                "clear", tr("Снять обрезку и убрать наброски"),
-                self._clip_clear)
+                "clear", tr("Снять обрезку, наброски и точку опроса"),
+                self._clip_clear_all)
             btn_draw_save = tool(
                 "layer", tr("Сохранить нарисованный контур слоем проекта"),
                 self._draw_save)
@@ -1578,10 +1791,12 @@ def _build_dialog(parent):
                 self._copy_png)
             btn_png = tool("png", tr("Сохранить кадр сцены в файл PNG"),
                            self._save_png)
+            # Обновление отделено от отметок видимости. Отметка и ползунок
+            # только записывают, что показывать, а считает сцену эта
+            # кнопка. На тяжёлом кубе разница решающая: без неё каждый
+            # щелчок в списке тянул полную пересборку.
             self.btn = tool("rebuild", tr("Обновить сцену"), self.rebuild)
-            self.btn.setVisible(False)
-            self.auto_rebuild.toggled.connect(
-                lambda on: self.btn.setVisible(not on))
+            self.auto_rebuild.toggled.connect(self._auto_toggled)
 
             left = QWidget()
             lv = QVBoxLayout(left)
@@ -1605,6 +1820,19 @@ def _build_dialog(parent):
             self.view.undo_cb = self._draw_undo
             self.view.hover_cb = self._draw_hover
             self.view.cancel_cb = self._draw_cancel
+            # Список сцены следует за деревом карты: добавили слой,
+            # убрали, переставили - список и порядок отрисовки
+            # обновляются сами, руками пересобирать не нужно.
+            try:
+                proj_w = QgsProject.instance()
+                proj_w.layersAdded.connect(self._tree_changed)
+                proj_w.layersRemoved.connect(self._tree_changed)
+                root_w = proj_w.layerTreeRoot()
+                root_w.layerOrderChanged.connect(self._tree_changed)
+                root_w.addedChildren.connect(self._tree_changed)
+                root_w.removedChildren.connect(self._tree_changed)
+            except Exception:  # nosec
+                pass
             focus = getattr(getattr(Qt, "FocusPolicy", Qt), "StrongFocus")
             self.view.setFocusPolicy(focus)
             self._pick = None
@@ -1623,12 +1851,19 @@ def _build_dialog(parent):
             tb = QHBoxLayout(self.tools)
             tb.setContentsMargins(3, 3, 3, 3)
             tb.setSpacing(2)
+            self.btn.setParent(self.tools)
+            tb.addWidget(self.btn)
+            sep = QFrame(self.tools)
+            sep.setFrameShape(getattr(getattr(QFrame, "Shape", QFrame),
+                                      "VLine"))
+            sep.setFrameShadow(getattr(getattr(QFrame, "Shadow", QFrame),
+                                       "Sunken"))
+            tb.addWidget(sep)
             for b in (btn_top, self.btn_ortho, self.btn_draw,
                       self.btn_undo,
                       self.btn_done, self.btn_line, self.btn_sketch,
                       btn_clip_off,
-                      btn_draw_save, btn_export, btn_copy, btn_png,
-                      self.btn):
+                      btn_draw_save, btn_export, btn_copy, btn_png):
                 b.setParent(self.tools)
                 tb.addWidget(b)
             # Полуширина коридора стоит здесь же: она нужна ровно тогда,
@@ -1651,7 +1886,10 @@ def _build_dialog(parent):
                 "#isoliner3dTools QToolButton:pressed { background:"
                 " rgba(14,124,102,110); }"
                 "#isoliner3dTools QToolButton:checked { background:"
-                " rgba(14,124,102,90); border-color: rgba(14,124,102,180); }")
+                " rgba(14,124,102,90); border-color: rgba(14,124,102,180); }"
+                "#isoliner3dTools QToolButton[dirty=\"yes\"] { background:"
+                " rgba(208,126,26,105); border-color:"
+                " rgba(208,126,26,190); }")
             self.tools.move(8, 8)
             self._sync_corridor()
             self.tools.adjustSize()
@@ -1712,8 +1950,9 @@ def _build_dialog(parent):
             """Показать в окне свойств то, что относится к выделенному.
 
             Список один, поэтому набор свойств выбирается по типу слоя:
-            растру каналы и окраска, вектору источник высоты и цвет,
-            линейному слою вдобавок разрез.
+            растру каналы и окраска, вектору источник высоты, линейному
+            слою вдобавок разрез. Внутри векторной группы строки тоже
+            подбираются по типу геометрии и выбранному источнику.
             """
             if self._props is None:
                 return
@@ -1727,6 +1966,8 @@ def _build_dialog(parent):
             self.opt_box.setVisible(raster)
             self.vec_box.setVisible(vector)
             self.sec_box.setVisible(line)
+            if vector:
+                self._sync_vec_enabled()
             title = tr("Свойства сцены")
             if lyr is not None:
                 title = tr("Свойства слоя: %s") % lyr.name()
@@ -1842,6 +2083,7 @@ def _build_dialog(parent):
                     "spacing": float(self.spacing.value()),
                     "opacity": float(self.opacity.value()),
                     "texside": int(self.texside.value()),
+                    "vert_cap": int(self.vert_cap.value()),
                     "clip": self.clip_combo.currentData(),
                     "side": self.clip_side.currentData(),
                     "width": float(self.clip_width.value()),
@@ -1874,6 +2116,8 @@ def _build_dialog(parent):
                 self.spacing.setValue(state.get("spacing", 0.0))
                 self.opacity.setValue(state.get("opacity", 0.0))
                 self.texside.setValue(int(state.get("texside", 2048)))
+                self.vert_cap.setValue(int(state.get(
+                    "vert_cap", MAX_VERTS_SCENE // 1000)))
                 self.clip_width.setValue(state.get("width", 250.0))
                 i = _find_data(self.clip_combo, state.get("clip"))
                 self.clip_combo.setCurrentIndex(max(i, 0))
@@ -1981,7 +2225,7 @@ def _build_dialog(parent):
 
             marks = {"raster": tr("растр"), "point": tr("точки"),
                      "line": tr("линии"), "polygon": tr("полигоны")}
-            for lyr in proj.mapLayers().values():
+            for lyr in _map_order(proj):
                 if isinstance(lyr, QgsRasterLayer):
                     kind = "raster"
                 elif isinstance(lyr, QgsVectorLayer):
@@ -2087,10 +2331,11 @@ def _build_dialog(parent):
             """
             has_z = _layer_has_z(lyr)
             return {"kind": "plain", "as_section": False, "draw": None,
-                    "zsrc": "geom" if has_z else "field",
+                    "zsrc": "geom" if has_z else "field", "zsurf": None,
+                    "zoff": 0.0,
                     "poly": "solid" if has_z else "outline",
                     "ztop": None, "base": None, "htop": "field",
-                    "zfield": None, "color": None,
+                    "zfield": None,
                     "wells_label": None, "wells_fields": []}
 
         def _opts_of(self, lyr):
@@ -2135,9 +2380,13 @@ def _build_dialog(parent):
                 self.vec_base.blockSignals(True)
                 self.vec_base.clear()
                 self.vec_base.addItem(tr("(нет)"), None)
-                for r in QgsProject.instance().mapLayers().values():
+                self.vec_zsurf.blockSignals(True)
+                self.vec_zsurf.clear()
+                self.vec_zsurf.addItem(tr("(нет)"), None)
+                for r in _map_order(QgsProject.instance()):
                     if isinstance(r, QgsRasterLayer):
                         self.vec_base.addItem(r.name(), r.id())
+                        self.vec_zsurf.addItem(r.name(), r.id())
                 self.wells_label.blockSignals(True)
                 self.wells_label.clear()
                 self.wells_label.addItem(tr("(нет)"), None)
@@ -2158,6 +2407,12 @@ def _build_dialog(parent):
                 ib = _find_data(self.vec_base, o.get("base"))
                 self.vec_base.setCurrentIndex(max(ib, 0))
                 self.vec_base.blockSignals(False)
+                isf = _find_data(self.vec_zsurf, o.get("zsurf"))
+                self.vec_zsurf.setCurrentIndex(max(isf, 0))
+                self.vec_zsurf.blockSignals(False)
+                self.vec_zoff.blockSignals(True)
+                self.vec_zoff.setValue(float(o.get("zoff", 0.0) or 0.0))
+                self.vec_zoff.blockSignals(False)
                 ih = _find_data(self.vec_htop, o.get("htop", "field"))
                 self.vec_htop.setCurrentIndex(max(ih, 0))
                 il = _find_data(self.wells_label, o.get("wells_label"))
@@ -2181,11 +2436,30 @@ def _build_dialog(parent):
                     it.setCheckState(_CHECKED if on else _UNCHECKED)
                     self.wells_fields.addItem(it)
                 self.wells_fields.blockSignals(False)
-                self._sync_vec_swatch()
                 self._sync_vec_enabled()
                 self._sync_props()
             finally:
                 self._loading_opts = False
+
+        @staticmethod
+        def _row(widget, on):
+            """Показать или убрать строку формы вместе с подписью.
+
+            Один виджет спрятать мало: подпись живёт отдельной ячейкой
+            и осталась бы висеть без поля.
+            """
+            on = bool(on)
+            widget.setVisible(on)
+            lay = widget.parentWidget().layout() if widget.parentWidget() \
+                else None
+            lab = None
+            if lay is not None and hasattr(lay, "labelForField"):
+                try:
+                    lab = lay.labelForField(widget)
+                except Exception:  # nosec
+                    lab = None
+            if lab is not None:
+                lab.setVisible(on)
 
         def _sync_vec_enabled(self):
             """Погасить то, что к выделенному слою не относится.
@@ -2202,23 +2476,26 @@ def _build_dialog(parent):
             wells = is_point and (self.vec_kind.currentData() == "wells")
             zsrc = self.vec_zsrc.currentData() or "geom"
 
-            self.vec_kind.setEnabled(is_point)
-            self.vec_poly.setEnabled(kind == "polygon")
             prism = (kind == "polygon"
                      and self.vec_poly.currentData() == "prism")
-            self.vec_ztop.setEnabled(prism)
-            self.vec_base.setEnabled(prism)
-            self.vec_htop.setEnabled(prism)
-            if prism:
-                # призме нужны оба поля, отметка низа обязательна
-                self.vec_zfield.setEnabled(True)
+            # Строка, которая к слою не относится, не гасится, а
+            # убирается. Погашенная строка всё равно занимает место
+            # и заставляет гадать, отчего она серая: у точечного слоя
+            # призмы не будет никогда.
+            self._row(self.vec_kind, is_point)
+            self._row(self.vec_poly, kind == "polygon")
+            self._row(self.vec_zsrc, not wells)
+            self._row(self.vec_zfield,
+                      not wells and (zsrc == "field" or prism))
+            self._row(self.vec_zsurf, not wells and zsrc == "surf")
+            self._row(self.vec_zoff, not wells)
+            self._row(self.vec_base, prism)
+            self._row(self.vec_htop, prism)
+            self._row(self.vec_ztop, prism)
+            self._row(self.wells_label, wells)
+            self._row(self.wells_fields, wells)
+            self.sec_box.setVisible(kind == "line")
             self.draw_combo.setEnabled(self.sec_on.isChecked())
-            # у скважин отметки берутся из отмеченных полей, источник
-            # высоты к ним отношения не имеет
-            self.vec_zsrc.setEnabled(not wells)
-            self.vec_zfield.setEnabled(not wells and zsrc == "field")
-            self.wells_label.setEnabled(wells)
-            self.wells_fields.setEnabled(wells)
 
             # «Своя высота геометрии» недоступна слою без Z
             has_z = _layer_has_z(lyr)
@@ -2254,6 +2531,8 @@ def _build_dialog(parent):
             o["as_section"] = bool(self.sec_on.isChecked())
             o["draw"] = self.draw_combo.currentData()
             o["zsrc"] = self.vec_zsrc.currentData() or "geom"
+            o["zsurf"] = self.vec_zsurf.currentData()
+            o["zoff"] = float(self.vec_zoff.value())
             o["zfield"] = self.vec_zfield.currentData()
             o["wells_label"] = self.wells_label.currentData()
             o["wells_fields"] = [
@@ -2262,28 +2541,6 @@ def _build_dialog(parent):
                 if self.wells_fields.item(i).checkState() == _CHECKED]
             self._sync_vec_enabled()
             self._schedule_rebuild()
-
-        def _sync_vec_swatch(self):
-            lyr = self._vec_layer()
-            o = self._opts_of(lyr)
-            css = o.get("color") or "#8899aa"
-            self.vec_color_btn.setStyleSheet(
-                "QPushButton { background: %s; border: 1px solid #888; }"
-                % css)
-
-        def _pick_vec_color(self):
-            lyr = self._vec_layer()
-            if lyr is None:
-                return
-            from qgis.PyQt.QtWidgets import QColorDialog
-            from qgis.PyQt.QtGui import QColor
-            o = self._vopts.setdefault(lyr.id(), self._default_vopts(lyr))
-            start = QColor(o.get("color") or "#8899aa")
-            col = QColorDialog.getColor(start, self, tr("Задать свой цвет"))
-            if col.isValid():
-                o["color"] = col.name()
-                self._sync_vec_swatch()
-                self._schedule_rebuild()
 
         def _checked_vec_layers(self):
             """Отмеченные векторные слои."""
@@ -2302,6 +2559,13 @@ def _build_dialog(parent):
                 if opts.get("zfield"):
                     return True
                 self._warn(tr("У слоя %s не выбрано поле отметки.")
+                           % lyr.name())
+                return False
+            if zsrc == "surf":
+                if self._zsurf_of(opts) is not None:
+                    return True
+                self._warn(tr("У слоя %s не выбрана поверхность "
+                              "отметки или она не открылась.")
                            % lyr.name())
                 return False
             if zsrc == "flat":
@@ -2368,18 +2632,95 @@ def _build_dialog(parent):
                 runs.append(cur)
             return runs
 
+        def _zsurf_of(self, opts):
+            """Слой поверхности отметок, если он выбран и открылся."""
+            if opts.get("zsrc") != "surf":
+                return None
+            lyr = QgsProject.instance().mapLayer(opts.get("zsurf") or "")
+            if lyr is None:
+                return None
+            arr, gt = _read_raster(lyr.source(), 1, None)
+            if arr is None:
+                return None
+            return lyr, arr, gt
+
+        def _drape(self, pts, surf, off=0.0):
+            """Положить точки на поверхность, выбросив места без данных.
+
+            Отметка читается в каждой вершине, поэтому объект ложится
+            на рельеф, а не встаёт на общую отметку. Пропуск это не ноль
+            и не край: вершина выбрасывается, а ломаная рвётся на куски,
+            иначе линия протянулась бы через пустоту по прямой.
+            """
+            import numpy as np
+            if not surf or not pts:
+                return [pts] if pts else []
+            lyr, arr, gt = surf
+            xs = np.array([p[0] for p in pts], dtype=float)
+            ys = np.array([p[1] for p in pts], dtype=float)
+            zs = self._sample_layer(lyr, arr, gt, xs, ys, nearest=True)
+            runs, cur = [], []
+            for i in range(len(pts)):
+                z = float(zs[i])
+                if z == z:
+                    cur.append((float(xs[i]), float(ys[i]), z + off))
+                elif cur:
+                    runs.append(cur)
+                    cur = []
+            if cur:
+                runs.append(cur)
+            return runs
+
+        def _drape_mesh(self, v, f, surf, off=0.0):
+            """Положить разбитый объект на поверхность.
+
+            Треугольник, у которого хоть одна вершина без данных,
+            выбрасывается целиком: натянуть его не на что, а оставить
+            значило бы подвесить кусок в воздухе.
+            """
+            import numpy as np
+            if not surf or not len(v):
+                return v, f
+            lyr, arr, gt = surf
+            v = np.asarray(v, dtype=float).copy()
+            z = self._sample_layer(lyr, arr, gt, v[:, 0], v[:, 1],
+                                   nearest=True)
+            v[:, 2] = z + off
+            good = np.isfinite(z)
+            if good.all():
+                return v, f
+            keep = good[f].all(axis=1)
+            return v, f[keep]
+
+        @staticmethod
+        def _zoff_of(opts):
+            """Сдвиг слоя по вертикали, метры."""
+            try:
+                return float(opts.get("zoff", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+
         def _feature_z(self, ft, opts):
             """Отметка объекта по выбранному источнику высоты.
 
-            None означает «брать из вершин геометрии».
+            None означает «брать из вершин геометрии». Сдвиг слоя
+            прибавляется здесь же, кроме случая своей высоты
+            геометрии: там он ложится на вершины при разборе.
             """
             zsrc = opts.get("zsrc", "geom")
+            off = self._zoff_of(opts)
             if zsrc == "field" and opts.get("zfield"):
                 try:
-                    return float(ft[opts["zfield"]])
+                    return float(ft[opts["zfield"]]) + off
                 except (TypeError, ValueError, KeyError):
                     return None
             if zsrc == "flat":
+                return off
+            if zsrc == "surf":
+                # Ноль здесь только затем, чтобы вершины дожили
+                # до укладки: у плоского слоя своей Z нет, и вершины
+                # отсеивались ещё при разборе геометрии. Настоящую
+                # отметку каждой вершине даёт поверхность.
                 return 0.0
             return None
 
@@ -2396,10 +2737,13 @@ def _build_dialog(parent):
                 if not names:
                     continue
                 lab = o.get("wells_label")
+                tr_ = self._xform(lyr)
                 for ft in lyr.getFeatures():
                     g = ft.geometry()
                     if g is None or g.isEmpty():
                         continue
+                    if tr_ is not None:
+                        g.transform(tr_)
                     p = g.asPoint()
                     if not self._point_kept(p.x(), p.y()):
                         continue
@@ -2463,18 +2807,110 @@ def _build_dialog(parent):
                     rnd.startRender(ctx, lyr.fields())
                     for ft in lyr.getFeatures():
                         sym = rnd.symbolForFeature(ft, ctx)
-                        if sym is not None:
-                            out[ft.id()] = sym.color().name()
+                        # Снятый в легенде класс отдаёт пустой символ.
+                        # Записываем его как None: это не «цвет не
+                        # прочитался», а «показывать не надо», и путать
+                        # эти два случая нельзя.
+                        out[ft.id()] = (None if sym is None
+                                        else sym.color().name())
                     rnd.stopRender(ctx)
             except Exception:  # nosec
                 out = {}
             self._layer_colors_cache[key] = out
             # Диагностика: по этой строке видно, читается ли стиль
             # вообще и какие цвета из него приходят.
-            sample = list(out.values())[:5]
-            _log(tr("Стиль слоя %s: цветов %d, первые %s")
-                 % (lyr.name(), len(out), ", ".join(sample) or "нет"))
+            shown = [v for v in out.values() if v]
+            hidden = sum(1 for v in out.values() if v is None)
+            _log(tr("Стиль слоя %s: цветов %d, скрыто классами %d, "
+                    "первые %s")
+                 % (lyr.name(), len(shown), hidden,
+                    ", ".join(shown[:5]) or "нет"))
             return out
+
+        @staticmethod
+        def _style_hides(by_style, ft):
+            """Снят ли объект с показа стилем слоя.
+
+            Отличаем от нечитаемого стиля: там объекта в таблице нет
+            вовсе, и прятать его нельзя, иначе пустая сцена вместо
+            данных.
+            """
+            return ft.id() in by_style and by_style[ft.id()] is None
+
+        def _tree_changed(self, *_a):
+            """Дерево карты изменилось: обновить список сцены.
+
+            Сама сцена не пересобирается: порядок и состав списка это
+            ещё не повод считать заново, а кнопка обновления подсветится
+            и скажет, что настройки разошлись с показанным.
+            """
+            if getattr(self, "_loading_opts", False):
+                return
+            try:
+                self.refresh_layers()
+            except Exception:  # nosec
+                return
+            self._mark_dirty(True)
+
+        def _pick_clear(self, quiet=False):
+            """Убрать точку опроса со сцены.
+
+            Точка ставится кликом и оставалась висеть до пересборки:
+            убрать её было нечем, а на снимке сцены она мешает.
+            """
+            if self._pick_marker is not None:
+                try:
+                    self.view.removeItem(self._pick_marker)
+                except Exception:  # nosec
+                    pass
+                self._pick_marker = None
+                self.view.update()
+                if not quiet:
+                    self.info.setText(tr("Точка опроса убрана."))
+                return True
+            return False
+
+        def _draw_rank(self, lid):
+            """Место слоя в списке сцены: ноль у самого верхнего.
+
+            Порядок списка повторяет дерево карты, поэтому верхний слой
+            получает наибольший подъём и рисуется поверх нижнего там,
+            где геометрия совпадает.
+            """
+            for i in range(self.layer_list.count()):
+                if self.layer_list.item(i).data(_USER_ROLE) == lid:
+                    return i
+            return self.layer_list.count()
+
+        def _z_priority(self, lid, span):
+            """Подъём слоя по порядку в списке, в единицах сцены.
+
+            Совпадающая геометрия иначе спорит за глубину: изолинии
+            то показываются, то тонут в поверхности, на которой лежат.
+            Подъём взят малым долей охвата, на глаз он не заметен.
+            """
+            n = max(self.layer_list.count(), 1)
+            rank = self._draw_rank(lid)
+            return float(span) * 4e-4 * (n - rank) / n
+
+        def _vert_cap(self):
+            """Потолок вершин на всю сцену из свойств сцены."""
+            return int(self.vert_cap.value()) * 1000
+
+        def _body_layer_count(self):
+            """Сколько отмеченных слоёв рисуется телами.
+
+            Именно между ними и делится бюджет вершин: линии, точки
+            и ленты разрезов из него не берут ничего.
+            """
+            n = 0
+            for lyr in self._checked_vec_layers():
+                if self._geom_kind(lyr) != "polygon":
+                    continue
+                if self._opts_of(lyr).get("poly", "outline") in ("solid",
+                                                                 "prism"):
+                    n += 1
+            return max(n, 1)
 
         def _body_meshes(self, prof=None):
             """(verts, faces, name, цвет) по отмеченным полигонам с Z.
@@ -2492,8 +2928,7 @@ def _build_dialog(parent):
                 mode = o.get("poly", "outline")
                 if mode not in ("solid", "prism"):
                     continue          # такой слой рисуется линиями
-                col = o.get("color")
-                by_style = {} if col else self._layer_colors(lyr)
+                by_style = self._layer_colors(lyr)
                 zsrc = o.get("zsrc", "geom")
                 if zsrc == "geom" and not _layer_has_z(lyr):
                     self._warn(tr("У слоя %s нет высоты Z, выберите "
@@ -2502,18 +2937,32 @@ def _build_dialog(parent):
                 n_flat = n_solid = n_noz = 0
                 zlo = zhi = None
                 feats = list(lyr.getFeatures())
-                keep = _body_budget(feats, len(self._checked_vec_layers()))
+                # Делим бюджет только между слоями, которые и правда
+                # идут телами. Раньше в делитель попадал каждый
+                # отмеченный вектор, и слой изолиний, ничего из этого
+                # бюджета не тративший, забирал половину.
+                keep, used, budget = _body_budget(
+                    feats, self._body_layer_count(), self._vert_cap())
                 if len(keep) < len(feats):
                     self._warn(
-                        tr("В слое %s объектов %d, показаны первые %d.")
-                        % (lyr.name(), len(feats), len(keep)))
+                        tr("В слое %s объектов %d, показаны первые %d: "
+                           "набрано %d вершин из %d. Предел вершин "
+                           "меняется в свойствах сцены.")
+                        % (lyr.name(), len(feats), len(keep), used,
+                           budget))
                 feats = keep
                 multi = len(feats) > 1
                 k = 0
+                tr_ = self._xform(lyr)
+                surf_z = self._zsurf_of(o)
                 for ft in feats:
                     g = ft.geometry()
                     if g is None or g.isEmpty():
                         continue
+                    if self._style_hides(by_style, ft):
+                        continue
+                    if tr_ is not None:
+                        g.transform(tr_)
                     if mode == "prism":
                         cg = self._clip_geom()
                         if cg is not None:
@@ -2552,12 +3001,20 @@ def _build_dialog(parent):
                         nm = (("%s #%d" % (lyr.name(), k)) if multi
                               else lyr.name())
                         out.append((v, f, nm,
-                                    col or by_style.get(ft.id()),
+                                    by_style.get(ft.id()),
                                     lyr.id()))
                         continue
                     zfix = None if zsrc == "geom" else \
                         (self._feature_z(ft, o) or 0.0)
-                    if zsrc == "geom":
+                    if zsrc == "surf" and surf_z:
+                        # Разбиваем в плане на нулевой отметке,
+                        # а высоту вершинам даёт поверхность.
+                        v, f = _tri_cached(lyr, ft, g, 0.0, prof)
+                        v, f = self._drape_mesh(v, f, surf_z,
+                                                self._zoff_of(o))
+                        if not len(f):
+                            continue
+                    elif zsrc == "geom":
                         flat = _flat_z(g)
                         if flat is None:
                             n_solid += 1
@@ -2571,7 +3028,8 @@ def _build_dialog(parent):
                         # вырождается в линию, и разбивка по плану
                         # даёт мусор.
                         if flat is None:
-                            v, f = _tris_from_geometry(g)
+                            v, f = _tri_cached(lyr, ft, g, None, prof,
+                                               spatial=True)
                             if _is_closed(v, f) and (rings0 or lines0):
                                 v, f = self._clip_tris(v, f)
                                 cv, cf = self._cap_cut(v, f)
@@ -2584,7 +3042,7 @@ def _build_dialog(parent):
                                 nm = (("%s #%d" % (lyr.name(), k))
                                       if multi else lyr.name())
                                 out.append((v, f, nm,
-                                            col or by_style.get(ft.id()),
+                                            by_style.get(ft.id()),
                                             lyr.id()))
                                 continue
                         else:
@@ -2603,7 +3061,7 @@ def _build_dialog(parent):
                     k += 1
                     nm = ("%s #%d" % (lyr.name(), k)) if multi else lyr.name()
                     out.append((v, f.astype(np.int64), nm,
-                                col or by_style.get(ft.id()), lyr.id()))
+                                by_style.get(ft.id()), lyr.id()))
                 if n_flat and not n_solid:
                     self._warn(tr(
                         "Слой %s: все %d объектов плоские, отметки "
@@ -2635,25 +3093,44 @@ def _build_dialog(parent):
                     continue
                 elif o.get("as_section"):
                     continue      # такой слой рисуется лентой разреза
-                col = o.get("color") or "#7a5c3c"
                 if not self._z_available(lyr, o):
                     continue
+                # Цвет объекта берётся из стиля слоя. Изолинии почти
+                # всегда раскрашены по отметке, и свой цвет на слой
+                # стирал всю раскраску: в сцене шла бурая паутина
+                # вместо шкалы глубин.
+                by_style = self._layer_colors(lyr)
                 feats = list(lyr.getFeatures())
                 if len(feats) > _MAX_LINES:
                     self._warn(
                         tr("В слое %s объектов %d, показаны первые %d.")
                         % (lyr.name(), len(feats), _MAX_LINES))
                     feats = feats[:_MAX_LINES]
+                tr_ = self._xform(lyr)
+                surf = self._zsurf_of(o)
                 for ft in feats:
                     g = ft.geometry()
                     if g is None or g.isEmpty():
                         continue
+                    if self._style_hides(by_style, ft):
+                        continue
+                    if tr_ is not None:
+                        g.transform(tr_)
                     zf = self._feature_z(ft, o)
+                    fcol = by_style.get(ft.id()) or "#7a5c3c"
+                    off = self._zoff_of(o)
                     for pts in _parts_xyz(g, zf):
-                        for run in self._clip_run(pts):
-                            if len(run) >= 2:
-                                out.append((run, col, lyr.name(),
-                                            lyr.id()))
+                        if surf:
+                            laids = self._drape(pts, surf, off)
+                        elif off and zf is None:
+                            laids = [[(x, y, z + off) for x, y, z in pts]]
+                        else:
+                            laids = [pts]
+                        for laid in laids:
+                            for run in self._clip_run(laid):
+                                if len(run) >= 2:
+                                    out.append((run, fcol, lyr.name(),
+                                                lyr.id()))
             return out
 
         def _vec_points(self):
@@ -2665,19 +3142,37 @@ def _build_dialog(parent):
                 o = self._opts_of(lyr)
                 if o.get("kind") == "wells":
                     continue
-                col = o.get("color") or "#b03030"
                 if not self._z_available(lyr, o):
                     continue
+                by_style = self._layer_colors(lyr)
+                tr_ = self._xform(lyr)
+                surf = self._zsurf_of(o)
                 for ft in lyr.getFeatures():
                     g = ft.geometry()
                     if g is None or g.isEmpty():
                         continue
+                    if self._style_hides(by_style, ft):
+                        continue
+                    if tr_ is not None:
+                        g.transform(tr_)
+                    fcol = by_style.get(ft.id()) or "#b03030"
                     z = self._feature_z(ft, o)
+                    off = self._zoff_of(o)
                     for pts in _parts_xyz(g, z):
-                        for x, y, zz in pts:
-                            if not self._point_kept(x, y):
-                                continue
-                            out.append((x, y, zz, col, lyr.id()))
+                        # Точка без данных под ней выбрасывается,
+                        # а не садится на ноль: ноль это отметка,
+                        # и такая точка попала бы на чужой уровень.
+                        if surf:
+                            laids = self._drape(pts, surf, off)
+                        elif off and z is None:
+                            laids = [[(x, y, zz + off) for x, y, zz in pts]]
+                        else:
+                            laids = [pts]
+                        for laid in laids:
+                            for x, y, zz in laid:
+                                if not self._point_kept(x, y):
+                                    continue
+                                out.append((x, y, zz, fcol, lyr.id()))
             return out
 
         def _apply_filter(self, text):
@@ -2715,7 +3210,8 @@ def _build_dialog(parent):
             return dict(solid=None, mode="auto", zband=1,
                         cband=3 if n >= 3 else 0,
                         attr_id=None, texture=False, tex_id=None,
-                        aband=1)
+                        aband=1, iso_level=0.0, vox_classes=8,
+                        vox_merge=True)
 
         def _item_toggled(self, item=None, *_a):
             """Галка видимости: прячем и показываем без пересборки.
@@ -2752,8 +3248,40 @@ def _build_dialog(parent):
             сборок подряд: считается только последнее состояние.
             """
             if not self.auto_rebuild.isChecked():
+                self._mark_dirty(True)
                 return
             self._rebuild_timer.start(int(delay))
+
+        def _mark_dirty(self, on):
+            """Помечает, что показанная сцена отстала от настроек.
+
+            Кнопка обновления подсвечивается, и в строке состояния
+            видно, что смотреть надо не на неё, а на кнопку.
+            """
+            on = bool(on)
+            if on == getattr(self, "_dirty", False):
+                return
+            self._dirty = on
+            self.btn.setProperty("dirty", "yes" if on else "no")
+            style = self.btn.style()
+            style.unpolish(self.btn)
+            style.polish(self.btn)
+            self.btn.setToolTip(
+                tr("Обновить сцену: настройки изменились")
+                if on else tr("Обновить сцену"))
+            if on:
+                self.info.setText(tr("Настройки изменились. "
+                                     "Нажмите «Обновить сцену»."))
+
+        def _auto_toggled(self, on):
+            """Переключение автосборки.
+
+            При включении сцена подтягивается сразу, иначе останется
+            расхождение между настройками и картинкой, а подсветку
+            кнопки уже никто не покажет.
+            """
+            if on and getattr(self, "_dirty", False):
+                self._schedule_rebuild(0)
 
         def _load_opts(self, item, *_a):
             """Показывает настройки выбранного в списке слоя."""
@@ -2774,6 +3302,11 @@ def _build_dialog(parent):
                 self.mode_combo.setCurrentIndex(max(i, 0))
                 items = _band_items(lyr.source()) or [(1, "1")]
                 self._fill_band_combo(self.zband, items, o["zband"])
+                self.iso_level.setValue(float(o.get("iso_level", 0.0)))
+                self.vox_classes.setValue(
+                    int(o.get("vox_classes", 8) or 8))
+                self.vox_merge.setChecked(
+                    bool(o.get("vox_merge", True)))
                 cc = self.color_combo
                 cc.blockSignals(True)
                 cc.clear()
@@ -2887,6 +3420,9 @@ def _build_dialog(parent):
                 if d[0] == "solid" else None
             self._opts[lid] = dict(
                 mode=self.mode_combo.currentData() or "auto",
+                iso_level=float(self.iso_level.value()),
+                vox_classes=int(self.vox_classes.value()),
+                vox_merge=bool(self.vox_merge.isChecked()),
                 zband=self._combo_band(self.zband, 1),
                 cband=d[1] if d[0] == "band" else 0,
                 attr_id=d[1] if d[0] == "raster" else None,
@@ -3162,6 +3698,126 @@ def _build_dialog(parent):
             self._clip_geom_now = geom if geom is not None else False
             return geom
 
+        def _xform(self, lyr, back=False):
+            """Преобразование между СК слоя и СК проекта.
+
+            Сцена живёт в системе координат проекта, как и холст карты.
+            Смена СК слоя не двигает записанные координаты, она меняет
+            их толкование, поэтому без преобразования слой в другой СК
+            уезжал в сторону и обновление сцены ничего не меняло.
+
+            None означает, что преобразовывать нечего.
+            """
+            try:
+                from qgis.core import QgsCoordinateTransform
+                src = lyr.crs()
+                dst = QgsProject.instance().crs()
+            except Exception:  # nosec
+                return None
+            if not src.isValid() or not dst.isValid() or src == dst:
+                return None
+            a, b = (dst, src) if back else (src, dst)
+            try:
+                return QgsCoordinateTransform(a, b,
+                                              QgsProject.instance())
+            except Exception:  # nosec
+                return None
+
+        @staticmethod
+        def _xform_xy(tr_, xs, ys):
+            """Преобразование массивов X и Y одним вызовом.
+
+            Поточечный вызов на полумиллионе вершин стоил бы секунды,
+            а `transformInPlace` уходит в C++ целиком.
+            """
+            import numpy as np
+            if tr_ is None:
+                return xs, ys
+            x = [float(v) for v in np.asarray(xs).ravel()]
+            y = [float(v) for v in np.asarray(ys).ravel()]
+            z = [0.0] * len(x)
+            try:
+                tr_.transformInPlace(x, y, z)
+            except Exception:  # nosec
+                out = [tr_.transform(px, py) for px, py in zip(x, y)]
+                x = [p.x() for p in out]
+                y = [p.y() for p in out]
+            shape = np.asarray(xs).shape
+            return (np.array(x).reshape(shape),
+                    np.array(y).reshape(shape))
+
+        def _xform_rings(self, rings, tr_):
+            """Кольца контура в другую систему координат."""
+            if tr_ is None or not rings:
+                return rings
+            out = []
+            for ring in rings:
+                if not ring:
+                    continue
+                xs = [p[0] for p in ring]
+                ys = [p[1] for p in ring]
+                xs, ys = self._xform_xy(tr_, xs, ys)
+                out.append(list(zip(xs.tolist(), ys.tolist())))
+            return out
+
+        def _to_layer_xy(self, lid, x, y):
+            """Точка сцены в координатах слоя."""
+            lyr = QgsProject.instance().mapLayer(lid or "")
+            back = None if lyr is None else self._xform(lyr, back=True)
+            if back is None:
+                return x, y
+            try:
+                p = back.transform(float(x), float(y))
+                return p.x(), p.y()
+            except Exception:  # nosec
+                return x, y
+
+        def _sample_layer(self, lyr, arr, gt, xs, ys, nearest=False):
+            """Значения растра в точках, заданных в координатах проекта.
+
+            Сетка растра лежит в его собственной системе, поэтому точки
+            переводятся туда обратно. Без этого окраска брала бы
+            значения мимо данных и поверхность уходила в серое.
+            """
+            import numpy as np
+            back = None if lyr is None else self._xform(lyr, back=True)
+            if back is not None:
+                xs, ys = self._xform_xy(back, xs, ys)
+            out = sample_bilinear(arr, gt, xs, ys)
+            if not nearest:
+                return out
+            # Билинейной выборке нужны четыре соседа, поэтому у самого
+            # края данных она молчит даже там, где ячейка есть. Для
+            # укладки это лишние разрывы, добираем ближайшей ячейкой.
+            bad = ~np.isfinite(out)
+            if not bad.any():
+                return out
+            a = np.asarray(arr, dtype=float)
+            ny, nx = a.shape
+            cx = np.asarray(xs, dtype=float)[bad]
+            cy = np.asarray(ys, dtype=float)[bad]
+            col = np.round((cx - gt[0]) / gt[1] - 0.5).astype(int)
+            row = np.round((cy - gt[3]) / gt[5] - 0.5).astype(int)
+            inside = ((col >= 0) & (col < nx) & (row >= 0) & (row < ny))
+            fill = np.full(col.shape, np.nan)
+            if inside.any():
+                fill[inside] = a[row[inside], col[inside]]
+            out[bad] = fill
+            return out
+
+        def _clip_for_layer(self, lyr, clip, clip_lines):
+            """Обрезка, переведённая в СК слоя.
+
+            Маска считается по сетке растра, то есть в его координатах,
+            а контур живёт в координатах проекта. Без обратного перевода
+            обрезка резала бы пустое место.
+            """
+            back = self._xform(lyr, back=True)
+            if back is None:
+                return clip, clip_lines
+            return (self._xform_rings(clip, back),
+                    self._xform_rings(clip_lines, back))
+
         def _clip_ctx(self):
             """Контур и линии обрезки, посчитанные один раз за сборку.
 
@@ -3364,7 +4020,8 @@ def _build_dialog(parent):
                 arr, gt = _read_raster(L["source"], L["zband"])
                 if arr is None:
                     continue
-                zs = sample_bilinear(arr, gt, X, Y)
+                lyr_p = QgsProject.instance().mapLayer(L.get("lid") or "")
+                zs = self._sample_layer(lyr_p, arr, gt, X, Y)
                 surf = (zs + L["zoff"] - cz) * vex
                 diff = pts[:, 2] - surf
                 okm = np.isfinite(diff)
@@ -3394,6 +4051,10 @@ def _build_dialog(parent):
             if best is None:
                 if self._draw_mode:
                     self._draw_status(tr("мимо поверхности"))
+                else:
+                    # Клик по пустому месту снимает точку опроса:
+                    # это и есть самый короткий способ её убрать.
+                    self._pick_clear()
                 return
             _t, L, xh, yh, zh = best
             if self._draw_mode:
@@ -3407,10 +4068,14 @@ def _build_dialog(parent):
             from osgeo import gdal
             ds = gdal.Open(L["source"])
             vals = []
+            # Сцена в координатах проекта, сетка растра в своих:
+            # переводим точку обратно, иначе читались бы соседние
+            # ячейки или пустота за краем.
+            xr, yr = self._to_layer_xy(L.get("lid"), xh, yh)
             if ds is not None:
-                j = int((xh - ds.GetGeoTransform()[0]) /
+                j = int((xr - ds.GetGeoTransform()[0]) /
                         ds.GetGeoTransform()[1])
-                i = int((yh - ds.GetGeoTransform()[3]) /
+                i = int((yr - ds.GetGeoTransform()[3]) /
                         ds.GetGeoTransform()[5])
                 if 0 <= i < ds.RasterYSize and 0 <= j < ds.RasterXSize:
                     for b in range(1, ds.RasterCount + 1):
@@ -3644,6 +4309,11 @@ def _build_dialog(parent):
                 out.append(lyr)
             return out
 
+        def _clip_clear_all(self):
+            """Снять обрезку, наброски и точку опроса."""
+            self._pick_clear(quiet=True)
+            self._clip_clear()
+
         def _draw_toggle(self, on):
             """Включить рисование контура прямо по сцене.
 
@@ -3703,8 +4373,13 @@ def _build_dialog(parent):
             return True
 
         def _draw_cancel(self):
-            """Бросить рисование и убрать наброски."""
+            """Бросить рисование и убрать наброски.
+
+            Вне режима рисования тот же Esc снимает точку опроса:
+            другой работы у клавиши здесь нет.
+            """
             if not self._draw_mode:
+                self._pick_clear()
                 return
             self._draw_pts = []
             self._draw_refresh()
@@ -3894,11 +4569,16 @@ def _build_dialog(parent):
             lyr = QgsProject.instance().mapLayer(lid)
             if lyr is None:
                 return []
+            from qgis.core import QgsGeometry
+            tr_ = self._xform(lyr)
             rings = []
             for ft in lyr.getFeatures():
                 g = ft.geometry()
                 if g is None or g.isEmpty():
                     continue
+                if tr_ is not None:
+                    g = QgsGeometry(g)
+                    g.transform(tr_)
                 for part in _parts_xyz(g, 0.0):
                     if len(part) >= 3:
                         rings.append([(x, y) for x, y, _z in part])
@@ -3967,6 +4647,148 @@ def _build_dialog(parent):
             except Exception:  # nosec
                 pass
 
+        def _iso_mesh(self, lyr, opts, prof=None):
+            """Оболочка по отсечке для слоя-куба.
+
+            Каналы грида считаются уровнями. Отметку первого уровня
+            и шаг берём из метаданных, если инструмент их записал,
+            иначе считаем от нуля с единичным шагом: лучше показать
+            форму, чем не показать ничего.
+            """
+            import numpy as np
+            from .iso3d import isosurface
+            from osgeo import gdal
+            ds = gdal.Open(lyr.source())
+            if ds is None or ds.RasterCount < 2:
+                self._warn(tr("Слою %s нужен многоканальный грид: "
+                              "каналы это уровни куба.") % lyr.name())
+                return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+            gt = ds.GetGeoTransform()
+            meta = ds.GetMetadata() or {}
+            z0 = float(meta.get("Z0", meta.get("z0", 0.0)) or 0.0)
+            dz = float(meta.get("DZ", meta.get("dz", 1.0)) or 1.0)
+            bands = []
+            for b in range(1, ds.RasterCount + 1):
+                arr = ds.GetRasterBand(b).ReadAsArray().astype(float)
+                nd = ds.GetRasterBand(b).GetNoDataValue()
+                if nd is not None:
+                    arr[arr == nd] = np.nan
+                bands.append(arr)
+            ds = None
+            vol = np.stack(bands, axis=0)
+            if prof is not None:
+                prof.add("read")
+            v, f = isosurface(vol, float(opts.get("iso_level", 0.0)),
+                              gt, z0, dz)
+            if not len(f):
+                self._warn(tr("Слой %s: по отсечке %.3f ничего "
+                              "не построено.")
+                           % (lyr.name(), float(opts.get("iso_level", 0))))
+            return v, f
+
+        def _cube_arrays(self, lyr):
+            """Куб слоя: значения, геопривязка, отметка и шаг уровней.
+
+            Каналы грида это уровни. Отметку первого уровня и шаг берём
+            из метаданных, если инструмент их записал, иначе считаем
+            от нуля с единичным шагом.
+            """
+            import numpy as np
+            from osgeo import gdal
+            ds = gdal.Open(lyr.source())
+            if ds is None or ds.RasterCount < 2:
+                self._warn(tr("Слою %s нужен многоканальный грид: "
+                              "каналы это уровни куба.") % lyr.name())
+                return None, None, 0.0, 1.0
+            gt = ds.GetGeoTransform()
+            meta = ds.GetMetadata() or {}
+            z0 = float(meta.get("Z0", meta.get("z0", 0.0)) or 0.0)
+            dz = float(meta.get("DZ", meta.get("dz", 1.0)) or 1.0)
+            bands = []
+            for b in range(1, ds.RasterCount + 1):
+                arr = ds.GetRasterBand(b).ReadAsArray().astype(float)
+                nd = ds.GetRasterBand(b).GetNoDataValue()
+                if nd is not None:
+                    arr[arr == nd] = np.nan
+                bands.append(arr)
+            ds = None
+            return np.stack(bands, axis=0), gt, z0, dz
+
+        def _vox_mesh(self, lyr, opts, clip=None, clip_lines=None,
+                      prof=None):
+            """Воксельная модель куба: ячейки коробками.
+
+            Строятся только видимые грани, соседние грани одного
+            интервала окраски сливаются в прямоугольник. Обрезка
+            здесь это отбор ячеек, поэтому крышку строить не нужно:
+            срез плоский сам по себе.
+            """
+            import numpy as np
+            from . import voxel
+            empty = (np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64),
+                     None)
+            vol, gt, z0, dz = self._cube_arrays(lyr)
+            if vol is None:
+                return empty
+            if clip or clip_lines:
+                for k in range(vol.shape[0]):
+                    lvl = vol[k]
+                    if clip:
+                        lvl = self._clip_array(lvl, gt, clip)
+                    if clip_lines:
+                        lvl = self._clip_by_lines(lvl, gt, clip_lines)
+                    vol[k] = lvl
+            if prof is not None:
+                prof.add("read")
+            level = float(opts.get("iso_level", 0.0))
+            occ = voxel.occupancy(vol, level)
+            n_cells = int(occ.sum())
+            if not n_cells:
+                self._warn(tr("Слой %s: по отсечке %.3f ячеек не осталось.")
+                           % (lyr.name(), level))
+                return empty
+            # Оценка до сборки. Счёт видимых граней идёт на NumPy
+            # и стоит доли секунды, а сборка меша при миллионах граней
+            # уводит окно в неотзывчивость на минуты. Поэтому сначала
+            # считаем, потом решаем, строить ли.
+            vis = voxel.visible_faces(occ)
+            if vis > _VOX_FACE_LIMIT:
+                self._warn(tr("Слой %s: видимых граней %d, это больше "
+                              "предела %d. Поднимите отсечку, уменьшите "
+                              "число интервалов окраски или загрубите "
+                              "куб.") % (lyr.name(), vis, _VOX_FACE_LIMIT))
+                return empty
+            nclass = max(int(opts.get("vox_classes", 8) or 8), 1)
+            vals = vol[occ]
+            vmin, vmax = float(vals.min()), float(vals.max())
+            if nclass > 1 and vmax > vmin:
+                edges = np.linspace(vmin, vmax, nclass + 1)[1:-1]
+                cls = voxel.quantize(vol, edges)
+            else:
+                cls = np.zeros(vol.shape, dtype=np.int32)
+            merge = bool(opts.get("vox_merge", True))
+            verts, faces, tri_cls, over = voxel.voxel_mesh(
+                occ, gt, z0, dz, classes=cls, merge=merge)
+            if prof is not None:
+                prof.add("mesh")
+            if over:
+                self._warn(tr("Слой %s: воксельная модель слишком велика. "
+                              "Поднимите отсечку или уменьшите число "
+                              "интервалов окраски.") % lyr.name())
+                return empty
+            if not len(faces):
+                return empty
+            denom = float(max(nclass - 1, 1))
+            face_col = colormap(np.clip(tri_cls, 0, nclass - 1) / denom)
+            colors = np.zeros((len(verts), 4))
+            colors[faces[:, 0]] = face_col
+            colors[faces[:, 1]] = face_col
+            colors[faces[:, 2]] = face_col
+            _log(tr("Воксели %s: ячеек %d, видимых граней %d, "
+                    "прямоугольников %d.")
+                 % (lyr.name(), n_cells, vis, len(faces) // 2))
+            return verts, faces, colors
+
         def _keep_for_export(self, name, verts, faces, colors=None):
             """Отложить часть сцены для выгрузки.
 
@@ -4030,6 +4852,7 @@ def _build_dialog(parent):
                 _log(traceback.format_exc())
             finally:
                 self._busy(False)
+                self._mark_dirty(False)
 
         def _rebuild_scene(self):
             prof = _Prof()
@@ -4058,6 +4881,9 @@ def _build_dialog(parent):
                     pass
                 self._pick_marker = None
             layers = self._checked_layers()
+            # Цвета вокселей живут на пересборку: у каждой грани свой
+            # интервал, и общего цвета слоя тут не хватает.
+            self._vox_colors = {}
             prof.skip()
             bodies = self._body_meshes(prof)
             prof.add("vector")
@@ -4072,15 +4898,51 @@ def _build_dialog(parent):
             spacing = float(self.spacing.value())
             meshes, skipped = [], []
             nbeds = 0
-            budget = _layer_budget(len(layers))
+            n_reproj = 0
+            budget = _layer_budget(len(layers), self._vert_cap())
             clip, clip_lines = self._clip_ctx()
             for k, lyr in enumerate(layers):
                 o = self._opts.get(lyr.id()) or \
                     self._default_opts(lyr.source())
                 mode = o.get("mode", "auto")
+                if mode == "iso":
+                    # Куб значений: каналы это уровни. Оболочка
+                    # по отсечке строится маршем по тетраэдрам, поэтому
+                    # выходит замкнутой и годится для подсчёта объёма.
+                    # Кладём её в общий список: центрирование, окраска
+                    # и выгрузка дальше работают как для поверхностей.
+                    v_i, f_i = self._iso_mesh(lyr, o, prof)
+                    if len(f_i):
+                        col_i = PALETTE[len(meshes) % len(PALETTE)]
+                        if o.get("solid"):
+                            col_i = _css_rgba(o["solid"])
+                        meshes.append((v_i, f_i, col_i, lyr.id(), False,
+                                       lyr.source(), o, None, None, 0.0))
+                    continue
+                if mode == "vox":
+                    # Воксели: ячейка куба показывается коробкой.
+                    # Невидимые грани не строятся, соседние грани одного
+                    # интервала сливаются, поэтому сцена остаётся лёгкой
+                    # даже на кубе в миллионы ячеек.
+                    v_v, f_v, c_v = self._vox_mesh(lyr, o, clip,
+                                                   clip_lines, prof)
+                    if len(f_v):
+                        col_v = PALETTE[len(meshes) % len(PALETTE)]
+                        if o.get("solid"):
+                            col_v = _css_rgba(o["solid"])
+                            c_v = None
+                        if c_v is not None:
+                            self._vox_colors[lyr.id()] = c_v
+                        meshes.append((v_v, f_v, col_v, lyr.id(), False,
+                                       lyr.source(), o, None, None, 0.0))
+                    continue
                 as_bed = (mode == "body" or
                           (mode == "auto" and
                            _band_count(lyr.source()) >= 2))
+                # Маска считается по сетке растра, то есть в его
+                # координатах, а контур живёт в координатах проекта.
+                lclip, lclip_lines = self._clip_for_layer(
+                    lyr, clip, clip_lines)
                 try:
                     if as_bed:
                         prof.skip()
@@ -4089,12 +4951,14 @@ def _build_dialog(parent):
                         prof.add("read")
                         if top is None or bot is None:
                             raise ValueError
-                        if clip:
-                            top = self._clip_array(top, gt, clip)
-                            bot = self._clip_array(bot, gt, clip)
-                        if clip_lines:
-                            top = self._clip_by_lines(top, gt, clip_lines)
-                            bot = self._clip_by_lines(bot, gt, clip_lines)
+                        if lclip:
+                            top = self._clip_array(top, gt, lclip)
+                            bot = self._clip_array(bot, gt, lclip)
+                        if lclip_lines:
+                            top = self._clip_by_lines(top, gt,
+                                                      lclip_lines)
+                            bot = self._clip_by_lines(bot, gt,
+                                                      lclip_lines)
                         verts, faces = bed_to_mesh_arrays(
                             top, bot, gt, zscale=1.0,
                             zoffset=-spacing * k,
@@ -4109,10 +4973,11 @@ def _build_dialog(parent):
                         prof.add("read")
                         if arr is None:
                             raise ValueError
-                        if clip:
-                            arr = self._clip_array(arr, gt, clip)
-                        if clip_lines:
-                            arr = self._clip_by_lines(arr, gt, clip_lines)
+                        if lclip:
+                            arr = self._clip_array(arr, gt, lclip)
+                        if lclip_lines:
+                            arr = self._clip_by_lines(arr, gt,
+                                                      lclip_lines)
                         verts, faces = grid_to_mesh_arrays(
                             arr, gt, zscale=1.0, zoffset=-spacing * k,
                             step=_auto_step(arr, budget))
@@ -4124,6 +4989,15 @@ def _build_dialog(parent):
                 if not len(faces):
                     skipped.append(lyr.name())
                     continue
+                # Сетка построена в координатах растра. Переводим
+                # вершины в координаты проекта: отметка при этом
+                # не трогается, она и так в метрах.
+                tr_r = self._xform(lyr)
+                if tr_r is not None:
+                    verts = verts.copy()
+                    verts[:, 0], verts[:, 1] = self._xform_xy(
+                        tr_r, verts[:, 0], verts[:, 1])
+                    n_reproj += 1
                 base = PALETTE[k % len(PALETTE)]
                 if o.get("solid"):
                     qc = o["solid"].lstrip("#")
@@ -4162,10 +5036,12 @@ def _build_dialog(parent):
             cx = 0.5 * (min(xs) + max(xs))
             cy = 0.5 * (min(ys) + max(ys))
             cz = 0.5 * (min(zs_) + max(zs_))
+            span_xy = max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
             # окраска пер-слойно: свой канал cband; если 0 - внешний
             # атрибутный растр слоя; иначе палитра
             prof.skip()
             vals = {}
+            self._style_ramp = {}
             src_names = []
             for m in meshes:
                 verts_m, lid, as_bed, src, o = (m[0], m[3], m[4],
@@ -4173,11 +5049,12 @@ def _build_dialog(parent):
                 if o.get("texture"):
                     continue          # такому слою нужна текстура, не шкала
                 cband = int(o.get("cband", 0) or 0)
+                lyr_c = QgsProject.instance().mapLayer(lid)
                 if cband > 0:
                     parr, pgt = _read_raster(src, cband, prof)
                     if parr is not None:
-                        vals[lid] = sample_bilinear(
-                            parr, pgt, verts_m[:, 0], verts_m[:, 1])
+                        vals[lid] = self._sample_layer(
+                            lyr_c, parr, pgt, verts_m[:, 0], verts_m[:, 1])
                         src_names.append(tr("канал %d") % cband)
                     continue
                 alayer = QgsProject.instance().mapLayer(
@@ -4186,9 +5063,27 @@ def _build_dialog(parent):
                     aarr, agt = _read_raster(alayer.source(),
                                              int(o.get("aband", 1)), prof)
                     if aarr is not None:
-                        vals[lid] = sample_bilinear(
-                            aarr, agt, verts_m[:, 0], verts_m[:, 1])
+                        vals[lid] = self._sample_layer(
+                            alayer, aarr, agt, verts_m[:, 0],
+                            verts_m[:, 1])
                         src_names.append(alayer.name())
+                    continue
+                # Своя шкала слоя. Берётся то же оформление, что рисует
+                # карту, поэтому поверхность выходит той же расцветки,
+                # что и растр на холсте. Явно заданный канал окраски
+                # и внешний атрибутный растр главнее: их выбрали руками.
+                ramp = None if lyr_c is None else _ramp_from_renderer(lyr_c)
+                if ramp is not None:
+                    rband, breaks, cols, kind = ramp
+                    rarr, rgt = _read_raster(src, rband, prof)
+                    if rarr is not None:
+                        zz = self._sample_layer(
+                            lyr_c, rarr, rgt, verts_m[:, 0],
+                            verts_m[:, 1])
+                        self._style_ramp[lid] = ramp_colors(
+                            zz, breaks, cols, kind)
+                        src_names.append(tr("шкала слоя %s")
+                                         % lyr_c.name())
             prof.add("color")
             attr = None
             fins = [v[np.isfinite(v)] for v in vals.values()
@@ -4206,7 +5101,8 @@ def _build_dialog(parent):
                 v = verts.copy()
                 v[:, 0] -= cx
                 v[:, 1] -= cy
-                v[:, 2] = (v[:, 2] - cz) * vex
+                v[:, 2] = ((v[:, 2] - cz) * vex
+                           + self._z_priority(lid, span_xy))
                 md = gl.MeshData(vertexes=v.astype('float32'), faces=faces)
                 prof.count("tris", len(faces)).count("verts", len(v))
                 if o.get("texture"):
@@ -4225,7 +5121,29 @@ def _build_dialog(parent):
                             np.tile(np.array(color[:3] + (1.0,)),
                                     (len(v), 1)))
                         continue
-                if attr is not None and lid in attr[0]:
+                vox_col = self._vox_colors.get(lid)
+                if vox_col is not None and len(vox_col) == len(v):
+                    vc = vox_col.copy()
+                    vc[:, 3] = alpha
+                    md.setVertexColors(vc.astype('float32'))
+                    # Плоская заливка: у коробки грани плоские,
+                    # сглаживание нормалей скруглило бы рёбра.
+                    item = gl.GLMeshItem(meshdata=md, smooth=False,
+                                         glOptions=gopt)
+                    self._add_item(item, lid)
+                    lyr_e = QgsProject.instance().mapLayer(lid)
+                    self._keep_for_export(
+                        lyr_e.name() if lyr_e else "voxels", verts, faces,
+                        vox_col)
+                    continue
+                ramp_c = self._style_ramp.get(lid)
+                if ramp_c is not None and len(ramp_c) == len(v):
+                    vc = ramp_c.copy()
+                    vc[:, 3] = alpha
+                    md.setVertexColors(vc.astype('float32'))
+                    item = gl.GLMeshItem(meshdata=md, smooth=True,
+                                         glOptions=gopt)
+                elif attr is not None and lid in attr[0]:
                     vals, vmin, vmax, rng = attr
                     vc = colormap((vals[lid] - vmin) / rng)
                     vc[:, 3] = alpha
@@ -4265,7 +5183,8 @@ def _build_dialog(parent):
                         v = bverts.copy()
                         v[:, 0] -= cx
                         v[:, 1] -= cy
-                        v[:, 2] = (v[:, 2] - cz) * vex
+                        v[:, 2] = ((v[:, 2] - cz) * vex
+                                   + self._z_priority(lid_b, span_xy))
                         allv.append(v)
                         allf.append(np.asarray(bfaces, dtype=np.int64)
                                     + base)
@@ -4304,7 +5223,7 @@ def _build_dialog(parent):
                 lyr = QgsProject.instance().mapLayer(lid)
                 self._pick["layers"].append(dict(
                     name=lyr.name() if lyr else "?", source=src,
-                    zband=zb, zoff=-spacing * k))
+                    zband=zb, zoff=-spacing * k, lid=lid))
 
             if planes:
                 pad = 0.05 * (max(zs_) - min(zs_) or 1.0)
@@ -4540,10 +5459,11 @@ def _build_dialog(parent):
                 by_layer = {}
                 for pts, col, _nm, lid_v in vlines:
                     seg = by_layer.setdefault((lid_v, col), [])
-                    P = np.asarray(pts, dtype=float)
+                    P = np.array(pts, dtype=float)
                     P[:, 0] -= cx
                     P[:, 1] -= cy
-                    P[:, 2] = (P[:, 2] - cz) * vex
+                    P[:, 2] = ((P[:, 2] - cz) * vex
+                               + self._z_priority(lid_v, span_xy))
                     for a, b in zip(P[:-1], P[1:]):
                         seg.append(a)
                         seg.append(b)
@@ -4562,13 +5482,18 @@ def _build_dialog(parent):
                 by_layer = {}
                 for x, y, z, c, lid_v in vpoints:
                     by_layer.setdefault(lid_v, []).append(
-                        ((x - cx, y - cy, (z - cz) * vex), c))
+                        ((x - cx, y - cy, (z - cz) * vex
+                          + self._z_priority(lid_v, span_xy)), c))
                 for lid_v, rows in by_layer.items():
                     arr = np.array([r[0] for r in rows], dtype='float32')
                     cols = np.array([_css_rgba(r[1]) for r in rows],
                                     dtype='float32')
+                    # Непрозрачная отрисовка обязательна: по умолчанию
+                    # у точек аддитивное смешение, и на светлом фоне
+                    # сцены они выцветают в белое, то есть пропадают.
                     item = gl.GLScatterPlotItem(pos=arr, color=cols,
-                                                size=7.0, pxMode=True)
+                                                size=7.0, pxMode=True,
+                                                glOptions='opaque')
                     self._add_item(item, lid_v)
                     prof.count("verts", len(arr))
 
@@ -4583,6 +5508,8 @@ def _build_dialog(parent):
                     ", ".join(uniq), attr[1], attr[2])
             if wells:
                 msg += " " + tr("Скважин: %d.") % len(wells)
+            if n_reproj:
+                msg += " " + tr("Перепроецировано слоёв: %d.") % n_reproj
             if skipped:
                 msg += " " + tr("Пропущено: %s") % ", ".join(skipped)
             # Контур живёт в координатах сцены, а центр сцены меняется

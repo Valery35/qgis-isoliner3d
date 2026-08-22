@@ -28,6 +28,10 @@ EXPECTED = {
     "DomainsToGridAlgorithm": ("domains_to_grid", "1.05"),
     "ReserveDeltaAlgorithm": ("reserve_delta", "1.06"),
     "PolyhedralDemoAlgorithm": ("polyhedral_demo", "1.07"),
+    "Demo3DPointsAlgorithm": ("demo_points_3d", "2.01"),
+    "Interp3DAlgorithm": ("interpolate_3d", "2.02"),
+    "CubeToBlocksAlgorithm": ("cube_to_block_model", "2.03"),
+    "CubeVoxelBodyAlgorithm": ("cube_voxel_body", "2.04"),
 }
 
 
@@ -198,6 +202,34 @@ def test_declared_parameter_keys_are_registered():
             if not registered:
                 bad.append("%s.%s" % (cls.name, name))
     assert not bad, "ключи без регистрации: %s" % ", ".join(bad)
+
+
+def test_base_class_provides_tr():
+    """Инструменты берут перевод у своего базового класса.
+
+    В QGIS 4 базовый класс Processing метод tr больше не даёт, и все
+    инструменты падали при открытии окна параметров.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    start = src.index("class IsolinerAlgorithm")
+    end = src.index("class BedAssembleAlgorithm", start)
+    body = src[start:end]
+    assert "def tr(self, text" in body
+    assert "return _tr(text)" in body
+
+
+def test_groups_are_numbered():
+    """Группы пронумерованы: иначе порядок в панели случайный.
+
+    Номер инструмента должен совпадать с номером его группы, иначе
+    в разговоре «второй ноль первый» указывает не туда.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    assert 'GROUP4 = _tr("1. Пласт и блочная модель")' in src
+    assert 'GROUP5 = _tr("2. 3D-интерполяция")' in src
+    assert '"3.01' not in src and '"3.02' not in src
 
 
 if __name__ == "__main__":

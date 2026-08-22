@@ -28,7 +28,9 @@ PKG = os.path.dirname(HERE)
 # libs заморожены и проверяются отдельно, tests содержат намеренные заглушки
 MODULES = ("algorithms.py", "viewer3d.py", "texmesh.py", "plugin.py",
            "provider.py", "i18n.py", "mesh3d.py", "polyhedral.py",
-           "demo_map.py", "trace.py", "gltf.py", "__init__.py")
+           "demo_map.py", "trace.py", "gltf.py", "iso3d.py", "interp3d.py",
+           "demo3d.py", "voxel.py",
+           "__init__.py")
 
 # коды, которые считаем ошибкой сборки
 FATAL = ("undefined name", "unable to detect undefined names",

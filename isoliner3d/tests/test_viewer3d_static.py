@@ -151,13 +151,13 @@ def test_vector_params_are_gated():
     body = src[start:end]
     rules = {
         "тип точки только для точечных слоёв":
-            "self.vec_kind.setEnabled(is_point)",
+            "self._row(self.vec_kind, is_point)",
         "источник высоты не для скважин":
-            "self.vec_zsrc.setEnabled(not wells)",
-        "поле отметки только при высоте из поля":
-            'self.vec_zfield.setEnabled(not wells and zsrc == "field")',
+            "self._row(self.vec_zsrc, not wells)",
+        "поле отметки только при высоте из поля или у призмы":
+            "self._row(self.vec_zfield,",
         "поля отметок только для скважин":
-            "self.wells_fields.setEnabled(wells)",
+            "self._row(self.wells_fields, wells)",
         "своя Z гаснет у слоя без Z":
             "has_z = _layer_has_z(lyr)",
     }
@@ -326,11 +326,504 @@ def test_busy_cursor_wraps_the_rebuild():
     assert src.count("restoreOverrideCursor") == 1
 
 
-def test_rebuild_button_only_without_autoupdate():
-    """Кнопка сборки нужна только при снятой галке автообновления."""
+def test_lines_take_colour_from_the_layer_style():
+    """Линии красятся по стилю слоя, как и тела.
+
+    Изолинии почти всегда раскрашены по отметке. Один цвет на слой
+    стирал раскраску целиком: вместо шкалы глубин в сцене шла ровная
+    бурая паутина.
+    """
     src = open(VIEWER, encoding="utf-8").read()
-    assert "self.btn.setVisible(False)" in src
-    assert "self.btn.setVisible(not on)" in src
+    start = src.index("def _vec_lines")
+    end = src.index("        def _vec_points", start)
+    body = src[start:end]
+    assert "self._layer_colors(lyr)" in body
+    assert "by_style.get(ft.id())" in body
+
+
+def test_line_colour_falls_back_when_style_is_silent():
+    """Если стиль цвета не дал, берётся запасной, а не пустота."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _vec_lines")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert 'fcol = by_style.get(ft.id()) or "#7a5c3c"' in body
+
+
+def test_lines_are_grouped_by_layer_and_colour():
+    """Элемент сцены заводится на пару слой-цвет.
+
+    Иначе разные цвета одного слоя слились бы в один элемент
+    и получили общий цвет.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("# --- линии векторных слоёв")
+    body = src[start:start + 1200]
+    assert "by_layer.setdefault((lid_v, col)" in body
+
+
+def test_elevation_can_come_from_a_surface():
+    """Отметку можно брать с растрового слоя."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert '(tr("Отметка с поверхности"), "surf")' in src
+    assert "def _zsurf_of" in src and "def _drape" in src
+    assert 'o["zsurf"] = self.vec_zsurf.currentData()' in src
+    assert 'self._row(self.vec_zsurf, not wells and zsrc == "surf")' in src
+
+
+def test_drape_reads_every_vertex():
+    """Отметка читается в каждой вершине, а не одна на объект.
+
+    Иначе линия встала бы на общую отметку и повисла над рельефом
+    или ушла под него.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _drape(self, pts, surf")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "self._sample_layer(lyr, arr, gt, xs, ys," in body
+
+
+def test_missing_elevation_cuts_the_feature():
+    """Там, где у поверхности нет данных, объект обрезается.
+
+    Ноль это отметка, а не отсутствие отметки: посадить туда вершину
+    значило бы вживить её в чужой уровень.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _drape(self, pts, surf")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "runs.append(cur)" in body and "cur = []" in body
+    start2 = src.index("def _drape_mesh")
+    mesh = src[start2:src.index("\n        def ", start2 + 20)]
+    assert "good[f].all(axis=1)" in mesh
+
+
+def test_surface_source_is_checked_before_use():
+    """Слой без выбранной поверхности отказывается, а не молчит."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _z_available")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert 'zsrc == "surf"' in body
+    assert "не выбрана поверхность" in body
+
+
+def test_drape_reaches_points_lines_and_bodies():
+    """Отметка с поверхности работает у точек, линий и тел."""
+    src = open(VIEWER, encoding="utf-8").read()
+    for name in ("def _vec_points", "def _vec_lines"):
+        start = src.index(name)
+        body = src[start:src.index("\n        def ", start + 20)]
+        assert "self._zsurf_of(o)" in body, name
+        assert "self._drape(pts, surf, off)" in body, name
+    start = src.index("def _body_meshes")
+    body = src[start:src.index("        def _vec_lines", start)]
+    assert "surf_z = self._zsurf_of(o)" in body
+    assert "self._drape_mesh(v, f, surf_z," in body
+
+
+def test_surface_source_survives_a_flat_layer():
+    """Слой без своей Z не теряет точки при укладке.
+
+    Вершина без отметки отсеивается ещё при разборе геометрии,
+    поэтому источнику с поверхности нужна временная отметка:
+    настоящую даст поверхность.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _feature_z")
+    body = src[start:src.index("\n        def ", start + 20)]
+    at_surf = body.index('zsrc == "surf"')
+    assert "return 0.0" in body[at_surf:at_surf + 400]
+
+
+def test_drape_fills_the_edge_cell():
+    """У края данных отметка добирается ближайшей ячейкой.
+
+    Билинейной выборке нужны четыре соседа, и на границе она молчит
+    даже там, где ячейка есть: это лишние разрывы линий.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _sample_layer")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "nearest=False" in src[start:start + 200]
+    assert "np.round((cx - gt[0]) / gt[1] - 0.5)" in body
+    start2 = src.index("def _drape(self, pts, surf")
+    drape = src[start2:src.index("\n        def ", start2 + 20)]
+    assert "nearest=True" in drape
+
+
+def test_vertical_offset_applies_to_every_source():
+    """Сдвиг по вертикали работает поверх любого источника высоты."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert 'tr("Смещение по вертикали, м")' in src
+    assert 'o["zoff"] = float(self.vec_zoff.value())' in src
+    assert "def _zoff_of" in src
+    start = src.index("def _feature_z")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "off = self._zoff_of(opts)" in body
+    assert "+ off" in body and "return off" in body
+    start2 = src.index("def _drape(self, pts, surf")
+    drape = src[start2:src.index("\n        def ", start2 + 20)]
+    assert "z + off" in drape
+
+
+def test_vector_properties_are_adaptive():
+    """Строка, не относящаяся к слою, убирается, а не гасится.
+
+    Погашенная строка занимает место и заставляет гадать, отчего она
+    серая: у точечного слоя призмы не будет никогда.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _row(widget, on)" in src
+    start = src.index("def _sync_vec_enabled")
+    body = src[start:src.index("\n        def ", start + 20)]
+    for w in ("vec_kind", "vec_poly", "vec_zsrc", "vec_zfield",
+              "vec_zsurf", "vec_zoff", "vec_base", "vec_htop",
+              "vec_ztop", "wells_label", "wells_fields"):
+        assert "self._row(self.%s," % w in body, w
+    assert "setEnabled" not in body.replace(
+        "self.draw_combo.setEnabled(self.sec_on.isChecked())", "")
+
+
+def test_row_hides_its_label_too():
+    """Прячется и подпись: одно поле спрятать мало."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _row(widget, on)")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "labelForField" in body
+    assert "lab.setVisible(on)" in body
+
+
+def test_layer_colour_comes_only_from_the_style():
+    """Своего цвета у векторного слоя больше нет.
+
+    Он дублировал оформление слоя и стирал раскраску по отметке,
+    а задаётся оно всё равно в самом слое.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "vec_color_btn" not in src
+    assert "_pick_vec_color" not in src
+    assert "_sync_vec_swatch" not in src
+    assert 'o.get("color")' not in src
+    assert "col or by_style" not in src
+
+
+def test_layer_list_follows_the_map_tree():
+    """Список сцены строится в порядке дерева карты.
+
+    `mapLayers` отдаёт словарь без порядка, и список выходил
+    случайным: ни найти слой, ни понять, что рисуется поверх чего.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _map_order" in src
+    start = src.index("def refresh_layers")
+    body = src[start:src.index("        def _opts_of", start)] \
+        if "        def _opts_of" in src[start:] else src[start:start + 4000]
+    assert "for lyr in _map_order(proj)" in body
+    assert "proj.mapLayers().values()" not in body.split(
+        "clip_combo")[0]
+
+
+def test_map_order_prefers_the_tree():
+    """Берётся порядок отрисовки дерева, а не словарь слоёв."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _map_order")
+    body = src[start:src.index("def _layer_budget", start)]
+    assert "layerOrder()" in body
+    assert "findLayers()" in body
+    assert "mapLayers().values()" in body
+
+
+def test_upper_layers_are_drawn_over_lower():
+    """Верхний слой карты получает больший подъём в сцене.
+
+    Совпадающая геометрия иначе спорит за глубину: изолинии то видны,
+    то тонут в поверхности, на которой лежат.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _z_priority" in src and "def _draw_rank" in src
+    start = src.index("def _z_priority")
+    body = src[start:start + 800]
+    assert "(n - rank)" in body
+    start2 = src.index("def _rebuild_scene")
+    scene = src[start2:]
+    assert scene.count("self._z_priority(") >= 4
+
+
+def test_query_point_can_be_cleared():
+    """Точку опроса можно убрать: кликом мимо, клавишей и кнопкой."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _pick_clear" in src
+    start = src.index("def _pick_at")
+    body = src[start:start + 700]
+    assert "self._pick_clear()" in body
+    start2 = src.index("def _draw_cancel")
+    body2 = src[start2:start2 + 600]
+    assert "self._pick_clear()" in body2
+    assert 'tr("Снять обрезку, наброски и точку опроса")' in src
+    assert "self._clip_clear_all" in src
+
+
+def test_scene_list_follows_tree_changes():
+    """Список обновляется сам при правке дерева карты."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _tree_changed" in src
+    for sig in ("layersAdded", "layersRemoved", "layerOrderChanged",
+                "addedChildren", "removedChildren"):
+        assert sig + ".connect(self._tree_changed)" in src, sig
+    start = src.index("def _tree_changed")
+    body = src[start:start + 700]
+    assert "self.refresh_layers()" in body
+    assert "self._mark_dirty(True)" in body
+
+
+def test_scene_lives_in_the_project_crs():
+    """Слои приводятся к системе координат проекта.
+
+    Смена СК слоя не двигает записанные координаты, она меняет их
+    толкование. Без преобразования слой в другой системе уезжал
+    в сторону, и обновление сцены ничего не меняло.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _xform" in src and "QgsCoordinateTransform" in src
+    for name, tail in (("def _body_meshes", "        def _vec_lines"),
+                       ("def _vec_lines", "        def _vec_points"),
+                       ("def _vec_points", "        def _apply_filter"),
+                       ("def _well_points", "        def _checked_of")):
+        start = src.index(name)
+        body = src[start:src.index(tail, start)]
+        assert "tr_ = self._xform(lyr)" in body, name
+        assert "g.transform(tr_)" in body, name
+
+
+def test_raster_surface_is_reprojected():
+    """Сетка растра строится в его координатах и переводится в проект."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _rebuild_scene")
+    body = src[start:]
+    assert "tr_r = self._xform(lyr)" in body
+    assert "verts[:, 0], verts[:, 1] = self._xform_xy(" in body
+
+
+def test_raster_is_sampled_in_its_own_crs():
+    """Значения растра читаются в его системе, а не в системе сцены.
+
+    Иначе окраска и опрос по клику брали бы значения мимо данных.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _sample_layer")
+    body = src[start:start + 800]
+    assert "self._xform(lyr, back=True)" in body
+    start2 = src.index("            vals = {}")
+    end2 = src.index('prof.add("color")', start2)
+    colour = src[start2:end2]
+    assert "sample_bilinear(" not in colour
+    assert colour.count("self._sample_layer(") == 3
+
+
+def test_clip_is_taken_back_to_the_layer_crs():
+    """Обрезка растра считается по его сетке, значит и контур туда же."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _clip_for_layer" in src
+    start = src.index("def _rebuild_scene")
+    body = src[start:]
+    assert "lclip, lclip_lines = self._clip_for_layer(" in body
+    assert "self._clip_array(top, gt, lclip)" in body
+    assert "self._clip_array(arr, gt, lclip)" in body
+
+
+def test_clip_rings_come_in_project_crs():
+    """Контур обрезки приводится к системе проекта при чтении."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _clip_rings")
+    body = src[start:src.index("        def _clip_by_lines", start)]
+    assert "tr_ = self._xform(lyr)" in body
+    assert "g.transform(tr_)" in body
+
+
+def test_surface_takes_the_layer_ramp():
+    """Поверхность красится шкалой самого слоя.
+
+    Читается то же оформление, что рисует карту, поэтому растр
+    на холсте и поверхность в сцене выходят одной расцветки.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _ramp_from_renderer" in src
+    assert "def ramp_colors" in src
+    start = src.index("            vals = {}")
+    end = src.index('prof.add("color")', start)
+    body = src[start:end]
+    assert "_ramp_from_renderer(lyr_c)" in body
+    assert "self._style_ramp[lid] = ramp_colors(" in body
+
+
+def test_explicit_colour_source_beats_the_layer_ramp():
+    """Заданный канал окраски и внешний растр главнее шкалы слоя.
+
+    Их выбрали руками, и подменять этот выбор оформлением нельзя.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("            vals = {}")
+    end = src.index('prof.add("color")', start)
+    body = src[start:end]
+    at_band = body.index("if cband > 0:")
+    at_attr = body.index("if alayer is not None:")
+    at_ramp = body.index("_ramp_from_renderer(lyr_c)")
+    assert at_band < at_attr < at_ramp
+
+
+def test_layer_ramp_wins_over_the_shared_scale():
+    """Своя шкала слоя главнее общей шкалы сцены.
+
+    Общая шкала растягивается на все слои сразу, и расцветка ушла бы
+    от карты именно там, где её просили повторить.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("ramp_c = self._style_ramp.get(lid)")
+    body = src[start:start + 700]
+    assert body.index("ramp_c is not None") < body.index("elif attr")
+
+
+def test_ramp_colours_are_reset_every_rebuild():
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _rebuild_scene")
+    assert "self._style_ramp = {}" in src[start:]
+
+
+def test_points_are_drawn_opaque():
+    """Точки рисуются непрозрачно.
+
+    У точек в pyqtgraph по умолчанию аддитивное смешение. Фон сцены
+    почти белый, и такие точки выцветают в него целиком: их просто
+    не видно.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("GLScatterPlotItem(pos=arr")
+    assert "glOptions='opaque'" in src[start:start + 300]
+
+
+def test_points_take_colour_from_the_layer_style():
+    """Точки красятся по стилю слоя, как линии и тела."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _vec_points")
+    end = src.index("        def _apply_filter", start)
+    body = src[start:end]
+    assert "self._layer_colors(lyr)" in body
+    assert "by_style.get(ft.id())" in body
+
+
+def test_hidden_style_classes_stay_out_of_the_scene():
+    """Снятый в легенде класс не попадает в сцену.
+
+    Снимая класс на карте, пользователь убирает его отовсюду,
+    и сцена не должна показывать то, чего на карте уже нет.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _style_hides" in src
+    for name, tail in (("def _body_meshes", "        def _vec_lines"),
+                       ("def _vec_lines", "        def _vec_points"),
+                       ("def _vec_points", "        def _apply_filter")):
+        start = src.index(name)
+        body = src[start:src.index(tail, start)]
+        assert "self._style_hides(by_style, ft)" in body, name
+
+
+def test_unreadable_style_does_not_hide_everything():
+    """Нечитаемый стиль это не «спрятать всё».
+
+    Объекта в таблице нет вовсе, и прятать его нельзя: иначе одна
+    осечка чтения рендерера оставляла бы пустую сцену.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _style_hides")
+    body = src[start:start + 700]
+    assert "ft.id() in by_style and by_style[ft.id()] is None" in body
+
+
+def test_budget_is_split_only_among_body_layers():
+    """Бюджет вершин делится между слоями, которые идут телами.
+
+    Отмеченный слой линий из этого бюджета не берёт ничего, а раньше
+    попадал в делитель и забирал половину: тела показывались
+    не полностью без всякой причины.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _body_layer_count" in src
+    start = src.index("def _body_meshes")
+    end = src.index("        def _vec_lines", start)
+    body = src[start:end]
+    assert "self._body_layer_count()" in body
+    assert "len(self._checked_vec_layers())" not in body
+
+
+def test_budget_message_names_the_numbers():
+    """Сообщение об урезании называет вершины и предел.
+
+    Без чисел «показаны первые 237» читается как нехватка памяти,
+    и крутить пользователю нечего.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _body_meshes")
+    end = src.index("        def _vec_lines", start)
+    body = src[start:end]
+    assert "набрано %d вершин из %d" in body
+
+
+def test_vertex_cap_is_a_setting():
+    """Предел вершин задаётся в свойствах сцены и живёт в проекте."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert 'tr("Предел вершин в сцене (тысяч)")' in src
+    assert '"vert_cap": int(self.vert_cap.value())' in src
+    assert 'state.get(' in src and '"vert_cap"' in src
+    assert "def _vert_cap" in src
+
+
+def test_rebuild_is_a_button_not_a_side_effect():
+    """Сцена считается по кнопке, а не на каждую отметку.
+
+    Отметка видимости и ползунок только записывают, что показать.
+    Автосборка остаётся галкой и по умолчанию снята: на тяжёлом кубе
+    пересборка на каждый щелчок и выглядит зависанием.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "self.auto_rebuild.setChecked(False)" in src
+    assert "self.btn.setVisible(False)" not in src
+    assert "self.auto_rebuild.toggled.connect(self._auto_toggled)" in src
+
+
+def test_rebuild_button_comes_first_and_is_separated():
+    """Кнопка обновления стоит первой и отделена от остальных."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("tb.setSpacing(2)")
+    end = src.index('self.tools.setObjectName', start)
+    body = src[start:end]
+    at_btn = body.index("tb.addWidget(self.btn)")
+    at_sep = body.index("tb.addWidget(sep)")
+    at_rest = body.index("for b in (btn_top")
+    assert at_btn < at_sep < at_rest
+
+
+def test_pending_changes_are_marked():
+    """Накопленные правки видны на кнопке и в строке состояния.
+
+    Без отметки снятая автосборка выглядела бы поломкой: настройки
+    поменялись, картинка прежняя, и почему - непонятно.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _schedule_rebuild")
+    end = src.index("        def _load_opts", start)
+    body = src[start:end]
+    assert "self._mark_dirty(True)" in body
+    assert 'setProperty("dirty"' in body
+    assert 'dirty=\\"yes\\"' in src or 'dirty=\"yes\"' in src
+
+
+def test_dirty_flag_is_cleared_after_rebuild():
+    """После сборки отметка снимается, иначе подсветка не погаснет."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def rebuild(self")
+    end = src.index("        def _rebuild_scene", start)
+    body = src[start:end]
+    assert "self._mark_dirty(False)" in body
+    assert body.index("finally:") < body.index("self._mark_dirty(False)")
 
 
 def test_drawing_is_a_mode_not_a_query():
@@ -450,7 +943,9 @@ def test_no_exec_underscore():
 def _load_clip_run():
     src = open(VIEWER, encoding="utf-8").read()
     s = src.index("        def _clip_run(self, pts):")
-    e = src.index("        def _feature_z", s)
+    # До следующего метода, какой бы он ни был: привязка к имени
+    # соседа ломалась каждый раз, когда рядом появлялся новый.
+    e = src.index("\n        def ", s + 20) + 1
     body = src[s:e].replace("        def _clip_run", "def _clip_run")
     body = "\n".join(row[4:] if row.startswith("    ") else row
                      for row in body.split("\n"))
@@ -691,13 +1186,42 @@ def test_ring_normal_handles_vertical_walls():
 
 
 def test_solid_rings_are_triangulated_in_plane():
-    """Объект с переменной Z разбирается по кольцам, а не по плану."""
+    """Объект с переменной Z разбирается по кольцам, а не по плану.
+
+    Разбор идёт через кэш, но именно по кольцам: у плоской разбивки
+    вертикальная стенка вырождается в линию и даёт мусор.
+    """
     src = open(VIEWER, encoding="utf-8").read()
     assert "def _tris_from_geometry" in src
     start = src.index("def _body_meshes")
     end = src.index("        def _vec_lines", start)
     body = src[start:end]
-    assert "_tris_from_geometry(g)" in body
+    assert "spatial=True" in body
+    tri = src[src.index("def _tri_cached"):src.index("def tri_cache_clear")]
+    assert "_tris_from_geometry(geom) if spatial" in tri
+
+
+def test_body_triangulation_goes_through_the_cache():
+    """Разбор тел не повторяется на каждую сборку.
+
+    Слой из 237 тел собирался семнадцать секунд, и ровно столько же
+    уходило на каждое нажатие кнопки обновления.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _body_meshes")
+    end = src.index("        def _vec_lines", start)
+    body = src[start:end]
+    assert "_tris_from_geometry(g)" not in body
+    assert "_tri_cached(lyr, ft, g, None, prof," in body
+
+
+def test_spatial_key_is_separate():
+    """У разбора по кольцам свой ключ кэша, не отметка."""
+    src = open(VIEWER, encoding="utf-8").read()
+    tri = src[src.index("def _tri_cached"):src.index("def tri_cache_clear")]
+    assert '"3d" if spatial else zfix' in tri
+    key = src[src.index("def _tri_key"):src.index("def _tri_cached")]
+    assert "isinstance(zfix, str)" in key
 
 
 def test_faces_are_turned_up_not_duplicated():
@@ -841,6 +1365,112 @@ def test_every_surface_branch_is_exported():
     start = src.index("def _rebuild_scene")
     body = src[start:]
     assert body.count("self._keep_for_export(") >= 3
+
+
+def test_iso_mode_is_wired():
+    """Режим изоповерхности доходит от свойств до сборки сцены."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert '(tr("Изоповерхность по кубу"), "iso")' in src
+    assert "def _iso_mesh" in src
+    start = src.index("def _rebuild_scene")
+    body = src[start:]
+    assert 'if mode == "iso":' in body
+    assert "self._iso_mesh(lyr, o, prof)" in body
+
+
+def test_iso_uses_cube_convention():
+    """Отметка первого уровня и шаг берутся из метаданных грида."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _iso_mesh")
+    end = src.index("        def _keep_for_export", start)
+    body = src[start:end]
+    assert '"Z0"' in body and '"DZ"' in body
+    assert "isosurface(" in body
+
+
+def test_vox_mode_is_wired():
+    """Режим вокселей доходит от свойств до сборки сцены."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert '(tr("Воксели по кубу"), "vox")' in src
+    assert "def _vox_mesh" in src
+    start = src.index("def _rebuild_scene")
+    body = src[start:]
+    assert 'if mode == "vox":' in body
+    assert "self._vox_mesh(lyr, o, clip" in body
+
+
+def test_vox_reads_the_cube_convention():
+    """Воксели читают куб так же, как изоповерхность."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _cube_arrays")
+    end = src.index("        def _vox_mesh", start)
+    body = src[start:end]
+    assert '"Z0"' in body and '"DZ"' in body
+
+
+def test_vox_faces_are_flat_shaded():
+    """У коробок грани плоские: сглаживание скруглило бы рёбра."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("vox_col = self._vox_colors.get(lid)")
+    body = src[start:start + 900]
+    assert "smooth=False" in body
+    assert "setVertexColors" in body
+
+
+def test_vox_colors_are_reset_every_rebuild():
+    """Цвета вокселей не переносятся между пересборками сцены."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _rebuild_scene")
+    body = src[start:]
+    assert "self._vox_colors = {}" in body
+
+
+def test_vox_estimates_before_building():
+    """Размер оценивается до сборки, а не после.
+
+    Счёт видимых граней идёт на NumPy и стоит доли секунды, сборка
+    же при миллионах граней уводит окно в неотзывчивость. Проверка
+    закрепляет порядок: сначала оценка и выход, потом меш.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "_VOX_FACE_LIMIT" in src
+    start = src.index("        def _vox_mesh")
+    end = src.index("        def _keep_for_export", start)
+    body = src[start:end]
+    at_est = body.index("vis = voxel.visible_faces(occ)")
+    at_mesh = body.index("voxel.voxel_mesh(")
+    assert at_est < at_mesh, "оценка должна идти до сборки"
+    assert "_VOX_FACE_LIMIT" in body[at_est:at_mesh]
+
+
+def test_vox_merge_switch_reaches_the_core():
+    """Флаг слияния доходит от свойств до ядра.
+
+    Без него нельзя получить замкнутую оболочку, а по слитой
+    объём считать нельзя.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert 'tr("Сливать соседние грани")' in src
+    assert 'vox_merge=bool(self.vox_merge.isChecked())' in src
+    start = src.index("        def _vox_mesh")
+    end = src.index("        def _keep_for_export", start)
+    body = src[start:end]
+    assert 'opts.get("vox_merge", True)' in body
+    assert "merge=merge" in body
+
+
+def test_vox_clipping_is_passed_through():
+    """Обрезка контуром и линиями доходит до вокселей.
+
+    У вокселей обрезка это отбор ячеек, крышка не нужна, и терять
+    её по дороге незачем.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("        def _vox_mesh")
+    end = src.index("        def _keep_for_export", start)
+    body = src[start:end]
+    assert "self._clip_array" in body
+    assert "self._clip_by_lines" in body
 
 
 def _run():
