@@ -48,6 +48,8 @@ place in space and a map draped over the relief.
 - A cube of values is shown as an isosurface at a cutoff: a closed body fit for volume computation.
 - A cube of values is shown as voxels: a cell as a box, coloured by grade interval. Only visible faces are built and neighbouring faces of one interval merge, so a cube of millions of cells stays light.
 - Colour comes from the layer styling: a raster ramp, categories and graduated classes of a vector. A class unticked in the legend does not reach the scene.
+- Points are shown as a circle, a square, a diamond, a triangle or a cross. The circle is on screen and reads at any distance, the flat shapes lie in plan and are hidden by a surface.
+- Points are labelled from a layer field. Labels have a halo, are thinned and their number is capped.
 - The scene lives in the project CRS: layers in other systems are reprojected, just as on the map canvas.
 - The elevation of a vector layer comes from the geometry, from a field or from a surface. When draped, the value is read at every vertex, and where there is no data the feature is cut away.
 - The layer order follows the map tree, the upper layer is drawn over the lower one. The list follows the tree by itself.

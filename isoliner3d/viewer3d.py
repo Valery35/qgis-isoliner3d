@@ -98,6 +98,7 @@ def _import_gl():
 MAX_VERTS_SCENE = 600000
 MIN_VERTS_LAYER = 30000    # ниже прореживать бессмысленно, форма пропадёт
 MAX_VERTS = 60000          # запасной потолок, если слоёв не сосчитать
+_MAX_POINT_LABELS = 400    # каждая подпись это элемент сцены
 
 PALETTE = [
     (0.85, 0.55, 0.10, 1.0),
@@ -209,6 +210,110 @@ def _ramp_from_renderer(lyr):
     cols = np.array([[r[1].redF(), r[1].greenF(), r[1].blueF(),
                       r[1].alphaF()] for r in rows], dtype=float)
     return band, breaks, cols, kind
+
+
+def _halo_text_item(gl):
+    """Подпись с ореолом: текст читается на любом фоне.
+
+    Простая подпись рисуется одним цветом, и на пёстрой сцене тёмный
+    текст пропадает на тёмном, светлый на светлом. Здесь под текст
+    кладётся обводка контрастного цвета, как это делают в Google Earth
+    и на топографических картах. Размер экранный, подпись всегда лицом
+    к камере: это даёт GLTextItem, отсюда и наследуемся.
+
+    Возвращает класс или None, если элемента подписи в сборке нет.
+    """
+    base = getattr(gl, "GLTextItem", None)
+    if base is None:
+        return None
+
+    from qgis.PyQt import QtCore, QtGui
+
+    class HaloText(base):
+        """Подпись с обводкой и отступом от точки."""
+
+        def __init__(self, *a, **kw):
+            self.halo = kw.pop("halo", (255, 255, 255, 230))
+            self.halo_width = float(kw.pop("halo_width", 3.0))
+            self.offset = kw.pop("offset", (10, -8))
+            super().__init__(*a, **kw)
+            self.setGLOptions("translucent")
+
+        def paint(self):
+            if len(self.text) < 1:
+                return
+            self.setupGLState()
+            project = self.compute_projection()
+            vec3 = QtGui.QVector3D(*self.pos)
+            pos = self.align_text(project.map(vec3).toPointF())
+            pos = QtCore.QPointF(pos.x() + self.offset[0],
+                                 pos.y() + self.offset[1])
+            painter = QtGui.QPainter(self.view())
+            painter.setRenderHints(
+                QtGui.QPainter.RenderHint.Antialiasing
+                | QtGui.QPainter.RenderHint.TextAntialiasing)
+            path = QtGui.QPainterPath()
+            path.addText(pos, self.font, self.text)
+            pen = QtGui.QPen(QtGui.QColor(*self.halo))
+            pen.setWidthF(self.halo_width)
+            pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+            painter.drawPath(path)
+            painter.setPen(QtCore.Qt.PenStyle.NoPen)
+            painter.setBrush(QtGui.QColor(self.color))
+            painter.drawPath(path)
+            painter.end()
+
+    return HaloText
+
+
+MARKER_SHAPES = ("circle", "square", "diamond", "triangle", "cross")
+
+
+def flat_marker_mesh(rows, shape, size):
+    """Плоские значки в плане: меш на весь слой.
+
+    Спрайт точки в pyqtgraph нарисован кругом в шейдере, и другой формы
+    от него не добиться. Поэтому остальные виды делаются мешем: плоская
+    фигура лежит в плане на отметке точки. Она закрывается
+    поверхностью и уходит под кровлю, чего экранный спрайт не умеет,
+    а стоит два-четыре треугольника на точку.
+
+    `rows` это (точка, цвет, размер), размер значка задаётся в метрах.
+    Возвращает вершины, треугольники и цвета вершин.
+    """
+    import numpy as np
+    if shape == "square":
+        base = [(-1, -1), (1, -1), (1, 1), (-1, 1)]
+        tris = [(0, 1, 2), (0, 2, 3)]
+    elif shape == "diamond":
+        base = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+        tris = [(0, 1, 2), (0, 2, 3)]
+    elif shape == "triangle":
+        base = [(0, 1), (-0.9, -0.7), (0.9, -0.7)]
+        tris = [(0, 1, 2)]
+    elif shape == "cross":
+        t = 0.32
+        base = [(-1, -t), (1, -t), (1, t), (-1, t),
+                (-t, -1), (t, -1), (t, 1), (-t, 1)]
+        tris = [(0, 1, 2), (0, 2, 3), (4, 5, 6), (4, 6, 7)]
+    else:
+        return None
+    base = np.asarray(base, dtype=float)
+    tris = np.asarray(tris, dtype=np.int64)
+    n = len(rows)
+    if not n:
+        return None
+    half = float(size) / 2.0
+    pos = np.array([r[0] for r in rows], dtype=float)
+    verts = np.repeat(pos, len(base), axis=0)
+    off = np.tile(base * half, (n, 1))
+    verts[:, 0] += off[:, 0]
+    verts[:, 1] += off[:, 1]
+    step = np.arange(n)[:, None, None] * len(base)
+    faces = (tris[None, :, :] + step).reshape(-1, 3)
+    return verts, faces
 
 
 def _map_order(proj):
@@ -1661,6 +1766,47 @@ def _build_dialog(parent):
                                (tr("Отметка с поверхности"), "surf"),
                                (tr("Плоско, на нуле"), "flat")):
                 self.vec_zsrc.addItem(label, key)
+            self.vec_shape = QComboBox()
+            for label, key in ((tr("Круг (экранный)"), "circle"),
+                               (tr("Квадрат"), "square"),
+                               (tr("Ромб"), "diamond"),
+                               (tr("Треугольник"), "triangle"),
+                               (tr("Крест"), "cross")):
+                self.vec_shape.addItem(label, key)
+            self.vec_shape.setToolTip(tr(
+                "Круг рисуется экранным значком: размер в пикселях, "
+                "при приближении не растёт, стоит почти ничего. "
+                "Остальные виды лежат в плане на отметке точки: размер "
+                "в метрах, значок закрывается поверхностью и уходит "
+                "под кровлю, но с высоты сплющивается."))
+            self.vec_msize = QDoubleSpinBox()
+            self.vec_msize.setRange(0.1, 100000.0)
+            self.vec_msize.setDecimals(1)
+            self.vec_msize.setValue(20.0)
+            self.vec_msize.setToolTip(tr(
+                "Размер плоского значка в метрах, по ширине."))
+            self.vec_nlab = QSpinBox()
+            self.vec_nlab.setRange(0, 5000)
+            self.vec_nlab.setValue(400)
+            self.vec_nlab.setToolTip(tr(
+                "Сколько подписей ставить, не больше. Каждая подпись "
+                "это отдельный элемент отрисовки, поэтому число "
+                "ограничено. Ноль означает «без подписей»."))
+            self.vec_label = QComboBox()
+            self.vec_label.setToolTip(tr(
+                "Поле, из которого берётся подпись точки. Подписи "
+                "прореживаются: если рядом уже есть подписанная точка, "
+                "текст не ставится, иначе они налезают друг на друга."))
+            self.vec_psize = QDoubleSpinBox()
+            self.vec_psize.setRange(0.0, 60.0)
+            self.vec_psize.setDecimals(1)
+            self.vec_psize.setSingleStep(1.0)
+            self.vec_psize.setValue(0.0)
+            self.vec_psize.setToolTip(tr(
+                "Размер точки в пикселях. Ноль означает «из стиля слоя»: "
+                "размер маркера на карте задан в миллиметрах печати "
+                "и пересчитывается от обычных двух миллиметров. Размер "
+                "экранный, при приближении точка не растёт."))
             self.vec_zoff = QDoubleSpinBox()
             self.vec_zoff.setRange(-100000.0, 100000.0)
             self.vec_zoff.setDecimals(2)
@@ -1713,16 +1859,27 @@ def _build_dialog(parent):
             vf.addRow(tr("Поле отметки"), self.vec_zfield)
             vf.addRow(tr("Поверхность отметки"), self.vec_zsurf)
             vf.addRow(tr("Смещение по вертикали, м"), self.vec_zoff)
+            vf.addRow(tr("Размер точки, px (0 - из стиля)"),
+                      self.vec_psize)
+            vf.addRow(tr("Вид маркера"), self.vec_shape)
+            vf.addRow(tr("Размер значка, м"), self.vec_msize)
+            vf.addRow(tr("Поле подписи точек"), self.vec_label)
+            vf.addRow(tr("Подписей не более"), self.vec_nlab)
             vf.addRow(tr("Низ призмы с поверхности"), self.vec_base)
             vf.addRow(tr("Верх призмы"), self.vec_htop)
             vf.addRow(tr("Поле верха или высоты"), self.vec_ztop)
             vf.addRow(tr("Поле подписи скважин"), self.wells_label)
             vf.addRow(tr("Поля отметок"), self.wells_fields)
             for w in (self.vec_kind, self.vec_poly, self.vec_zsrc,
-                      self.vec_zfield, self.vec_zsurf, self.vec_ztop,
+                      self.vec_zfield, self.vec_zsurf, self.vec_label,
+                      self.vec_shape,
+                      self.vec_ztop,
                       self.vec_base, self.vec_htop, self.wells_label):
                 w.currentIndexChanged.connect(self._save_vec_opts)
             self.vec_zoff.valueChanged.connect(self._save_vec_opts)
+            self.vec_psize.valueChanged.connect(self._save_vec_opts)
+            self.vec_msize.valueChanged.connect(self._save_vec_opts)
+            self.vec_nlab.valueChanged.connect(self._save_vec_opts)
             self.wells_fields.itemChanged.connect(self._save_vec_opts)
 
             # --- разрез: свойство линейного слоя, а не отдельная вкладка
@@ -1958,6 +2115,13 @@ def _build_dialog(parent):
                 return
             item = self.layer_list.currentItem()
             lyr = self._current_layer()
+            # Заголовок ставится первым. Если дальше что-то сорвётся,
+            # окно хотя бы скажет, чьи свойства в нём показаны, а не
+            # останется с именем приложения в шапке.
+            title = tr("Свойства сцены")
+            if lyr is not None:
+                title = tr("Свойства слоя: %s") % lyr.name()
+            self._props.setWindowTitle(title)
             scene = item is None or item.data(_USER_ROLE) == _SCENE_KEY
             raster = isinstance(lyr, QgsRasterLayer)
             vector = isinstance(lyr, QgsVectorLayer)
@@ -1966,12 +2130,10 @@ def _build_dialog(parent):
             self.opt_box.setVisible(raster)
             self.vec_box.setVisible(vector)
             self.sec_box.setVisible(line)
-            if vector:
-                self._sync_vec_enabled()
-            title = tr("Свойства сцены")
-            if lyr is not None:
-                title = tr("Свойства слоя: %s") % lyr.name()
-            self._props.setWindowTitle(title)
+            # Подбор строк здесь не вызывается. Значения в виджетах
+            # к этому моменту могут принадлежать прежнему слою, и решать
+            # по ним, что показывать, нельзя. Строки подбираются в конце
+            # загрузки свойств слоя, когда виджеты уже заполнены.
 
         def _export_glb(self):
             """Выгрузить показанное в файл GLB.
@@ -2332,7 +2494,8 @@ def _build_dialog(parent):
             has_z = _layer_has_z(lyr)
             return {"kind": "plain", "as_section": False, "draw": None,
                     "zsrc": "geom" if has_z else "field", "zsurf": None,
-                    "zoff": 0.0,
+                    "zoff": 0.0, "psize": 0.0, "label": None,
+                    "shape": "circle", "msize": 20.0, "nlab": 400,
                     "poly": "solid" if has_z else "outline",
                     "ztop": None, "base": None, "htop": "field",
                     "zfield": None,
@@ -2390,9 +2553,13 @@ def _build_dialog(parent):
                 self.wells_label.blockSignals(True)
                 self.wells_label.clear()
                 self.wells_label.addItem(tr("(нет)"), None)
+                self.vec_label.blockSignals(True)
+                self.vec_label.clear()
+                self.vec_label.addItem(tr("(нет)"), None)
                 guess = -1
                 for f in lyr.fields():
                     self.wells_label.addItem(f.name(), f.name())
+                    self.vec_label.addItem(f.name(), f.name())
                     if guess < 0 and f.name().lower() in ("name", "well",
                                                           "скв", "имя"):
                         guess = self.wells_label.count() - 1
@@ -2413,11 +2580,27 @@ def _build_dialog(parent):
                 self.vec_zoff.blockSignals(True)
                 self.vec_zoff.setValue(float(o.get("zoff", 0.0) or 0.0))
                 self.vec_zoff.blockSignals(False)
+                self.vec_psize.blockSignals(True)
+                self.vec_psize.setValue(float(o.get("psize", 0.0) or 0.0))
+                self.vec_psize.blockSignals(False)
+                self.vec_shape.blockSignals(True)
+                ish = _find_data(self.vec_shape, o.get("shape") or "circle")
+                self.vec_shape.setCurrentIndex(max(ish, 0))
+                self.vec_shape.blockSignals(False)
+                self.vec_msize.blockSignals(True)
+                self.vec_msize.setValue(float(o.get("msize", 20.0) or 20.0))
+                self.vec_msize.blockSignals(False)
+                self.vec_nlab.blockSignals(True)
+                self.vec_nlab.setValue(int(o.get("nlab", 400) or 0))
+                self.vec_nlab.blockSignals(False)
                 ih = _find_data(self.vec_htop, o.get("htop", "field"))
                 self.vec_htop.setCurrentIndex(max(ih, 0))
                 il = _find_data(self.wells_label, o.get("wells_label"))
                 self.wells_label.setCurrentIndex(
                     il if il >= 0 else max(guess, 0))
+                ivl = _find_data(self.vec_label, o.get("label"))
+                self.vec_label.setCurrentIndex(max(ivl, 0))
+                self.vec_label.blockSignals(False)
                 self.vec_zfield.blockSignals(False)
                 self.wells_label.blockSignals(False)
 
@@ -2489,6 +2672,14 @@ def _build_dialog(parent):
                       not wells and (zsrc == "field" or prism))
             self._row(self.vec_zsurf, not wells and zsrc == "surf")
             self._row(self.vec_zoff, not wells)
+            self._row(self.vec_label, is_point and not wells)
+            flat = (self.vec_shape.currentData() or "circle") != "circle"
+            self._row(self.vec_shape, is_point and not wells)
+            self._row(self.vec_msize, is_point and not wells and flat)
+            self._row(self.vec_psize, is_point and not wells and not flat)
+            self._row(self.vec_nlab,
+                      is_point and not wells
+                      and bool(self.vec_label.currentData()))
             self._row(self.vec_base, prism)
             self._row(self.vec_htop, prism)
             self._row(self.vec_ztop, prism)
@@ -2510,7 +2701,10 @@ def _build_dialog(parent):
                     item.setFlags(flags | _ENABLED)
                 else:
                     item.setFlags(flags & ~_ENABLED)
-            if not has_z and zsrc == "geom":
+            if not has_z and zsrc == "geom" and self._loading_opts:
+                # Подменяем источник только во время загрузки свойств
+                # слоя. Вне её значения в виджетах могут относиться
+                # к другому слою, и подмена записала бы чужую настройку.
                 i = _find_data(self.vec_zsrc, "field")
                 if i >= 0:
                     self.vec_zsrc.setCurrentIndex(i)
@@ -2533,6 +2727,11 @@ def _build_dialog(parent):
             o["zsrc"] = self.vec_zsrc.currentData() or "geom"
             o["zsurf"] = self.vec_zsurf.currentData()
             o["zoff"] = float(self.vec_zoff.value())
+            o["psize"] = float(self.vec_psize.value())
+            o["label"] = self.vec_label.currentData()
+            o["shape"] = self.vec_shape.currentData() or "circle"
+            o["msize"] = float(self.vec_msize.value())
+            o["nlab"] = int(self.vec_nlab.value())
             o["zfield"] = self.vec_zfield.currentData()
             o["wells_label"] = self.wells_label.currentData()
             o["wells_fields"] = [
@@ -2811,21 +3010,44 @@ def _build_dialog(parent):
                         # Записываем его как None: это не «цвет не
                         # прочитался», а «показывать не надо», и путать
                         # эти два случая нельзя.
-                        out[ft.id()] = (None if sym is None
-                                        else sym.color().name())
+                        if sym is None:
+                            out[ft.id()] = None
+                            continue
+                        size = None
+                        # Размер маркера задан в миллиметрах печати
+                        # и в трёх измерениях сам по себе ничего
+                        # не значит. Берём его отношением к обычным
+                        # двум миллиметрам, а метры задаются отдельно.
+                        try:
+                            size = float(sym.size())
+                        except Exception:  # nosec
+                            size = None
+                        out[ft.id()] = (sym.color().name(), size)
                     rnd.stopRender(ctx)
             except Exception:  # nosec
                 out = {}
             self._layer_colors_cache[key] = out
             # Диагностика: по этой строке видно, читается ли стиль
             # вообще и какие цвета из него приходят.
-            shown = [v for v in out.values() if v]
+            shown = [v[0] for v in out.values() if v]
             hidden = sum(1 for v in out.values() if v is None)
             _log(tr("Стиль слоя %s: цветов %d, скрыто классами %d, "
                     "первые %s")
                  % (lyr.name(), len(shown), hidden,
                     ", ".join(shown[:5]) or "нет"))
             return out
+
+        @staticmethod
+        def _style_color(by_style, ft):
+            """Цвет объекта из стиля, без размера."""
+            v = by_style.get(ft.id())
+            return v[0] if v else None
+
+        @staticmethod
+        def _style_size(by_style, ft):
+            """Размер маркера из стиля, в миллиметрах печати."""
+            v = by_style.get(ft.id())
+            return v[1] if v else None
 
         @staticmethod
         def _style_hides(by_style, ft):
@@ -2851,6 +3073,39 @@ def _build_dialog(parent):
             except Exception:  # nosec
                 return
             self._mark_dirty(True)
+
+        def _add_point_labels(self, labels, span, cap=None):
+            """Подписи точек: с ореолом, с прореживанием и потолком.
+
+            Прореживание обязательно: на слое в тысячи точек подписи
+            налезают друг на друга и не читается ни одна. Потолок
+            нужен потому, что каждая подпись это отдельный элемент
+            сцены со своей отрисовкой.
+            """
+            cap = _MAX_POINT_LABELS if cap is None else int(cap)
+            if not labels or cap <= 0:
+                return
+            gl = _import_gl()
+            TextItem = _halo_text_item(gl)
+            if TextItem is None:
+                return
+            from qgis.PyQt.QtGui import QFont
+            fnt = QFont()
+            fnt.setPointSize(8)
+            keep = thin_labels_xy([(p[0], p[1]) for p, _t in labels],
+                                  min_dist=span * 0.035)
+            shown = 0
+            for ok, (p, txt) in zip(keep, labels):
+                if not ok:
+                    continue
+                if shown >= cap:
+                    break
+                self._add_item(TextItem(pos=p, text=txt,
+                                        color=(25, 25, 25, 255), font=fnt))
+                shown += 1
+            if shown < sum(1 for _ in labels):
+                _log(tr("Подписей точек: %d из %d.")
+                     % (shown, len(labels)))
 
         def _pick_clear(self, quiet=False):
             """Убрать точку опроса со сцены.
@@ -3001,7 +3256,7 @@ def _build_dialog(parent):
                         nm = (("%s #%d" % (lyr.name(), k)) if multi
                               else lyr.name())
                         out.append((v, f, nm,
-                                    by_style.get(ft.id()),
+                                    self._style_color(by_style, ft),
                                     lyr.id()))
                         continue
                     zfix = None if zsrc == "geom" else \
@@ -3042,7 +3297,7 @@ def _build_dialog(parent):
                                 nm = (("%s #%d" % (lyr.name(), k))
                                       if multi else lyr.name())
                                 out.append((v, f, nm,
-                                            by_style.get(ft.id()),
+                                            self._style_color(by_style, ft),
                                             lyr.id()))
                                 continue
                         else:
@@ -3061,7 +3316,7 @@ def _build_dialog(parent):
                     k += 1
                     nm = ("%s #%d" % (lyr.name(), k)) if multi else lyr.name()
                     out.append((v, f.astype(np.int64), nm,
-                                by_style.get(ft.id()), lyr.id()))
+                                self._style_color(by_style, ft), lyr.id()))
                 if n_flat and not n_solid:
                     self._warn(tr(
                         "Слой %s: все %d объектов плоские, отметки "
@@ -3117,7 +3372,7 @@ def _build_dialog(parent):
                     if tr_ is not None:
                         g.transform(tr_)
                     zf = self._feature_z(ft, o)
-                    fcol = by_style.get(ft.id()) or "#7a5c3c"
+                    fcol = self._style_color(by_style, ft) or "#7a5c3c"
                     off = self._zoff_of(o)
                     for pts in _parts_xyz(g, zf):
                         if surf:
@@ -3147,6 +3402,7 @@ def _build_dialog(parent):
                 by_style = self._layer_colors(lyr)
                 tr_ = self._xform(lyr)
                 surf = self._zsurf_of(o)
+                lbl_field = o.get("label")
                 for ft in lyr.getFeatures():
                     g = ft.geometry()
                     if g is None or g.isEmpty():
@@ -3155,7 +3411,23 @@ def _build_dialog(parent):
                         continue
                     if tr_ is not None:
                         g.transform(tr_)
-                    fcol = by_style.get(ft.id()) or "#b03030"
+                    fcol = self._style_color(by_style, ft) or "#b03030"
+                    # Ноль в параметре означает «из стиля слоя».
+                    # Обычный маркер QGIS это два миллиметра, от них
+                    # и считаем: размер в миллиметрах печати сам по себе
+                    # в сцене ничего не значит.
+                    psz = float(o.get("psize", 0.0) or 0.0)
+                    if psz <= 0:
+                        mm = self._style_size(by_style, ft)
+                        psz = 7.0 * (float(mm) / 2.0) if mm else 7.0
+                    psz = max(min(psz, 60.0), 1.0)
+                    txt = ""
+                    if lbl_field:
+                        try:
+                            val = ft[lbl_field]
+                        except (KeyError, IndexError):
+                            val = None
+                        txt = "" if val is None else str(val).strip()
                     z = self._feature_z(ft, o)
                     off = self._zoff_of(o)
                     for pts in _parts_xyz(g, z):
@@ -3172,7 +3444,8 @@ def _build_dialog(parent):
                             for x, y, zz in laid:
                                 if not self._point_kept(x, y):
                                     continue
-                                out.append((x, y, zz, fcol, lyr.id()))
+                                out.append((x, y, zz, fcol, lyr.id(),
+                                            psz, txt))
             return out
 
         def _apply_filter(self, text):
@@ -5014,11 +5287,13 @@ def _build_dialog(parent):
             planes = self._plane_lines()
             prof.add("vector")
             vsets = [m[0] for m in meshes] + [b[0] for b in bodies]
-            for pts, _c, _n, _l in vlines:
-                vsets.append(np.asarray(pts, dtype=float))
+            for row in vlines:
+                vsets.append(np.asarray(row[0], dtype=float))
             if vpoints:
-                vsets.append(np.array([(x, y, z)
-                                       for x, y, z, _c, _l in vpoints],
+                # Берём первые три поля по срезу: в записи точки лежат
+                # ещё цвет, слой, размер и подпись, и жёсткая распаковка
+                # ломалась на каждом новом поле.
+                vsets.append(np.array([tuple(p[:3]) for p in vpoints],
                                       dtype=float))
             allv = np.vstack(vsets)
             xs = [allv[:, 0].min(), allv[:, 0].max()]
@@ -5406,7 +5681,7 @@ def _build_dialog(parent):
                         color=(0.12, 0.12, 0.12, 0.9),
                         glOptions='translucent')
                     self._add_item(dots)
-                TextItem = getattr(gl, "GLTextItem", None)
+                TextItem = _halo_text_item(gl)
                 if TextItem is not None and len(labels) <= 500:
                     from qgis.PyQt.QtGui import QFont
                     fnt = QFont()
@@ -5480,22 +5755,52 @@ def _build_dialog(parent):
             # --- точки векторных слоёв, кроме тех, что рисуются скважинами
             if vpoints:
                 by_layer = {}
-                for x, y, z, c, lid_v in vpoints:
-                    by_layer.setdefault(lid_v, []).append(
-                        ((x - cx, y - cy, (z - cz) * vex
-                          + self._z_priority(lid_v, span_xy)), c))
+                pt_labels = []
+                lbl_cap = _MAX_POINT_LABELS
+                for lid_v in {r[4] for r in vpoints}:
+                    o_l = self._opts_of(
+                        QgsProject.instance().mapLayer(lid_v))
+                    n = o_l.get("nlab")
+                    if n is not None:
+                        lbl_cap = min(lbl_cap, int(n))
+                for x, y, z, c, lid_v, psz, txt in vpoints:
+                    p3 = (x - cx, y - cy, (z - cz) * vex
+                          + self._z_priority(lid_v, span_xy))
+                    by_layer.setdefault(lid_v, []).append((p3, c, psz))
+                    if txt:
+                        pt_labels.append((p3, txt))
                 for lid_v, rows in by_layer.items():
-                    arr = np.array([r[0] for r in rows], dtype='float32')
+                    o_v = self._opts_of(
+                        QgsProject.instance().mapLayer(lid_v))
+                    shape = o_v.get("shape") or "circle"
                     cols = np.array([_css_rgba(r[1]) for r in rows],
                                     dtype='float32')
+                    flat = flat_marker_mesh(
+                        rows, shape, float(o_v.get("msize", 20.0) or 20.0))
+                    if flat is not None:
+                        fv, ff = flat
+                        per = len(fv) // max(len(rows), 1)
+                        vc = np.repeat(cols, per, axis=0)
+                        md = gl.MeshData(vertexes=fv.astype('float32'),
+                                         faces=ff)
+                        md.setVertexColors(vc)
+                        item = gl.GLMeshItem(meshdata=md, smooth=False,
+                                             glOptions='opaque')
+                        self._add_item(item, lid_v)
+                        prof.count("tris", len(ff))
+                        continue
+                    arr = np.array([r[0] for r in rows], dtype='float32')
+                    sizes = np.array([r[2] for r in rows],
+                                     dtype='float32')
                     # Непрозрачная отрисовка обязательна: по умолчанию
                     # у точек аддитивное смешение, и на светлом фоне
                     # сцены они выцветают в белое, то есть пропадают.
                     item = gl.GLScatterPlotItem(pos=arr, color=cols,
-                                                size=7.0, pxMode=True,
+                                                size=sizes, pxMode=True,
                                                 glOptions='opaque')
                     self._add_item(item, lid_v)
                     prof.count("verts", len(arr))
+                self._add_point_labels(pt_labels, span, lbl_cap)
 
             if planes:
                 msg += " " + tr("Плоскостей разреза: %d.") % len(planes)

@@ -232,6 +232,34 @@ def test_groups_are_numbered():
     assert '"3.01' not in src and '"3.02' not in src
 
 
+def test_enums_are_scoped():
+    """Перечисления пишутся с областью, как требует QGIS 4.
+
+    Плоская запись вроде `QgsWkbTypes.PointZ` в новых сборках даёт
+    ошибку, и проверка модуля перед выкладкой в каталог её ловит.
+    Дешевле поймать здесь.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    rules = (
+        (r"QgsWkbTypes\.(?!Type\.)[A-Z]", "QgsWkbTypes: нужен Type"),
+        (r"QgsProcessingParameterNumber\.(?!Type\.)(Integer|Double)\b",
+         "QgsProcessingParameterNumber: нужен Type"),
+        (r"QgsProcessing\.(?!SourceType\.)Type[A-Z]",
+         "QgsProcessing: нужен SourceType"),
+        (r"QgsProcessingParameterField\.(?!DataType\.)"
+         r"(Numeric|String|DateTime|Any)\b",
+         "QgsProcessingParameterField: нужен DataType"),
+    )
+    bad = []
+    for pat, why in rules:
+        for m in re.finditer(pat, src):
+            line = src[:m.start()].count("\n") + 1
+            bad.append("%s, строка %d" % (why, line))
+    assert not bad, "плоские перечисления: %s" % "; ".join(bad[:8])
+
+
 if __name__ == "__main__":
     ok = 0
     for nm, fn in sorted(globals().items()):

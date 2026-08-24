@@ -1642,70 +1642,70 @@ class Demo3DPointsAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.KIND, 0)))
         self.addParameter(QgsProcessingParameterNumber(
             self.HOLES, self.tr("Скважин"),
-            QgsProcessingParameterNumber.Integer,
+            QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.HOLES, 25),
             minValue=2, maxValue=2000))
         self.addParameter(QgsProcessingParameterNumber(
             self.SAMPLE, self.tr("Длина пробы, м"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.SAMPLE, 3.0), minValue=0.05))
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Охват площадки (если задан, он и берётся)"),
             optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             self.X0, self.tr("X левого нижнего угла"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.X0, 0.0)))
         self.addParameter(QgsProcessingParameterNumber(
             self.Y0, self.tr("Y левого нижнего угла"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.Y0, 0.0)))
         self.addParameter(QgsProcessingParameterNumber(
             self.SIZE, self.tr("Ширина площадки, м"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.SIZE, 1000.0), minValue=1.0))
         self.addParameter(QgsProcessingParameterNumber(
             self.SIZE_Y, self.tr("Высота площадки, м (0 - как ширина)"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.SIZE_Y, 0.0), minValue=0.0))
         self.addParameter(QgsProcessingParameterNumber(
             self.TOP, self.tr("Отметка поверхности, м"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.TOP, 0.0)))
         self.addParameter(QgsProcessingParameterNumber(
             self.DEPTH, self.tr("Глубина разбуривания, м"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.DEPTH, 200.0), minValue=1.0))
         self.addParameter(QgsProcessingParameterNumber(
             self.NOISE, self.tr("Шум опробования, доля"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.NOISE, 0.12),
             minValue=0.0, maxValue=2.0))
         self.addParameter(QgsProcessingParameterNumber(
             self.SEED, self.tr("Зерно случайности"),
-            QgsProcessingParameterNumber.Integer,
+            QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.SEED, 1)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.CORE, self.tr("Содержание в ядре сверх фона"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.CORE, 8.0), minValue=0.001)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.BACK, self.tr("Фон во вмещающих породах"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.BACK, 0.3), minValue=0.0)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.TREND, self.tr("Общий наклон содержаний, доля"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.TREND, 0.15),
             minValue=0.0, maxValue=2.0)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.SHORT, self.tr("Доля недобуренных скважин"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.SHORT, 0.15),
             minValue=0.0, maxValue=0.9)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.INCLINE, self.tr("Наклон стволов, градусов"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.INCLINE, 0.0),
             minValue=0.0, maxValue=60.0)))
         self.addParameter(QgsProcessingParameterFeatureSink(
@@ -1766,7 +1766,7 @@ class Demo3DPointsAlgorithm(IsolinerAlgorithm):
         fields.append(QgsField("zone", QVariant.Int))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
-            QgsWkbTypes.PointZ, context.project().crs())
+            QgsWkbTypes.Type.PointZ, context.project().crs())
         if sink is None:
             raise QgsProcessingException(
                 self.tr("Не удалось создать слой проб."))
@@ -1862,42 +1862,42 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterFeatureSource(
             "INPUT", self.tr("Точки с высотой"),
-            [QgsProcessing.TypeVectorPoint]))
+            [QgsProcessing.SourceType.TypeVectorPoint]))
         self.addParameter(QgsProcessingParameterField(
             "FIELD", self.tr("Поле значения"),
             parentLayerParameterName="INPUT",
-            type=QgsProcessingParameterField.Numeric))
+            type=QgsProcessingParameterField.DataType.Numeric))
         self.addParameter(QgsProcessingParameterEnum(
             "METHOD", self.tr("Метод"),
             options=[self.tr("Ближний сосед"),
                      self.tr("Обратные расстояния")], defaultValue=1))
         self.addParameter(QgsProcessingParameterNumber(
             "CELL", self.tr("Шаг по горизонтали, м"),
-            QgsProcessingParameterNumber.Double, defaultValue=25.0,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=25.0,
             minValue=1e-6))
         self.addParameter(QgsProcessingParameterNumber(
             "CELLZ", self.tr("Шаг по вертикали, м"),
-            QgsProcessingParameterNumber.Double, defaultValue=5.0,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=5.0,
             minValue=1e-6))
         self.addParameter(QgsProcessingParameterNumber(
             "ANISO", self.tr("Анизотропия (вертикаль к горизонтали)"),
-            QgsProcessingParameterNumber.Double, defaultValue=20.0,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=20.0,
             minValue=1e-6))
         self.addParameter(QgsProcessingParameterNumber(
             "RADIUS", self.tr("Радиус поиска, м (0 - авто)"),
-            QgsProcessingParameterNumber.Double, defaultValue=0.0,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
             minValue=0.0))
         self.addParameter(QgsProcessingParameterNumber(
             "POWER", self.tr("Степень обратных расстояний"),
-            QgsProcessingParameterNumber.Double, defaultValue=2.0,
+            QgsProcessingParameterNumber.Type.Double, defaultValue=2.0,
             minValue=0.1, maxValue=10.0))
         self.addParameter(QgsProcessingParameterNumber(
             "MAXPTS", self.tr("Наибольшее число точек"),
-            QgsProcessingParameterNumber.Integer, defaultValue=16,
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=16,
             minValue=1))
         self.addParameter(QgsProcessingParameterNumber(
             "MINPTS", self.tr("Наименьшее число точек"),
-            QgsProcessingParameterNumber.Integer, defaultValue=1,
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=1,
             minValue=1))
         self.addParameter(QgsProcessingParameterRasterDestination(
             "OUTPUT", self.tr("Куб значений")))
@@ -2106,19 +2106,19 @@ class CubeToBlocksAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.USE_CUTOFF, False)))
         self.addParameter(QgsProcessingParameterNumber(
             self.CUTOFF, self.tr("Отсечка"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.CUTOFF, 0.0)))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.CONTOUR, self.tr("Контур подсчёта"),
             [QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.CLASSES, self.tr("Интервалов окраски (0 - без классов)"),
-            QgsProcessingParameterNumber.Integer,
+            QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.CLASSES, 8),
             minValue=0, maxValue=64)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.DENS, self.tr("Плотность, т/м3 (0 - без пересчёта)"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.DENS, 0.0), minValue=0.0)))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Блочная модель"),
@@ -2189,7 +2189,7 @@ class CubeToBlocksAlgorithm(IsolinerAlgorithm):
             fields.append(QgsField("ore_t", QVariant.Double))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
-            QgsWkbTypes.PointZ, lyr.crs())
+            QgsWkbTypes.Type.PointZ, lyr.crs())
         if sink is None:
             raise QgsProcessingException(
                 self.tr("Не удалось создать слой блочной модели."))
@@ -2295,14 +2295,14 @@ class CubeVoxelBodyAlgorithm(IsolinerAlgorithm):
             self.CUBE, self.tr("Куб значений (каналы это уровни)")))
         self.addParameter(QgsProcessingParameterNumber(
             self.CUTOFF, self.tr("Отсечка"),
-            QgsProcessingParameterNumber.Double,
+            QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.CUTOFF, 0.0)))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.CONTOUR, self.tr("Контур подсчёта"),
             [QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             self.CLASSES, self.tr("Интервалов окраски (0 - одним телом)"),
-            QgsProcessingParameterNumber.Integer,
+            QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.CLASSES, 0),
             minValue=0, maxValue=64))
         self.addParameter(QgsProcessingParameterBoolean(
@@ -2386,7 +2386,7 @@ class CubeVoxelBodyAlgorithm(IsolinerAlgorithm):
             fields.append(QgsField(nm, tp))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
-            QgsWkbTypes.MultiPolygonZ, lyr.crs())
+            QgsWkbTypes.Type.MultiPolygonZ, lyr.crs())
         if sink is None:
             raise QgsProcessingException(
                 self.tr("Не удалось создать слой тела."))

@@ -63,7 +63,7 @@ v3.2.0`, домен codeload из контейнера доступен.
 | `icon.svg`, `icon_3d.svg` | иконки панели и меню |
 | `libs/` | вложенные pyqtgraph 0.14.0 и PyOpenGL 3.1.10, заморожены |
 | `doc/` | `Isoliner3D.pdf` и `Isoliner3D_en.pdf`, открываются кнопкой Справка и кнопкой справки в диалогах инструментов |
-| `tests/` | шестнадцать headless-наборов |
+| `tests/` | семнадцать headless-наборов |
 | `LICENSE` | GPL-2.0-or-later |
 
 Вне папки модуля, в корне репозитория: `README.md` и `README.en.md`
@@ -230,7 +230,7 @@ LOW, все до одного B101 (`assert`) и все в `tests/`, котор�
 
 ## Тесты
 
-Шестнадцать файлов, все headless, QGIS не требуется:
+Семнадцать файлов, все headless, QGIS не требуется:
 
 ```
 python isoliner3d/tests/test_mesh3d.py
@@ -249,6 +249,7 @@ python isoliner3d/tests/test_interp3d.py
 python isoliner3d/tests/test_demo3d.py
 python isoliner3d/tests/test_voxel.py
 python isoliner3d/tests/test_ramp.py
+python isoliner3d/tests/test_marker.py
 ```
 
 `test_viewer3d.py` проверяет, что модуль импортируется без QGIS.
@@ -260,8 +261,15 @@ python isoliner3d/tests/test_ramp.py
 его нет). `test_voxel.py` проверяет отбрасывание граней, слияние, размен
 слияния на замкнутость и защипы по ребру. `test_demo3d.py` закрепляет
 поведение демонстрационной залежи. `test_ramp.py` проверяет раскраску
-по шкале слоя, вырезая функцию из `viewer3d.py`, потому что импорт модуля
-целиком тянет QGIS.
+по шкале слоя, `test_marker.py` плоские значки точек. Оба вырезают функцию
+из `viewer3d.py`, потому что импорт модуля целиком тянет QGIS.
+
+Перечисления QGIS пишутся с областью: `QgsWkbTypes.Type.PointZ`,
+`QgsProcessingParameterNumber.Type.Double`,
+`QgsProcessing.SourceType.TypeVectorPoint`,
+`QgsProcessingParameterField.DataType.Numeric`. Плоская запись в новых
+сборках даёт ошибку, за этим следит проверка в наборе по группе
+инструментов.
 
 `test_flakes.py` гоняет pyflakes по всем модулям и требует ноль
 неопределённых имён и мёртвых импортов. Он появился не от любви к чистоте:

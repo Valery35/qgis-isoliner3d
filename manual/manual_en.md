@@ -216,6 +216,39 @@ four neighbours and stays silent on the border even where the cell exists.
 On top of any source works the **Vertical offset, m**. A small lift removes
 the depth fight when a line lies exactly on the surface it was taken from.
 
+## The point marker and labels
+
+**Marker shape** is chosen from a circle, a square, a diamond, a triangle
+and a cross. The circle and the rest are built differently, and that is
+not a matter of taste.
+
+The circle is drawn as an on-screen marker: the size is set in pixels, the
+marker does not grow when you zoom in, it reads at any distance and costs
+almost nothing. In exchange it is always drawn over the scene and is never
+hidden by a surface.
+
+The other shapes lie flat in plan at the elevation of the point, and the
+size is set in metres. Such a marker is hidden by a surface and goes under
+a roof, so it shows where the point sits relative to the bed. In exchange
+it flattens when seen from above. It costs two to four triangles per
+point: a layer of eight and a half thousand points is seventeen thousand
+triangles.
+
+The size row follows the shape: pixels for the circle, metres for a flat
+marker. A zero in the circle size means «from the layer style»: the marker
+size on the map is set in print millimetres and is converted from the
+usual two.
+
+**Point label field** sets what to label with. Labels are thinned: if a
+labelled point is already near, the text is skipped. The **Labels at most**
+row limits their number, because every label is a separate drawing item.
+Zero means «no labels».
+
+Labels are drawn with a halo: the text is outlined in a contrasting
+colour, as on topographic maps, otherwise it sinks into a busy scene. The
+size is on screen, the label always faces the camera and stands at an
+offset from the point.
+
 ## Colour
 
 A vector layer has no colour of its own. The feature colour comes from the
@@ -768,6 +801,9 @@ All three work independently: installing the whole set is not required.
 | Contours are now visible, now sunk into the surface | The geometry coincides and the depth fight begins. | Raise the layer in the map tree or give it a **Vertical offset, m**. |
 | Part of the features vanished with elevation from a surface | The surface has no data there. | That is intended: a gap is not a zero. Check the extent of the elevation grid. |
 | Voxels are not built and the log names a face count | The model is larger than the responsiveness limit. | Raise the cutoff, reduce the number of colour intervals, or coarsen the cube. |
+| Points are visible but labels are not | No label field is chosen, or the label count is zero. | Set the **Point label field** and **Labels at most**. |
+| A flat marker is hard to see from above | It lies in plan and flattens. | Take the circle: it is on screen and reads from any angle. |
+| A round marker shows through the bed | An on-screen marker is always drawn over the scene. | Take a square, a diamond, a triangle or a cross: they lie in plan and are hidden by a surface. |
 
 # Appendix. The multiband grid convention
 

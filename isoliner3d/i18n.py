@@ -81,6 +81,51 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'Вид маркера': 'Marker shape',
+    'Круг (экранный)': 'Circle (on screen)',
+    'Квадрат': 'Square',
+    'Ромб': 'Diamond',
+    'Треугольник': 'Triangle',
+    'Крест': 'Cross',
+    'Размер значка, м': 'Marker size, m',
+    'Подписей не более': 'Labels at most',
+    'Размер плоского значка в метрах, по ширине.':
+        'The size of a flat marker in metres, across.',
+    'Круг рисуется экранным значком: размер в пикселях, при '
+    'приближении не растёт, стоит почти ничего. Остальные виды '
+    'лежат в плане на отметке точки: размер в метрах, значок '
+    'закрывается поверхностью и уходит под кровлю, но с высоты '
+    'сплющивается.':
+        'A circle is drawn as an on-screen marker: the size is in '
+        'pixels, it does not grow when you zoom in and costs almost '
+        'nothing. The other shapes lie in plan at the elevation of '
+        'the point: the size is in metres, the marker is hidden by a '
+        'surface and goes under a roof, but flattens when seen from '
+        'above.',
+    'Сколько подписей ставить, не больше. Каждая подпись это '
+    'отдельный элемент отрисовки, поэтому число ограничено. Ноль '
+    'означает «без подписей».':
+        'How many labels to place at most. Every label is a separate '
+        'drawing item, so the number is limited. Zero means «no '
+        'labels».',
+    'Поле подписи точек': 'Point label field',
+    'Подписей точек: %d из %d.': 'Point labels: %d of %d.',
+    'Поле, из которого берётся подпись точки. Подписи '
+    'прореживаются: если рядом уже есть подписанная точка, текст '
+    'не ставится, иначе они налезают друг на друга.':
+        'The field the point label is taken from. Labels are thinned: '
+        'if a labelled point is already near, the text is skipped, '
+        'otherwise they overlap each other.',
+    'Размер точки, px (0 - из стиля)':
+        'Point size, px (0 means from the style)',
+    'Размер точки в пикселях. Ноль означает «из стиля слоя»: размер '
+    'маркера на карте задан в миллиметрах печати и пересчитывается '
+    'от обычных двух миллиметров. Размер экранный, при приближении '
+    'точка не растёт.':
+        'Point size in pixels. Zero means «from the layer style»: the '
+        'marker size on the map is set in print millimetres and is '
+        'converted from the usual two. The size is on screen, so the '
+        'point does not grow when you zoom in.',
     'Задать свой цвет': 'Set a custom colour',
     'Смещение по вертикали, м': 'Vertical offset, m',
     'Сдвиг слоя по вертикали в метрах, поверх выбранного источника '

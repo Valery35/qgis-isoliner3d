@@ -338,7 +338,7 @@ def test_lines_take_colour_from_the_layer_style():
     end = src.index("        def _vec_points", start)
     body = src[start:end]
     assert "self._layer_colors(lyr)" in body
-    assert "by_style.get(ft.id())" in body
+    assert "self._style_color(by_style, ft)" in body
 
 
 def test_line_colour_falls_back_when_style_is_silent():
@@ -346,7 +346,7 @@ def test_line_colour_falls_back_when_style_is_silent():
     src = open(VIEWER, encoding="utf-8").read()
     start = src.index("def _vec_lines")
     body = src[start:src.index("\n        def ", start + 20)]
-    assert 'fcol = by_style.get(ft.id()) or "#7a5c3c"' in body
+    assert 'fcol = self._style_color(by_style, ft) or "#7a5c3c"' in body
 
 
 def test_lines_are_grouped_by_layer_and_colour():
@@ -463,6 +463,196 @@ def test_vertical_offset_applies_to_every_source():
     start2 = src.index("def _drape(self, pts, surf")
     drape = src[start2:src.index("\n        def ", start2 + 20)]
     assert "z + off" in drape
+
+
+def test_point_size_comes_from_style_or_parameter():
+    """Размер точки берётся из стиля слоя либо задаётся числом.
+
+    Размер маркера на карте задан в миллиметрах печати и в сцене сам
+    по себе ничего не значит, поэтому пересчитывается от обычных двух
+    миллиметров.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert 'tr("Размер точки, px (0 - из стиля)")' in src
+    assert "def _style_size" in src
+    start = src.index("def _vec_points")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert 'psz = float(o.get("psize", 0.0) or 0.0)' in body
+    assert "7.0 * (float(mm) / 2.0)" in body
+
+
+def test_point_size_reaches_the_scene():
+    """Размер доезжает до элемента сцены отдельным массивом."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("for x, y, z, c, lid_v, psz, txt in vpoints")
+    body = src[start:start + 2600]
+    assert "sizes = np.array([r[2] for r in rows]" in body
+    assert "size=sizes" in body
+
+
+def test_style_reader_returns_colour_and_size():
+    """Стиль отдаёт пару, а скрытый класс по-прежнему пустоту."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _layer_colors")
+    body = src[start:src.index("\n        @staticmethod", start)]
+    assert "out[ft.id()] = (sym.color().name(), size)" in body
+    assert "out[ft.id()] = None" in body
+    assert "self._style_color(by_style, ft)" in src
+
+
+def test_point_record_is_read_by_slice():
+    """Запись точки читается срезом, а не жёсткой распаковкой.
+
+    В записи лежат координаты, цвет, слой, размер и подпись. Жёсткая
+    распаковка ломалась на каждом новом поле, и сборка сцены падала
+    с «too many values to unpack».
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _rebuild_scene")
+    body = src[start:]
+    assert "tuple(p[:3]) for p in vpoints" in body
+    assert "for x, y, z, _c, _l in vpoints" not in body
+
+
+def test_point_record_length_is_consistent():
+    """Запись точки собирается и разбирается одинаковым числом полей."""
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _vec_points")
+    body = src[start:src.index("\n        def ", start + 20)]
+    made = body[body.index("out.append(("):]
+    made = made[:made.index("))") + 2]
+    assert made.count(",") == 6, made
+    assert "for x, y, z, c, lid_v, psz, txt in vpoints" in src
+
+
+def test_point_labels_have_their_own_field():
+    """Обычный точечный слой подписывается своим полем."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert 'tr("Поле подписи точек")' in src
+    assert 'o["label"] = self.vec_label.currentData()' in src
+    assert "self._row(self.vec_label, is_point and not wells)" in src
+    start = src.index("def _vec_points")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert 'lbl_field = o.get("label")' in body
+
+
+def test_marker_shape_is_a_setting():
+    """Вид маркера выбирается в свойствах и доходит до сборки."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert 'tr("Вид маркера")' in src
+    assert 'o["shape"] = self.vec_shape.currentData() or "circle"' in src
+    start = src.index("def _rebuild_scene")
+    body = src[start:]
+    assert "flat = flat_marker_mesh(" in body
+    assert "if flat is not None:" in body
+
+
+def test_marker_size_row_follows_the_shape():
+    """У круга размер в пикселях, у плоского значка в метрах.
+
+    Обе строки сразу показывать незачем: единица у них разная,
+    и видна должна быть та, что сейчас работает.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _sync_vec_enabled")
+    body = src[start:src.index("\n        def _save_vec_opts", start)]
+    assert 'flat = (self.vec_shape.currentData() or "circle") != "circle"' \
+        in body
+    assert "self._row(self.vec_msize, is_point and not wells and flat)" \
+        in body
+    assert "self._row(self.vec_psize, is_point and not wells and not flat)" \
+        in body
+
+
+def test_label_count_is_a_setting():
+    """Число подписей задаётся слоем и ограничено потолком модуля."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert 'tr("Подписей не более")' in src
+    assert 'o["nlab"] = int(self.vec_nlab.value())' in src
+    start = src.index("def _rebuild_scene")
+    body = src[start:]
+    assert "lbl_cap = min(lbl_cap, int(n))" in body
+    assert "self._add_point_labels(pt_labels, span, lbl_cap)" in body
+    start2 = src.index("def _add_point_labels")
+    lbl = src[start2:src.index("\n        def ", start2 + 20)]
+    assert "cap <= 0" in lbl
+    assert "shown >= cap" in lbl
+
+
+def test_point_labels_are_thinned_and_capped():
+    """Подписи прореживаются и имеют потолок.
+
+    На слое в тысячи точек подписи налезают друг на друга и не
+    читается ни одна, а каждая подпись это отдельный элемент сцены.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "_MAX_POINT_LABELS" in src
+    start = src.index("def _add_point_labels")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "thin_labels_xy(" in body
+    assert "shown >= cap" in body
+    assert "_halo_text_item(gl)" in body
+
+
+def test_labels_have_a_halo():
+    """Подпись обводится контрастным цветом и не тонет в фоне.
+
+    Одноцветный текст пропадает на пёстрой сцене: тёмный на тёмном,
+    светлый на светлом.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _halo_text_item" in src
+    start = src.index("def _halo_text_item")
+    body = src[start:src.index("\ndef _map_order", start)]
+    assert "QPainterPath" in body
+    assert "path.addText(pos, self.font, self.text)" in body
+    assert "setWidthF(self.halo_width)" in body
+    assert 'self.setGLOptions("translucent")' in body
+    assert "self.offset" in body
+    assert "TextItem = _halo_text_item(gl)" in src
+
+
+def test_props_do_not_decide_by_stale_widgets():
+    """Подбор строк не запускается из показа свойств.
+
+    Значения в виджетах к этому моменту могут принадлежать прежнему
+    слою, и решать по ним, что показывать, нельзя. Строки подбираются
+    в конце загрузки свойств, когда виджеты уже заполнены.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _sync_props")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "self._sync_vec_enabled()" not in body
+    load = src.index("def _load_vec_opts")
+    lbody = src[load:src.index("\n        @staticmethod", load)]
+    at_sync = lbody.index("self._sync_vec_enabled()")
+    at_props = lbody.index("self._sync_props()")
+    assert at_sync < at_props
+
+
+def test_props_title_is_set_first():
+    """Заголовок ставится раньше остального.
+
+    Если дальше что-то сорвётся, окно скажет, чьи свойства в нём,
+    а не останется с именем приложения в шапке.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _sync_props")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert (body.index("self._props.setWindowTitle(title)")
+            < body.index("self.scene_box.setVisible(scene)"))
+
+
+def test_source_switch_only_while_loading():
+    """Источник высоты подменяется только во время загрузки свойств.
+
+    Вне её значения в виджетах могут относиться к другому слою,
+    и подмена записала бы чужую настройку.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    start = src.index("def _sync_vec_enabled")
+    body = src[start:src.index("\n        def _save_vec_opts", start)]
+    assert 'zsrc == "geom" and self._loading_opts' in body
 
 
 def test_vector_properties_are_adaptive():
@@ -707,7 +897,7 @@ def test_points_take_colour_from_the_layer_style():
     end = src.index("        def _apply_filter", start)
     body = src[start:end]
     assert "self._layer_colors(lyr)" in body
-    assert "by_style.get(ft.id())" in body
+    assert "self._style_color(by_style, ft)" in body
 
 
 def test_hidden_style_classes_stay_out_of_the_scene():
@@ -1269,7 +1459,7 @@ def test_colours_come_from_the_layer_style():
     end = src.index("        def _body_meshes", start)
     assert "symbolForFeature" in src[start:end]
     body = src[src.index("def _body_meshes"):]
-    assert "by_style.get(ft.id())" in body
+    assert "self._style_color(by_style, ft)" in body
 
 
 def test_belts_are_clipped_by_geometry():
