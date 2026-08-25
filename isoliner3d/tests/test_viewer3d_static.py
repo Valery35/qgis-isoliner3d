@@ -612,6 +612,70 @@ def test_labels_have_a_halo():
     assert "TextItem = _halo_text_item(gl)" in src
 
 
+def _dirty_hint_calls(body):
+    """Ставит ли этот кусок кода подсказку о накопленных правках."""
+    return "self._info_dirty(" in body
+
+
+def test_elevation_clip_reaches_every_source():
+    """Обрезка по отметке доходит до тел, линий, точек, поверхностей
+    и вокселей.
+
+    Контур и коридор режут только в плане, к высоте они отношения
+    не имеют, поэтому отбор по отметке идёт отдельным шагом везде.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def z_range_mask" in src
+    assert "def _z_kept" in src and "def _z_bounds" in src
+    start = src.index("def _clip_tris")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "self._z_kept(v[:, 2])" in body
+    scene = src[src.index("def _rebuild_scene"):]
+    assert "self._z_kept(top)" in scene and "self._z_kept(arr)" in scene
+    vox = src[src.index("        def _vox_mesh"):]
+    vox = vox[:vox.index("\n        def ")]
+    assert "z_range_mask(zc, lo_z, hi_z)" in vox
+    lines = src[src.index("def _vec_lines"):]
+    lines = lines[:lines.index("\n        def ")]
+    assert "self._z_kept([p[2]])" in lines
+
+
+def test_elevation_bounds_have_a_no_bound_value():
+    """У полей есть значение «без границы», а не только числа."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert 'setSpecialValueText(tr("(нет)"))' in src
+    start = src.index("def _z_bounds")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "None if lo <= -1e7 + 1 else lo" in body
+
+
+def test_drawing_result_keeps_the_rebuild_hint():
+    """Готовая линия и контур не стирают подсказку об обновлении.
+
+    Выбор нарисованной линии в списке обрезки помечает сцену
+    устаревшей, и строка состояния говорит нажать «Обновить сцену».
+    Следом сообщение о готовой линии затирало эту строку, и обрезка
+    выглядела нерабочей: линия готова, а в сцене ничего не изменилось.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    for name in ("def _draw_line_done", "def _draw_close"):
+        if name not in src:
+            continue
+        start = src.index(name)
+        body = src[start:src.index("\n        def ", start + 20)]
+        assert _dirty_hint_calls(body), name
+
+
+def test_info_dirty_appends_the_hint():
+    """Подсказка добавляется к сообщению, а не заменяет его."""
+    src = open(VIEWER, encoding="utf-8").read()
+    assert "def _info_dirty" in src
+    start = src.index("def _info_dirty")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert '_dirty' in body
+    assert "setText" in body
+
+
 def test_props_do_not_decide_by_stale_widgets():
     """Подбор строк не запускается из показа свойств.
 
@@ -1565,17 +1629,40 @@ def test_iso_mode_is_wired():
     start = src.index("def _rebuild_scene")
     body = src[start:]
     assert 'if mode == "iso":' in body
-    assert "self._iso_mesh(lyr, o, prof)" in body
+    assert "self._iso_mesh(\n                            lyr, o, prof)" in body
 
 
 def test_iso_uses_cube_convention():
-    """Отметка первого уровня и шаг берутся из метаданных грида."""
+    """Отметка первого уровня и шаг берутся из метаданных грида.
+
+    Чтение куба вынесено в общий разбор, изоповерхность и воксели
+    берут его оттуда и потому читают одну и ту же конвенцию.
+    """
     src = open(VIEWER, encoding="utf-8").read()
-    start = src.index("def _iso_mesh")
-    end = src.index("        def _keep_for_export", start)
-    body = src[start:end]
-    assert '"Z0"' in body and '"DZ"' in body
-    assert "isosurface(" in body
+    start = src.index("        def _iso_mesh")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "self._cube_arrays(lyr)" in body
+    assert "isosurface_levels(" in body
+    cube = src[src.index("        def _cube_arrays"):]
+    cube = cube[:cube.index("\n        def ")]
+    assert '"Z0"' in cube and '"DZ"' in cube
+
+
+def test_iso_levels_are_coloured_and_layered():
+    """Несколько оболочек красятся шкалой, наружная прозрачнее.
+
+    Иначе внутренних не видно вовсе, а ради них всё и строится.
+    """
+    src = open(VIEWER, encoding="utf-8").read()
+    assert 'tr("Оболочек по отсечке")' in src
+    assert 'o["iso_count"]' in src or "iso_count=int(" in src
+    start = src.index("        def _iso_mesh")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "np.linspace(base" in body
+    assert "colormap(" in body
+    assert "alpha = 1.0 - 0.62" in body
+    scene = src[src.index("def _rebuild_scene"):]
+    assert 'alpha = alpha0 * float(o.get("alpha", 1.0) or 1.0)' in scene
 
 
 def test_vox_mode_is_wired():

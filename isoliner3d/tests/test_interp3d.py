@@ -177,6 +177,262 @@ def test_dense_path_keeps_empty_nodes_empty():
     assert not np.isfinite(got[1])
 
 
+def _holes(n_side=5, step=200.0, sample=3.0, seed=0):
+    """Вертикальные скважины: у каждой своё содержание.
+
+    Опробование частое, сеть редкая - обычная разведочная картина.
+    """
+    rng = np.random.RandomState(seed)
+    pts, val, hole = [], [], []
+    k = 0
+    for x in np.arange(n_side) * step + step / 2.0:
+        for y in np.arange(n_side) * step + step / 2.0:
+            v = float(rng.uniform(0.0, 10.0))
+            for z in np.arange(-200.0, 0.0, sample):
+                pts.append((x, y, z))
+                val.append(v)
+                hole.append(k)
+            k += 1
+    return (np.array(pts), np.array(val), np.array(hole))
+
+
+def test_idw_does_not_degenerate_to_nearest():
+    """Обратные расстояния не должны повторять ближайшего соседа.
+
+    При анизотропии проба в стволе оказывается в сотни раз ближе
+    соседней скважины, и все ближайшие точки берутся из одной
+    скважины. Веса тогда считаются по одному значению, и вместо
+    сглаженного поля выходят ячейки Вороного.
+    """
+    pts, val, _h = _holes()
+    nodes = grid_nodes(0.0, 1000.0, -200.0, 30, 30, 10, 33.0, 33.0, 20.0)
+    kw = dict(radius=None, anisotropy=20.0, max_points=16)
+    idw = interp3d.interpolate(pts, val, nodes, method="idw", **kw)
+    near = interp3d.interpolate(pts, val, nodes, method="nearest", **kw)
+    ok = np.isfinite(idw) & np.isfinite(near)
+    same = (np.abs(idw[ok] - near[ok]) < 0.05).mean()
+    assert same < 0.6, "совпало с ближайшим соседом: %.0f%%" % (100 * same)
+
+
+def test_neighbours_come_from_several_holes():
+    """Соседи набираются из разных скважин, а не из одной."""
+    pts, val, hole = _holes()
+    node = np.array([[250.0, 250.0, -100.0]])
+    got = interp3d.neighbour_ids(pts, node, radius=None, anisotropy=20.0,
+                                 max_points=16)[0]
+    got = [i for i in got if i >= 0]
+    assert len(set(hole[got].tolist())) >= 3, sorted(hole[got].tolist())
+
+
+def test_sectors_can_be_switched_off():
+    """Один сектор это прежнее поведение: соседи из одной скважины."""
+    pts, val, hole = _holes()
+    node = np.array([[250.0, 250.0, -100.0]])
+    got = interp3d.neighbour_ids(pts, node, radius=None, anisotropy=20.0,
+                                 max_points=16, sectors=1)[0]
+    got = [i for i in got if i >= 0]
+    assert len(set(hole[got].tolist())) == 1
+
+
+def test_sector_search_keeps_the_exact_point():
+    """Узел в точке опробования получает её значение без изменений."""
+    pts, val, _h = _holes()
+    got = interp3d.interpolate(pts, val, pts[:20], method="idw",
+                               anisotropy=20.0, max_points=16)
+    assert np.allclose(got, val[:20])
+
+
+def test_z_from_geometry():
+    """Отметка из геометрии берётся как есть, пропуск остаётся пропуском."""
+    z = interp3d.resolve_z("geom", gz=[10.0, np.nan], fz=None,
+                           surf=None, depth=None)
+    assert z[0] == 10.0 and not np.isfinite(z[1])
+
+
+def test_z_from_field_beats_a_flat_layer():
+    """У плоского слоя отметку даёт поле, а не ноль из геометрии.
+
+    Плоский слой отдаёт нулевую Z у каждой точки. Если бы её брали
+    как есть, все пробы легли бы в одну плоскость и куб вышел бы
+    бессмысленным.
+    """
+    z = interp3d.resolve_z("field", gz=[0.0, 0.0, 0.0],
+                           fz=[-12.0, -30.0, np.nan],
+                           surf=None, depth=None)
+    assert list(z[:2]) == [-12.0, -30.0]
+    assert not np.isfinite(z[2])
+
+
+def test_z_from_depth_below_the_surface():
+    """Глубина отсчитывается вниз от поверхности.
+
+    Почвенные пробы записывают глубину, а не отметку, и без поверхности
+    перевести одно в другое нельзя.
+    """
+    z = interp3d.resolve_z("depth", gz=None, fz=None,
+                           surf=[120.0, 118.0], depth=[0.2, 1.5])
+    assert abs(z[0] - 119.8) < 1e-9
+    assert abs(z[1] - 116.5) < 1e-9
+
+
+def test_depth_without_a_surface_is_a_gap():
+    """Без данных поверхности проба не садится на ноль, а выпадает."""
+    z = interp3d.resolve_z("depth", gz=None, fz=None,
+                           surf=[np.nan, 100.0], depth=[0.5, 0.5])
+    assert not np.isfinite(z[0])
+    assert abs(z[1] - 99.5) < 1e-9
+
+
+def test_unknown_mode_is_refused():
+    try:
+        interp3d.resolve_z("что-то", gz=[1.0], fz=None, surf=None,
+                           depth=None)
+    except ValueError:
+        return
+    raise AssertionError("неизвестный источник отметки должен отвергаться")
+
+
+def test_samples_at_one_place_differ_by_z():
+    """Пробы в одной точке плана расходятся по отметке.
+
+    Ровно случай почвенных проб: координаты те же, глубины разные,
+    и без разбора отметки они схлопнулись бы в одну точку.
+    """
+    z = interp3d.resolve_z("depth", gz=None, fz=None,
+                           surf=[100.0] * 3, depth=[0.1, 0.5, 1.2])
+    assert len(set(np.round(z, 6).tolist())) == 3
+
+
+def test_spacing_of_boreholes():
+    """Замеряем сеть: шаг по стволу, шаг в плане, замеров на точку."""
+    pts, _v, _h = _holes(n_side=4, step=200.0, sample=3.0)
+    dz, dxy, per = interp3d.sampling_spacing(pts)
+    assert abs(dz - 3.0) < 1e-6, dz
+    assert abs(dxy - 200.0) < 1.0, dxy
+    assert per > 50, per
+
+
+def test_spacing_of_layered_samples():
+    """У проб по уровням замеров на точку мало, и это главное отличие.
+
+    Отношение шагов у скважин и у почвенных проб почти одинаковое,
+    различает их число замеров в одной точке плана.
+    """
+    pts = []
+    for x in (0.0, 400.0, 40.0, 420.0):
+        for y in (0.0, 380.0):
+            for z in (210.0, 215.0, 220.0):
+                pts.append((x, y, z))
+    dz, dxy, per = interp3d.sampling_spacing(np.array(pts))
+    assert abs(dz - 5.0) < 1e-6, dz
+    assert per == 3, per
+
+
+def test_spacing_needs_repeated_places():
+    """Без повторов в плане мерить нечего."""
+    rng = np.random.RandomState(2)
+    pts = rng.uniform(0, 500, (30, 3))
+    assert interp3d.sampling_spacing(pts) is None
+
+
+def test_too_many_points_smears_the_levels():
+    """Соседей больше, чем уровней, и различие по глубине пропадает.
+
+    Три уровня на площадку: если узел берёт шестнадцать точек, в среднее
+    попадают все три уровня всех площадок, и аномалия по глубине
+    сглаживается в ровное поле.
+    """
+    pts, vals = [], []
+    for x in (0.0, 400.0):
+        for y in (0.0, 400.0):
+            for z, v in ((210.0, 8.0), (215.0, 15.0), (220.0, 8.0)):
+                pts.append((x, y, z))
+                vals.append(v)
+    pts = np.array(pts)
+    vals = np.array(vals)
+    nodes = np.array([[200.0, 200.0, z] for z in (210.0, 215.0, 220.0)])
+    kw = dict(anisotropy=1.0, method="idw", radius=1000.0)
+    wide = interp3d.interpolate(pts, vals, nodes, max_points=16, **kw)
+    tight = interp3d.interpolate(pts, vals, nodes, max_points=4, **kw)
+    assert np.ptp(wide) < 0.5, np.ptp(wide)
+    assert np.ptp(tight) > 3.0, np.ptp(tight)
+
+
+def test_grid_advice_is_quiet_on_a_sane_grid():
+    """Сетка соразмерна сети опробования: сказать нечего."""
+    assert interp3d.grid_advice(60, 50, 40, cell=400.0, dxy=3700.0,
+                                limit=20 * 10 ** 6) == []
+
+
+def test_grid_advice_counts_the_nodes():
+    """Слишком крупная сетка называется числом узлов, а не словами."""
+    out = interp3d.grid_advice(1075, 807, 52, cell=25.0, dxy=3732.0,
+                               limit=20 * 10 ** 6)
+    assert any("45111300" in m for m in out), out
+
+
+def test_grid_advice_notices_a_needlessly_fine_step():
+    """Шаг много мельче сети опробования: узлы не несут данных.
+
+    Между соседними площадками сто сорок девять ячеек, а данных
+    между ними нет ни одной точки.
+    """
+    out = interp3d.grid_advice(200, 200, 10, cell=25.0, dxy=3732.0,
+                               limit=20 * 10 ** 6)
+    assert out and any("149" in m for m in out), out
+
+
+def test_grid_advice_needs_a_spacing():
+    """Без замера сети про шаг не судим, но про число узлов судим."""
+    out = interp3d.grid_advice(1075, 807, 52, cell=25.0, dxy=None,
+                               limit=20 * 10 ** 6)
+    assert len(out) == 1
+
+
+def test_auto_cell_from_the_plan_step():
+    """Шаг в плане берётся долей расстояния между точками плана."""
+    got = interp3d.auto_grid(dz=5.0, dxy=327.0, per=3)
+    assert 50.0 <= got["cell"] <= 90.0, got
+
+
+def test_auto_cellz_from_the_sampling_step():
+    """Шаг по вертикали мельче шага опробования, иначе уровни сольются."""
+    got = interp3d.auto_grid(dz=5.0, dxy=327.0, per=3)
+    assert got["cellz"] < 5.0, got
+    assert got["cellz"] > 0.0
+
+
+def test_auto_points_follow_the_levels():
+    """Соседей берём чуть больше, чем замеров в одной точке плана.
+
+    Больше значит смешать уровни и сгладить различие по глубине,
+    ровно та беда, из-за которой поле выходило ровным.
+    """
+    assert interp3d.auto_grid(5.0, 327.0, 3)["max_points"] == 4
+    assert interp3d.auto_grid(3.0, 142.0, 64)["max_points"] == 16
+
+
+def test_auto_points_have_a_floor():
+    """Меньше четырёх соседей брать незачем даже при одном замере."""
+    assert interp3d.auto_grid(5.0, 300.0, 1)["max_points"] >= 4
+
+
+def test_auto_grid_survives_a_huge_site():
+    """На площадке в двадцать семь километров сетка остаётся посильной.
+
+    Двадцать пять метров на такой площадке давали сорок пять миллионов
+    узлов, и это был не выбор человека, а умолчание.
+    """
+    got = interp3d.auto_grid(3.0, 3732.0, 66)
+    nodes = (27000.0 / got["cell"]) * (20000.0 / got["cell"]) * 52
+    assert nodes < 2 * 10 ** 6, (got, nodes)
+
+
+def test_auto_grid_needs_a_measured_net():
+    """Без замера сети подставлять нечего."""
+    assert interp3d.auto_grid(None, None, None) is None
+
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

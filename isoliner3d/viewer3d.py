@@ -316,6 +316,28 @@ def flat_marker_mesh(rows, shape, size):
     return verts, faces
 
 
+def z_range_mask(z, zlo, zhi):
+    """Отбор по отметке: что попадает в заданный диапазон.
+
+    Обрезка контуром и коридором работает в плане, к высоте она
+    отношения не имеет. Разрез по пачке пластов задаётся именно
+    отметками, поэтому отбор по ним стоит отдельно.
+
+    Границы включаются: отметка ровно на границе остаётся, иначе
+    у куба пропадал бы крайний уровень. Перепутанные местами границы
+    дают пусто, а не меняются молча: опечатку в поле лучше увидеть
+    сразу, чем искать причину пустой сцены в данных.
+    """
+    import numpy as np
+    z = np.asarray(z, dtype=float)
+    keep = np.isfinite(z)
+    if zlo is not None:
+        keep &= z >= float(zlo)
+    if zhi is not None:
+        keep &= z <= float(zhi)
+    return keep
+
+
 def _map_order(proj):
     """Слои в порядке дерева карты, сверху вниз.
 
@@ -1646,7 +1668,22 @@ def _build_dialog(parent):
                 "Профиль разреза и данные по обе стороны от него."))
             self.clip_width.setFixedWidth(84)
             self.clip_width.setPrefix("\u00b1 ")
-            for w in (self.clip_combo, self.clip_side, self.clip_width):
+            self.zlo = QDoubleSpinBox()
+            self.zhi = QDoubleSpinBox()
+            for w, pref in ((self.zlo, "z\u2265 "), (self.zhi, "z\u2264 ")):
+                w.setRange(-1e7, 1e7)
+                w.setDecimals(1)
+                w.setSpecialValueText(tr("(нет)"))
+                w.setValue(-1e7)
+                w.setFixedWidth(96)
+                w.setPrefix(pref)
+                w.setToolTip(tr(
+                    "Обрезка по отметке. Контур и коридор режут только "
+                    "в плане, а разрез по пачке пластов задаётся "
+                    "отметками. Наименьшее значение означает «без "
+                    "границы»."))
+            for w in (self.clip_combo, self.clip_side, self.clip_width,
+                      self.zlo, self.zhi):
                 sig = getattr(w, "currentIndexChanged", None) or \
                     w.valueChanged
                 sig.connect(lambda *_a: self._schedule_rebuild())
@@ -1728,6 +1765,15 @@ def _build_dialog(parent):
             crow.addWidget(self.color_btn, 0)
             of.addRow(tr("Окраска"), crow)
             of.addRow(tr("Канал атрибута"), self.aband)
+            self.iso_count = QSpinBox()
+            self.iso_count.setRange(1, 12)
+            self.iso_count.setValue(1)
+            self.iso_count.setToolTip(tr(
+                "Сколько оболочек строить. Одна берётся по заданной "
+                "отсечке, несколько раскладываются от неё до наибольшего "
+                "значения куба. Цвет каждой берётся из шкалы, "
+                "прозрачность растёт к наружным: внутренние видно "
+                "сквозь них."))
             self.vox_classes = QSpinBox()
             self.vox_classes.setRange(1, 32)
             self.vox_classes.setValue(8)
@@ -1744,10 +1790,12 @@ def _build_dialog(parent):
                 "коротких, общего ребра у них нет. Снимите флаг, если "
                 "по этой модели считается объём."))
             of.addRow(tr("Отсечка куба"), self.iso_level)
+            of.addRow(tr("Оболочек по отсечке"), self.iso_count)
             of.addRow(tr("Интервалов окраски"), self.vox_classes)
             of.addRow("", self.vox_merge)
             self.iso_level.valueChanged.connect(self._save_opts)
             self.vox_classes.valueChanged.connect(self._save_opts)
+            self.iso_count.valueChanged.connect(self._save_opts)
             self.vox_merge.toggled.connect(self._save_opts)
             for w in (self.mode_combo, self.zband, self.aband):
                 w.currentIndexChanged.connect(self._save_opts)
@@ -2027,6 +2075,9 @@ def _build_dialog(parent):
             # когда режут линией, а в свойствах сцены её никто не искал.
             self.clip_width.setParent(self.tools)
             tb.addWidget(self.clip_width)
+            for w in (self.zlo, self.zhi):
+                w.setParent(self.tools)
+                tb.addWidget(w)
             self.clip_side.currentIndexChanged.connect(
                 lambda *_a: self._sync_corridor())
             # Стиль вешаем только на саму плашку, по имени. Без имени
@@ -3121,7 +3172,7 @@ def _build_dialog(parent):
                 self._pick_marker = None
                 self.view.update()
                 if not quiet:
-                    self.info.setText(tr("Точка опроса убрана."))
+                    self._info_dirty(tr("Точка опроса убрана."))
                 return True
             return False
 
@@ -3375,6 +3426,9 @@ def _build_dialog(parent):
                     fcol = self._style_color(by_style, ft) or "#7a5c3c"
                     off = self._zoff_of(o)
                     for pts in _parts_xyz(g, zf):
+                        pts = [p for p in pts if self._z_kept([p[2]])[0]]
+                        if not pts:
+                            continue
                         if surf:
                             laids = self._drape(pts, surf, off)
                         elif off and zf is None:
@@ -3443,6 +3497,8 @@ def _build_dialog(parent):
                         for laid in laids:
                             for x, y, zz in laid:
                                 if not self._point_kept(x, y):
+                                    continue
+                                if not self._z_kept([zz])[0]:
                                     continue
                                 out.append((x, y, zz, fcol, lyr.id(),
                                             psz, txt))
@@ -3525,6 +3581,18 @@ def _build_dialog(parent):
                 return
             self._rebuild_timer.start(int(delay))
 
+        def _info_dirty(self, text):
+            """Сообщение в строку состояния с подсказкой об обновлении.
+
+            Правка обрезки помечает сцену устаревшей и сама пишет,
+            что нажать. Следом сообщение о готовой линии затирало эту
+            строку, и обрезка выглядела нерабочей: линия готова,
+            а в сцене ничего не изменилось.
+            """
+            if getattr(self, "_dirty", False):
+                text = text + " " + tr("Нажмите «Обновить сцену».")
+            self.info.setText(text)
+
         def _mark_dirty(self, on):
             """Помечает, что показанная сцена отстала от настроек.
 
@@ -3578,6 +3646,7 @@ def _build_dialog(parent):
                 self.iso_level.setValue(float(o.get("iso_level", 0.0)))
                 self.vox_classes.setValue(
                     int(o.get("vox_classes", 8) or 8))
+                self.iso_count.setValue(int(o.get("iso_count", 1) or 1))
                 self.vox_merge.setChecked(
                     bool(o.get("vox_merge", True)))
                 cc = self.color_combo
@@ -3694,6 +3763,7 @@ def _build_dialog(parent):
             self._opts[lid] = dict(
                 mode=self.mode_combo.currentData() or "auto",
                 iso_level=float(self.iso_level.value()),
+                iso_count=int(self.iso_count.value()),
                 vox_classes=int(self.vox_classes.value()),
                 vox_merge=bool(self.vox_merge.isChecked()),
                 zband=self._combo_band(self.zband, 1),
@@ -3785,7 +3855,12 @@ def _build_dialog(parent):
             import numpy as np
             cg = self._clip_geom()
             side = self.clip_side.currentData()
-            inside_v = self._points_kept(v[:, 0], v[:, 1])
+            # Отбор по отметке идёт вместе с плановым: треугольник,
+            # у которого хоть одна вершина вне диапазона, целиком
+            # выбрасывается. Резать его по горизонтали было бы точнее,
+            # но грани тут мельче шага уровней, и разница не видна.
+            inside_v = (self._points_kept(v[:, 0], v[:, 1])
+                        & self._z_kept(v[:, 2]))
             tri_in = inside_v[f]
             n_in = tri_in.sum(axis=1)
             keep_all = n_in == 3
@@ -4100,6 +4175,21 @@ def _build_dialog(parent):
             if self._clip_now is None:
                 self._clip_now = (self._clip_rings(), self._clip_lines())
             return self._clip_now
+
+        def _z_bounds(self):
+            """Границы обрезки по отметке, None означает «без границы»."""
+            lo = float(self.zlo.value())
+            hi = float(self.zhi.value())
+            return (None if lo <= -1e7 + 1 else lo,
+                    None if hi <= -1e7 + 1 else hi)
+
+        def _z_kept(self, zs):
+            """Отбор вершин по отметке."""
+            import numpy as np
+            lo, hi = self._z_bounds()
+            if lo is None and hi is None:
+                return np.ones(np.asarray(zs).shape, dtype=bool)
+            return z_range_mask(zs, lo, hi)
 
         def _points_kept(self, xs, ys):
             """Отбор сразу для множества точек.
@@ -4744,8 +4834,8 @@ def _build_dialog(parent):
                 j = _find_data(self.clip_side, "in")
                 if j >= 0:
                     self.clip_side.setCurrentIndex(j)
-            self.info.setText(tr("Контур замкнут: вершин %d.")
-                              % len(self._draw_ring))
+            self._info_dirty(tr("Контур замкнут: вершин %d.")
+                             % len(self._draw_ring))
 
         def _sync_corridor(self):
             """Поле полуширины видно только тогда, когда режут коридором."""
@@ -4775,9 +4865,9 @@ def _build_dialog(parent):
             j = _find_data(self.clip_side, "corridor")
             if j >= 0:
                 self.clip_side.setCurrentIndex(j)
-            self.info.setText(tr("Линия готова: вершин %d, коридор %.0f.")
-                              % (len(self._draw_path),
-                                 self.clip_width.value()))
+            self._info_dirty(tr("Линия готова: вершин %d, коридор %.0f.")
+                             % (len(self._draw_path),
+                                self.clip_width.value()))
 
         def _draw_save(self):
             """Сохранить нарисованный контур слоем проекта."""
@@ -4921,43 +5011,55 @@ def _build_dialog(parent):
                 pass
 
         def _iso_mesh(self, lyr, opts, prof=None):
-            """Оболочка по отсечке для слоя-куба.
+            """Оболочки по отсечке для слоя-куба.
 
-            Каналы грида считаются уровнями. Отметку первого уровня
-            и шаг берём из метаданных, если инструмент их записал,
-            иначе считаем от нуля с единичным шагом: лучше показать
-            форму, чем не показать ничего.
+            Одна оболочка берётся по заданной отсечке, несколько
+            раскладываются от неё до наибольшего значения куба. Цвет
+            каждой берётся из шкалы, прозрачность растёт к наружным,
+            чтобы внутренние было видно сквозь них.
+
+            Возвращает список (вершины, треугольники, цвет, прозрачность).
             """
             import numpy as np
-            from .iso3d import isosurface
-            from osgeo import gdal
-            ds = gdal.Open(lyr.source())
-            if ds is None or ds.RasterCount < 2:
-                self._warn(tr("Слою %s нужен многоканальный грид: "
-                              "каналы это уровни куба.") % lyr.name())
-                return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
-            gt = ds.GetGeoTransform()
-            meta = ds.GetMetadata() or {}
-            z0 = float(meta.get("Z0", meta.get("z0", 0.0)) or 0.0)
-            dz = float(meta.get("DZ", meta.get("dz", 1.0)) or 1.0)
-            bands = []
-            for b in range(1, ds.RasterCount + 1):
-                arr = ds.GetRasterBand(b).ReadAsArray().astype(float)
-                nd = ds.GetRasterBand(b).GetNoDataValue()
-                if nd is not None:
-                    arr[arr == nd] = np.nan
-                bands.append(arr)
-            ds = None
-            vol = np.stack(bands, axis=0)
+            from .iso3d import isosurface_levels
+            vol, gt, z0, dz = self._cube_arrays(lyr)
+            if vol is None:
+                return []
             if prof is not None:
                 prof.add("read")
-            v, f = isosurface(vol, float(opts.get("iso_level", 0.0)),
-                              gt, z0, dz)
-            if not len(f):
+            base = float(opts.get("iso_level", 0.0))
+            n = max(int(opts.get("iso_count", 1) or 1), 1)
+            top = float(np.nanmax(vol)) if np.isfinite(vol).any() else base
+            if n > 1 and top > base:
+                # Уровни расходятся от отсечки к вершине куба. Самый
+                # верхний берём чуть ниже максимума: ровно по максимуму
+                # оболочка вырождается в несколько ячеек.
+                levels = list(np.linspace(base, base + 0.94 * (top - base),
+                                          n))
+            else:
+                levels = [base]
+            got = isosurface_levels(vol, levels, gt, z0, dz)
+            if prof is not None:
+                prof.add("mesh")
+            out = []
+            span = max(len(levels) - 1, 1)
+            for k, (lev, v, f) in enumerate(got):
+                if not len(f):
+                    continue
+                col = colormap(np.array([k / float(span)]))[0]
+                # Наружная оболочка самая прозрачная: сквозь неё должны
+                # читаться внутренние, ради этого всё и строится.
+                alpha = 1.0 - 0.62 * (1.0 - k / float(span))
+                out.append((v, f, col, alpha, lev))
+            if not out:
                 self._warn(tr("Слой %s: по отсечке %.3f ничего "
-                              "не построено.")
-                           % (lyr.name(), float(opts.get("iso_level", 0))))
-            return v, f
+                              "не построено.") % (lyr.name(), base))
+            elif len(out) > 1:
+                _log(tr("Оболочки %s: уровни %s, треугольников %d.")
+                     % (lyr.name(),
+                        ", ".join("%.2f" % r[4] for r in out),
+                        sum(len(r[1]) for r in out)))
+            return out
 
         def _cube_arrays(self, lyr):
             """Куб слоя: значения, геопривязка, отметка и шаг уровней.
@@ -5015,6 +5117,11 @@ def _build_dialog(parent):
                 prof.add("read")
             level = float(opts.get("iso_level", 0.0))
             occ = voxel.occupancy(vol, level)
+            lo_z, hi_z = self._z_bounds()
+            if lo_z is not None or hi_z is not None:
+                zc = z0 + np.arange(vol.shape[0]) * dz
+                keep_z = z_range_mask(zc, lo_z, hi_z)
+                occ &= keep_z[:, None, None]
             n_cells = int(occ.sum())
             if not n_cells:
                 self._warn(tr("Слой %s: по отсечке %.3f ячеек не осталось.")
@@ -5184,13 +5291,19 @@ def _build_dialog(parent):
                     # выходит замкнутой и годится для подсчёта объёма.
                     # Кладём её в общий список: центрирование, окраска
                     # и выгрузка дальше работают как для поверхностей.
-                    v_i, f_i = self._iso_mesh(lyr, o, prof)
-                    if len(f_i):
-                        col_i = PALETTE[len(meshes) % len(PALETTE)]
+                    for v_i, f_i, col_i, a_i, _lev in self._iso_mesh(
+                            lyr, o, prof):
                         if o.get("solid"):
                             col_i = _css_rgba(o["solid"])
+                        else:
+                            col_i = tuple(col_i)
+                        # Прозрачность оболочки идёт своя, поэтому
+                        # кладём её в запись слоя, а не в общую.
+                        o_i = dict(o)
+                        o_i["alpha"] = float(a_i) * float(
+                            o.get("alpha", 1.0) or 1.0)
                         meshes.append((v_i, f_i, col_i, lyr.id(), False,
-                                       lyr.source(), o, None, None, 0.0))
+                                       lyr.source(), o_i, None, None, 0.0))
                     continue
                 if mode == "vox":
                     # Воксели: ячейка куба показывается коробкой.
@@ -5224,6 +5337,8 @@ def _build_dialog(parent):
                         prof.add("read")
                         if top is None or bot is None:
                             raise ValueError
+                        top = np.where(self._z_kept(top), top, np.nan)
+                        bot = np.where(self._z_kept(bot), bot, np.nan)
                         if lclip:
                             top = self._clip_array(top, gt, lclip)
                             bot = self._clip_array(bot, gt, lclip)
@@ -5251,6 +5366,10 @@ def _build_dialog(parent):
                         if lclip_lines:
                             arr = self._clip_by_lines(arr, gt,
                                                       lclip_lines)
+                        # Поверхность режется по отметке своими же
+                        # значениями: узел вне диапазона становится
+                        # пропуском и в сетку не идёт.
+                        arr = np.where(self._z_kept(arr), arr, np.nan)
                         verts, faces = grid_to_mesh_arrays(
                             arr, gt, zscale=1.0, zoffset=-spacing * k,
                             step=_auto_step(arr, budget))
@@ -5369,10 +5488,13 @@ def _build_dialog(parent):
                 rng = (vmax - vmin) or 1.0
                 attr = (vals, vmin, vmax, rng)
 
-            alpha = 1.0 - float(self.opacity.value()) / 100.0
-            gopt = 'opaque' if alpha >= 0.999 else 'translucent'
+            alpha0 = 1.0 - float(self.opacity.value()) / 100.0
             for k, (verts, faces, color, lid, as_bed, src, o,
                     _sa, _gt, _zo) in enumerate(meshes):
+                # Оболочка по отсечке несёт свою прозрачность: наружная
+                # прозрачнее внутренних, иначе видно только её.
+                alpha = alpha0 * float(o.get("alpha", 1.0) or 1.0)
+                gopt = 'opaque' if alpha >= 0.999 else 'translucent'
                 v = verts.copy()
                 v[:, 0] -= cx
                 v[:, 1] -= cy

@@ -57,7 +57,159 @@ def _corner_coords(shape, gt, z0, dz):
     return xs, ys, zs
 
 
-def isosurface(vol, level, gt, z0=0.0, dz=1.0):
+def _cell_index(shape):
+    """Номера ячеек по трём осям, вытянутые в один ряд.
+
+    Координаты узла восстанавливаются по номеру ячейки и биту вершины,
+    поэтому держать восемь массивов точек на весь куб не нужно: на кубе
+    сто на сто на шестьдесят это сто сорок семь мегабайт против
+    восемнадцати.
+    """
+    nz, ny, nx = shape
+    ki, ji, ii = np.indices((nz - 1, ny - 1, nx - 1))
+    return ki.ravel(), ji.ravel(), ii.ravel()
+
+
+def _corner_pts(bit, at, idx, xs, ys, zs):
+    """Координаты вершины `bit` у ячеек с номерами `at`."""
+    ki, ji, ii = idx
+    i = 1 if (bit & 1) else 0
+    j = 1 if (bit & 2) else 0
+    k = 1 if (bit & 4) else 0
+    return np.stack([xs[ii[at] + i], ys[ji[at] + j],
+                     zs[ki[at] + k]], axis=1)
+
+
+def _corner_vals(vol, bit):
+    """Значения в вершине `bit` у всех ячеек, срезом без копии."""
+    nz, ny, nx = vol.shape
+    i = 1 if (bit & 1) else 0
+    j = 1 if (bit & 2) else 0
+    k = 1 if (bit & 4) else 0
+    return vol[k:nz - 1 + k, j:ny - 1 + j, i:nx - 1 + i]
+
+
+def weld(verts, faces, snap=1e-6):
+    """Склейка совпадающих вершин.
+
+    Марш выдаёт три вершины на грань, без единого общего ребра: на кубе
+    это втрое больше памяти и втрое больше работы у сцены. Склейка идёт
+    по округлению, потому что соседние ячейки дают ту же точку с разницей
+    в последнем разряде.
+
+    Ключ упаковывается в одно целое, и сортировка идёт по нему, а не по
+    тройке: на шестистах тысячах вершин это в четыре с половиной раза
+    быстрее. Чтобы упаковка влезла в разрядность, шаг округления при
+    большом охвате огрубляется, но остаётся много мельче любой
+    геологической точности: на площадке в километр это доли миллиметра.
+    """
+    verts = np.asarray(verts, dtype=float)
+    faces = np.asarray(faces)
+    if not len(verts):
+        return verts, faces
+    lo = verts.min(axis=0)
+    span = float(np.max(verts.max(axis=0) - lo))
+    step = max(float(snap), span / 1.5e6 if span > 0 else float(snap))
+    k = np.round((verts - lo) / step).astype(np.int64)
+    size = [int(v) + 1 for v in k.max(axis=0)]
+    if size[0] * size[1] * size[2] < 2 ** 62:
+        lin = (k[:, 0] * size[1] + k[:, 1]) * size[2] + k[:, 2]
+        _u, first, inv = np.unique(lin, return_index=True,
+                                   return_inverse=True)
+    else:
+        _u, first, inv = np.unique(k, axis=0, return_index=True,
+                                   return_inverse=True)
+    return verts[first], inv.reshape(-1)[faces]
+
+
+def isosurface_levels(vol, levels, gt, z0=0.0, dz=1.0, weld_verts=True):
+    """Оболочки сразу по нескольким отсечкам, одним проходом по кубу.
+
+    Координаты узлов и разбиение ячейки на тетраэдры от отсечки
+    не зависят, поэтому общая работа делается один раз, а по уровням
+    идёт только сравнение и врезка.
+
+    Возвращает список (отсечка, вершины, треугольники) в порядке
+    заданных уровней.
+    """
+    vol = np.asarray(vol, dtype=float)
+    levels = [float(x) for x in levels]
+    if not levels or vol.ndim != 3 or min(vol.shape) < 2:
+        return []
+    xs, ys, zs = _corner_coords(vol.shape, gt, z0, dz)
+    idx = _cell_index(vol.shape)
+    good = np.isfinite(vol)
+    cvals = [_corner_vals(vol, b) for b in range(8)]
+    cgood = [_corner_vals(good, b) for b in range(8)]
+
+    out = []
+    for level in levels:
+        vals = [np.where(g, v, level - 1.0).ravel()
+                for v, g in zip(cvals, cgood)]
+        ins = [v >= level for v in vals]
+        verts, faces = [], []
+        for tet in _TETRA:
+            code = (ins[tet[0]].astype(np.uint8)
+                    | (ins[tet[1]].astype(np.uint8) << 1)
+                    | (ins[tet[2]].astype(np.uint8) << 2)
+                    | (ins[tet[3]].astype(np.uint8) << 3))
+            # Ячейки целиком внутри и целиком снаружи граней не дают,
+            # а их подавляющее большинство. Отбираем пограничные один
+            # раз, дальше работаем только по ним: перебор четырнадцати
+            # случаев по всему кубу стоил больше самой врезки.
+            active = np.flatnonzero((code != 0) & (code != 15))
+            if not len(active):
+                continue
+            act_code = code[active]
+            for case, tris in _CASES.items():
+                if not tris:
+                    continue
+                at = active[act_code == case]
+                if not len(at):
+                    continue
+                pts = {c: _corner_pts(tet[c], at, idx, xs, ys, zs)
+                       for c in range(4)}
+                cut = {}
+                for e, (a, b) in enumerate(_EDGES):
+                    va = vals[tet[a]][at]
+                    vb = vals[tet[b]][at]
+                    den = np.where(np.abs(vb - va) < 1e-12, 1.0, vb - va)
+                    w = np.clip((level - va) / den, 0.0, 1.0)[:, None]
+                    cut[e] = pts[a] * (1.0 - w) + pts[b] * w
+                # Наружу треугольник разворачивается по данным, а не
+                # по таблице: направление от середины внутренних вершин
+                # к середине наружных. Иначе часть граней смотрит
+                # внутрь, и объём по такой оболочке считается неверно.
+                ins_i = [i for i in range(4) if (case >> i) & 1]
+                out_i = [i for i in range(4) if not (case >> i) & 1]
+                c_in = sum(pts[i] for i in ins_i) / float(len(ins_i))
+                c_out = sum(pts[i] for i in out_i) / float(len(out_i))
+                outward = c_out - c_in
+                for tri in tris:
+                    base = sum(len(x) for x in verts)
+                    a, b, c = cut[tri[0]], cut[tri[1]], cut[tri[2]]
+                    nrm = np.cross(b - a, c - a)
+                    flip = np.einsum('ij,ij->i', nrm, outward) < 0
+                    b2 = np.where(flip[:, None], c, b)
+                    c2 = np.where(flip[:, None], b, c)
+                    n = len(a)
+                    verts.extend([a, b2, c2])
+                    ar = np.arange(n)
+                    faces.append(np.stack([base + ar, base + n + ar,
+                                           base + 2 * n + ar], axis=1))
+        if not faces:
+            out.append((level, np.zeros((0, 3)),
+                        np.zeros((0, 3), dtype=np.int64)))
+            continue
+        v = np.vstack(verts)
+        f = np.vstack(faces).astype(np.int64)
+        if weld_verts:
+            v, f = weld(v, f)
+        out.append((level, v, f.astype(np.int64)))
+    return out
+
+
+def isosurface(vol, level, gt, z0=0.0, dz=1.0, weld=True):
     """Оболочка по отсечке.
 
     `vol` это куб значений в порядке (уровень, строка, столбец), `level`
@@ -67,77 +219,10 @@ def isosurface(vol, level, gt, z0=0.0, dz=1.0):
     Возвращает (вершины, треугольники). Пропуски в данных считаются
     находящимися снаружи тела: пустота не должна притягивать оболочку.
     """
-    vol = np.asarray(vol, dtype=float)
-    if vol.ndim != 3 or min(vol.shape) < 2:
+    got = isosurface_levels(vol, [level], gt, z0, dz, weld_verts=weld)
+    if not got:
         return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
-    nz, ny, nx = vol.shape
-    xs, ys, zs = _corner_coords(vol.shape, gt, z0, dz)
-
-    val = np.where(np.isfinite(vol), vol, level - 1.0)
-    inside = val >= level
-
-    # значения и координаты в восьми узлах каждой ячейки
-    def corner(bit):
-        i = 1 if (bit & 1) else 0
-        j = 1 if (bit & 2) else 0
-        k = 1 if (bit & 4) else 0
-        v = val[k:nz - 1 + k, j:ny - 1 + j, i:nx - 1 + i]
-        ins = inside[k:nz - 1 + k, j:ny - 1 + j, i:nx - 1 + i]
-        X, Y, Z = np.meshgrid(xs[i:nx - 1 + i], ys[j:ny - 1 + j],
-                              zs[k:nz - 1 + k], indexing="ij")
-        pts = np.stack([X.transpose(2, 1, 0), Y.transpose(2, 1, 0),
-                        Z.transpose(2, 1, 0)], axis=-1)
-        return v, ins, pts
-
-    cor = [corner(b) for b in range(8)]
-
-    verts, faces = [], []
-    for tet in _TETRA:
-        vals = [cor[c][0] for c in tet]
-        ins = [cor[c][1] for c in tet]
-        pts = [cor[c][2] for c in tet]
-        code = (ins[0].astype(np.uint8)
-                | (ins[1].astype(np.uint8) << 1)
-                | (ins[2].astype(np.uint8) << 2)
-                | (ins[3].astype(np.uint8) << 3))
-        for case, tris in _CASES.items():
-            if not tris:
-                continue
-            sel = code == case
-            if not sel.any():
-                continue
-            # точки пересечения на рёбрах тетраэдра
-            cut = {}
-            for e, (a, b) in enumerate(_EDGES):
-                va, vb = vals[a][sel], vals[b][sel]
-                den = np.where(np.abs(vb - va) < 1e-12, 1.0, vb - va)
-                w = np.clip((level - va) / den, 0.0, 1.0)[:, None]
-                cut[e] = pts[a][sel] * (1.0 - w) + pts[b][sel] * w
-            # Наружу треугольник разворачивается по данным, а не
-            # по таблице: направление от середины внутренних вершин
-            # к середине наружных. Иначе часть граней смотрит внутрь,
-            # и объём по такой оболочке считается неверно.
-            ins_idx = [i for i in range(4) if (case >> i) & 1]
-            out_idx = [i for i in range(4) if not (case >> i) & 1]
-            c_in = sum(pts[i][sel] for i in ins_idx) / float(len(ins_idx))
-            c_out = sum(pts[i][sel] for i in out_idx) / float(len(out_idx))
-            outward = c_out - c_in
-            for tri in tris:
-                base = sum(len(x) for x in verts)
-                a, b, c = cut[tri[0]], cut[tri[1]], cut[tri[2]]
-                nrm = np.cross(b - a, c - a)
-                flip = np.einsum('ij,ij->i', nrm, outward) < 0
-                b2 = np.where(flip[:, None], c, b)
-                c2 = np.where(flip[:, None], b, c)
-                n = len(a)
-                verts.extend([a, b2, c2])
-                idx = np.arange(n)
-                faces.append(np.stack([base + idx,
-                                       base + n + idx,
-                                       base + 2 * n + idx], axis=1))
-    if not faces:
-        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
-    return np.vstack(verts), np.vstack(faces).astype(np.int64)
+    return got[0][1], got[0][2]
 
 
 def is_watertight(verts, faces, snap=1e-6):

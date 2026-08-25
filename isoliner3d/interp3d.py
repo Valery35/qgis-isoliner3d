@@ -69,7 +69,187 @@ _DENSE_LIMIT = 20000
 _BLOCK = 2000
 
 
-def _dense(pts, val, nodes, r2, method, power, max_points, min_points):
+def auto_grid(dz, dxy, per):
+    """Умолчания сетки, снятые с самой сети опробования.
+
+    Постоянные умолчания не подходят никому: на почвенных пробах через
+    триста метров шаг в двадцать пять метров даёт сетку мельче данных,
+    а на площадке в двадцать семь километров те же двадцать пять метров
+    дают сорок пять миллионов узлов. Оба раза это не выбор человека,
+    а умолчание, и промах виден только по результату.
+
+    Шаг в плане берётся пятой частью расстояния между точками плана:
+    мельче данных в промежутке всё равно нет. Шаг по вертикали
+    половина шага опробования, иначе соседние уровни сливаются.
+    Соседей берётся на одного больше, чем замеров в одной точке плана:
+    больше значит смешать уровни и сгладить различие по глубине.
+
+    Возвращает None, если сеть замерить не удалось.
+    """
+    if dz is None or dxy is None or per is None:
+        return None
+    cell = float(dxy) / 5.0
+    if cell >= 10.0:
+        cell = round(cell / 10.0) * 10.0
+    cellz = max(float(dz) / 2.0, 0.01)
+    pts = int(per) + 1
+    return {"cell": max(cell, 0.01),
+            "cellz": cellz,
+            "max_points": max(min(pts, 16), 4)}
+
+
+NODE_LIMIT = 20 * 10 ** 6
+
+
+def grid_advice(nx, ny, nz, cell, dxy=None, limit=NODE_LIMIT):
+    """Что сказать про заданную сетку до начала счёта.
+
+    Узел считается по всем соседям, поэтому время растёт вместе с их
+    числом, а не с размером площадки. Сетка мельче сети опробования
+    данных не добавляет: между соседними точками плана нет ни одного
+    замера, и лишние узлы повторяют одно и то же.
+
+    Возвращает список готовых замечаний, пустой список означает,
+    что сетка соразмерна данным.
+    """
+    nodes = int(nx) * int(ny) * int(nz)
+    out = []
+    if nodes > int(limit):
+        out.append("узлов %d, это больше предела %d: счёт займёт "
+                   "минуты и займёт сотни мегабайт" % (nodes, int(limit)))
+    if dxy and cell > 0:
+        per = float(dxy) / float(cell)
+        if per > 50:
+            out.append("между соседними точками плана %d ячеек, "
+                       "данных между ними нет: шаг мельче сети "
+                       "опробования" % int(round(per)))
+    return out
+
+
+def sampling_spacing(points, decimals=1):
+    """Как устроена сеть опробования: (шаг по вертикали, шаг в плане,
+    замеров в одной точке плана).
+
+    Числа нужны для выбора анизотропии, но подсказать значение по ним
+    нельзя: у скважин и у проб по уровням отношение шагов почти
+    одинаковое, а нужные значения различаются в тысячу раз. Различает
+    их число замеров в одной точке плана: у скважины их десятки,
+    у почвенной пробы три. Поэтому инструмент печатает измеренное,
+    а решение остаётся за геологом.
+
+    Возвращает None, если повторов в плане нет и мерить нечего.
+    """
+    pts = np.asarray(points, dtype=float)
+    if len(pts) < 4:
+        return None
+    key = np.round(pts[:, :2], int(decimals))
+    uniq, inv = np.unique(key, axis=0, return_inverse=True)
+    if len(uniq) < 2 or len(uniq) == len(pts):
+        return None
+    steps, per = [], []
+    for k in range(len(uniq)):
+        z = np.sort(pts[inv == k, 2])
+        per.append(len(z))
+        if len(z) > 1:
+            steps.extend(v for v in np.diff(z) if v > 0)
+    if not steps:
+        return None
+    d2 = ((uniq[:, None, :] - uniq[None, :, :]) ** 2).sum(axis=2)
+    np.fill_diagonal(d2, np.inf)
+    return (float(np.median(steps)),
+            float(np.median(np.sqrt(d2.min(axis=1)))),
+            int(np.median(per)))
+
+
+Z_SOURCES = ("geom", "field", "depth")
+
+
+def resolve_z(mode, gz=None, fz=None, surf=None, depth=None):
+    """Отметка точек по выбранному источнику.
+
+    Плоский слой отдаёт нулевую Z у каждой точки, и брать её как есть
+    нельзя: все пробы легли бы в одну плоскость. Поэтому источник
+    задаётся явно.
+
+    `geom` берёт отметку из геометрии, `field` из поля, `depth`
+    отсчитывает глубину вниз от поверхности. Последнее нужно почвенным
+    и подобным пробам: там записана глубина, а не отметка, и без
+    поверхности перевести одно в другое нельзя.
+
+    Точка, для которой отметку получить не удалось, возвращается
+    пропуском и в расчёт не идёт.
+    """
+    if mode not in Z_SOURCES:
+        raise ValueError("неизвестный источник отметки: %r" % (mode,))
+    if mode == "geom":
+        return np.asarray(gz, dtype=float)
+    if mode == "field":
+        return np.asarray(fz, dtype=float)
+    s_ = np.asarray(surf, dtype=float)
+    d_ = np.asarray(depth, dtype=float)
+    return s_ - d_
+
+
+def _sector_take(blk, pts, d2, kmax, sectors):
+    """Отбор соседей по секторам вокруг узла.
+
+    Без секторов при анизотропии все ближайшие точки набираются из
+    одной скважины: проба в стволе в сотни раз ближе соседней скважины.
+    Веса тогда считаются по одному значению, и обратные расстояния
+    вырождаются в ближайшего соседа.
+
+    Площадь делится на сектора по азимуту, из каждого берётся своя доля
+    ближайших. Возвращает столбцы номеров точек, пустое место помечено
+    номером минус один.
+    """
+    sectors = max(int(sectors), 1)
+    if sectors == 1:
+        if kmax and kmax < pts.shape[0]:
+            return np.argpartition(d2, kmax - 1, axis=1)[:, :kmax]
+        return np.argsort(d2, axis=1)
+    per = max(int(kmax) // sectors, 1) if kmax else 1
+    dx = blk[:, 0][:, None] - pts[None, :, 0]
+    dy = blk[:, 1][:, None] - pts[None, :, 1]
+    ang = np.arctan2(dy, dx)
+    sec = np.floor((ang + np.pi) / (2 * np.pi) * sectors).astype(np.int64)
+    np.clip(sec, 0, sectors - 1, out=sec)
+    parts = []
+    for k in range(sectors):
+        ds = np.where(sec == k, d2, np.inf)
+        if per < ds.shape[1]:
+            idx = np.argpartition(ds, per - 1, axis=1)[:, :per]
+        else:
+            idx = np.argsort(ds, axis=1)[:, :per]
+        rows = np.arange(ds.shape[0])[:, None]
+        # Пустой сектор помечаем минус единицей, чтобы он не тянул
+        # в среднее случайную точку с другой стороны узла.
+        parts.append(np.where(np.isfinite(ds[rows, idx]), idx, -1))
+    return np.concatenate(parts, axis=1)
+
+
+def neighbour_ids(points, grid, radius=None, anisotropy=1.0,
+                  max_points=16, sectors=8):
+    """Номера точек, которые узел берёт в расчёт.
+
+    Отдельная функция нужна проверкам: по ней видно, из скольких
+    скважин набраны соседи, а по одному значению в узле этого
+    не увидеть.
+    """
+    pts = np.asarray(points, dtype=float).copy()
+    nodes = np.asarray(grid, dtype=float).copy()
+    aniso = float(anisotropy) or 1.0
+    pts[:, 2] /= aniso
+    nodes[:, 2] /= aniso
+    if radius is None or radius <= 0:
+        span = np.ptp(pts, axis=0)
+        radius = float(max(span.max(), 1.0)) / 4.0
+    d2 = ((nodes[:, None, :] - pts[None, :, :]) ** 2).sum(axis=2)
+    d2 = np.where(d2 <= float(radius) ** 2, d2, np.inf)
+    return _sector_take(nodes, pts, d2, int(max_points), int(sectors))
+
+
+def _dense(pts, val, nodes, r2, method, power, max_points, min_points,
+           sectors=8):
     """Тот же расчёт блоками узлов, без поштучного цикла.
 
     Результат совпадает с расчётом по одному узлу: тот же шар,
@@ -92,13 +272,12 @@ def _dense(pts, val, nodes, r2, method, power, max_points, min_points):
         inside = d2 <= r2
         cnt = inside.sum(axis=1)
         d2 = np.where(inside, d2, np.inf)
-        if kmax and kmax < pts.shape[0]:
-            take = np.argpartition(d2, kmax - 1, axis=1)[:, :kmax]
-        else:
-            take = np.argsort(d2, axis=1)
+        take = _sector_take(blk, pts, d2, kmax, sectors)
         rows = np.arange(b - a)[:, None]
-        dsel = d2[rows, take]
-        vsel = val[take]
+        empty = take < 0
+        safe = np.where(empty, 0, take)
+        dsel = np.where(empty, np.inf, d2[rows, safe])
+        vsel = val[safe]
         good = np.isfinite(dsel)
         if method == "nearest":
             first = np.argmin(np.where(good, dsel, np.inf), axis=1)
@@ -119,7 +298,8 @@ def _dense(pts, val, nodes, r2, method, power, max_points, min_points):
 
 
 def interpolate(points, values, grid, method="idw", radius=None,
-                anisotropy=1.0, power=2.0, max_points=16, min_points=1):
+                anisotropy=1.0, power=2.0, max_points=16, min_points=1,
+                sectors=8):
     """Значения в узлах сетки по точкам.
 
     `points` это (N, 3) в координатах карты, `grid` это (M, 3) узлы,
@@ -127,6 +307,10 @@ def interpolate(points, values, grid, method="idw", radius=None,
 
     Узлы, где точек в радиусе меньше `min_points`, остаются пропуском:
     пустота лучше выдуманного значения.
+
+    `sectors` делит окружность вокруг узла на равные части, и из каждой
+    берётся своя доля ближайших точек. Единица отключает деление
+    и возвращает прежний отбор просто по расстоянию.
     """
     pts = np.asarray(points, dtype=float).copy()
     val = np.asarray(values, dtype=float)
@@ -153,7 +337,7 @@ def interpolate(points, values, grid, method="idw", radius=None,
     # цикла по узлам.
     if len(pts) <= _DENSE_LIMIT:
         return _dense(pts, val, nodes, r2, method, power,
-                      int(max_points), int(min_points))
+                      int(max_points), int(min_points), int(sectors))
 
     for i, node in enumerate(nodes):
         cand = index.neighbours(node)
@@ -165,7 +349,9 @@ def interpolate(points, values, grid, method="idw", radius=None,
             continue
         cand, d2 = cand[near], d2[near]
         if len(cand) > int(max_points) > 0:
-            keep = np.argsort(d2)[:int(max_points)]
+            take = _sector_take(node[None, :], pts[cand], d2[None, :],
+                                int(max_points), int(sectors))[0]
+            keep = np.unique(take[take >= 0])
             cand, d2 = cand[keep], d2[keep]
         if method == "nearest":
             out[i] = val[cand[int(np.argmin(d2))]]

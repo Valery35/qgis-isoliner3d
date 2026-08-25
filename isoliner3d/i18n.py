@@ -81,6 +81,494 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'Блочная модель на конец периода. Блок, которого в ней нет, считается '
+    'отработанным целиком.':
+        'The block model at the end of the period. A block absent from it '
+        'counts as mined out entirely.',
+    'Триангулировать тело. Без этого выходят четырёхугольные грани, которые '
+    'не всякий просмотрщик покажет.':
+        'Triangulate the body. Without it the faces come out quadrilateral, '
+        'and not every viewer shows those.',
+    'Отметка подошвы. Свита строится вверх от неё.':
+        'The elevation of the floor. The pile is built upwards from it.',
+    'Грид пласта из 1.01. Первый канал кровля, второй подошва, по ним и '
+    'считается мощность.':
+        'The bed grid from 1.01. The first band is the roof, the second the '
+        'floor, and the thickness follows from them.',
+    'Грид пласта из 1.01. Колонка между кровлей и подошвой делится на блоки.':
+        'The bed grid from 1.01. The column between the roof and the floor is'
+        ' split into blocks.',
+    'Грид пласта, к которому добавится канал домена.':
+        'The bed grid a domain band will be added to.',
+    'Блочная модель на начало периода. Сравнение идёт по совпадающим блокам, '
+    'поэтому обе модели должны быть собраны на одной сетке.':
+        'The block model at the start of the period. Comparison goes by '
+        'matching blocks, so both models must be built on one grid.',
+    'Грид подошвы. Там, где подошва выше кровли, мощность выходит '
+    'отрицательной и ячейка уходит в пропуск.':
+        'The grid of the floor. Where the floor is above the roof the '
+        'thickness comes out negative and the cell becomes a gap.',
+    'Канал подошвы в исходном гриде. Нужен, когда подошва лежит внутри '
+    'многоканального.':
+        'The floor band in the source grid. Needed when the floor sits inside'
+        ' a multiband one.',
+    'Сколько клеток координатной сетки нарисовать на карте.':
+        'How many cells of the coordinate grid to draw on the map.',
+    'Канал содержания. Пусто означает считать только объём и мощность, без '
+    'запасов.':
+        'The grade band. Empty means computing only volume and thickness, '
+        'without reserves.',
+    'Полигоны, за пределами которых ячейки в подсчёт не идут: подсчётный '
+    'блок, лицензионная площадь.':
+        'Polygons outside which cells do not enter the computation: a '
+        'computation block, a licence area.',
+    'Полигоны, за пределами которых блоки не выгружаются: подсчётный блок, '
+    'лицензионная площадь.':
+        'Polygons outside which blocks are not written out: a computation '
+        'block, a licence area.',
+    'Плотность руды. На неё умножается объём, чтобы получить массу: без неё в'
+    ' отчёте будут кубометры, а не тонны.':
+        'The ore density. The volume is multiplied by it to get mass: without'
+        ' it the report is in cubic metres rather than tonnes.',
+    'Плотность руды, если её нет отдельным каналом. На неё умножается объём '
+    'блока.':
+        'The ore density, when there is no band for it. The block volume is '
+        'multiplied by it.',
+    'Канал плотности в гриде. Пусто означает брать одно значение, заданное '
+    'выше, на весь пласт.':
+        'The density band in the grid. Empty means taking the single value '
+        'set above for the whole bed.',
+    'Полигоны доменов: сорта руды, участки, зоны. Ячейка получает код того '
+    'домена, внутрь которого попала.':
+        'Domain polygons: ore types, sites, zones. A cell takes the code of '
+        'the domain it falls into.',
+    'Что именно создать: тело пласта, свиту, карту для текстуры. От выбора '
+    'зависит, какие поля ниже читаются.':
+        'What exactly to create: a bed body, a pile, a map for a texture. '
+        'Which fields below are read depends on the choice.',
+    'Куда положить пример и какого размера. Пусто означает взять охват окна '
+    'вида.':
+        'Where to put the example and of what size. Empty means taking the '
+        'extent of the view window.',
+    'Числовое поле с кодом домена. Пусто означает нумеровать полигоны по '
+    'порядку.':
+        'The numeric field with the domain code. Empty means numbering the '
+        'polygons in order.',
+    'Поле запаса, разность которого считается: масса, объём, металл.':
+        'The reserve field whose difference is computed: mass, volume, metal.',
+    'Сколько полей пластов нарисовать на карте.':
+        'How many bed fields to draw on the map.',
+    'Куда положить файлы. Имя файла берётся от имени грида.':
+        'Where to put the files. The file name is taken from the grid name.',
+    'Гриды, которые надо отдать мешем. Каждый становится отдельным файлом '
+    '2DM.':
+        'The grids to be given out as meshes. Each becomes a separate 2DM '
+        'file.',
+    'Растр, по охвату которого делать карту. Нужен, чтобы текстура легла '
+    'ровно на существующий грид.':
+        'The raster whose extent the map is made to. Needed so the texture '
+        'lands exactly on an existing grid.',
+    'На сколько ячеек делится сторона тела. Мельче значит плавнее форма и '
+    'больше треугольников.':
+        'How many cells the side of the body is split into. Finer means a '
+        'smoother shape and more triangles.',
+    'На сколько блоков делить колонку по вертикали. Один блок даёт модель без'
+    ' вертикальной разбивки, а мощность пласта тогда вся уходит в один слой.':
+        'How many blocks to split the column into vertically. One block gives'
+        ' a model without vertical division, and the whole thickness then '
+        'falls into a single layer.',
+    'Сколько пластов в свите. Каждый ложится своим телом со своим '
+    'содержанием.':
+        'How many beds in the pile. Each lies as its own body with its own '
+        'grade.',
+    'Многоканальный грид: канал 1 кровля, канал 2 подошва, дальше параметры. '
+    'Этот порядок читают все остальные инструменты и окно просмотра.':
+        'A multiband grid: band 1 the roof, band 2 the floor, then the '
+        'parameters. Every other tool and the viewer read this order.',
+    'Тот же грид пласта с добавленными каналами мощности и запасов на ячейку.':
+        'The same bed grid with added bands of thickness and reserves per '
+        'cell.',
+    'Точка-центроид на блок с размером, объёмом и массой. Дальше работает '
+    'обычный векторный аппарат QGIS.':
+        'A centroid point per block with its size, volume and mass. The usual'
+        ' QGIS vector machinery works from there.',
+    'Тот же грид с добавленным каналом domain. Дальше по нему фильтруют '
+    'подсчёт и красят сцену.':
+        'The same grid with an added domain band. Filters for the computation'
+        ' and colouring of the scene work from it.',
+    'Центроиды с разностью по каждому блоку. Сумма поля по слою и есть '
+    'списание за период.':
+        'Centroids with the difference per block. The sum of the field over '
+        'the layer is the write-off for the period.',
+    'Слой с телами: полигоны с Z, годные для сцены и для подсчёта объёма.':
+        'A layer with bodies: polygons with Z, fit for the scene and for '
+        'volume computation.',
+    'Картинка для текстуры: её можно натянуть на поверхность в окне '
+    'просмотра.':
+        'A picture for a texture: it can be stretched over a surface in the '
+        'viewer.',
+    'Дополнительные гриды, которые лягут отдельными каналами: содержание, '
+    'плотность, домен. Берётся первый канал каждого.':
+        'Extra grids that will become separate bands: grade, density, domain.'
+        ' The first band of each is taken.',
+    'Сторона картинки в пикселях. Крупнее значит чётче текстура и тяжелее '
+    'файл.':
+        'The side of the picture in pixels. Larger means a sharper texture '
+        'and a heavier file.',
+    'Сводка по контуру: площадь, объём, масса, среднее содержание. '
+    'Открывается в браузере.':
+        'A summary over the contour: area, volume, mass, mean grade. Opens in'
+        ' a browser.',
+    'Грид кровли пласта. Отметки в метрах, шаг и охват должны совпадать с '
+    'подошвой: иначе мощность считать не по чему.':
+        'The grid of the bed roof. Elevations in metres; the step and extent '
+        'must match the floor, or there is nothing to compute the thickness '
+        'from.',
+    'Канал кровли в исходном гриде. Нужен, когда кровля лежит не первым '
+    'каналом, а внутри многоканального.':
+        'The roof band in the source grid. Needed when the roof is not the '
+        'first band but sits inside a multiband one.',
+    'Разнос поверхностей по вертикали. Пласты свиты иначе лежат вплотную и '
+    'спорят за глубину.':
+        'The spread of surfaces along the vertical. Otherwise the beds of a '
+        'pile lie flush and fight for depth.',
+    'Прореживание узлов. Каждый второй узел это вчетверо меньше '
+    'треугольников, а форма пласта на глаз та же.':
+        'Thinning of the nodes. Every second node is four times fewer '
+        'triangles, and the shape of the bed looks the same.',
+    'Мощность пласта в единицах карты. От неё зависит, видно ли тело при '
+    'обычном вертикальном масштабе.':
+        'The bed thickness in map units. Whether the body is visible at the '
+        'usual vertical scale depends on it.',
+    'Канал отметок в гриде. Для грида пласта это кровля или подошва, смотря '
+    'что показывать.':
+        'The elevation band in the grid. For a bed grid it is the roof or the'
+        ' floor, depending on what to show.',
+    'Сдвиг всех отметок по вертикали. Нужен, чтобы разнести пласты свиты и '
+    'увидеть их по отдельности.':
+        'A shift of all elevations along the vertical. Needed to separate the'
+        ' beds of a pile and see them apart.',
+    'Вертикальное преувеличение. Пласт в метр на площади в километр без него '
+    'не разглядеть, но объём по такому мешу считать уже нельзя.':
+        'Vertical exaggeration. A bed of one metre over a kilometre cannot be'
+        ' seen without it, but volume can no longer be computed on such a '
+        'mesh.',
+    'Отношение вертикального масштаба к горизонтальному. Большая сглаживает '
+    'по вертикали, малая сохраняет различие по глубине.':
+        'The ratio of the vertical scale to the horizontal one. A large value'
+        ' smooths along the vertical, a small one keeps the difference with '
+        'depth.',
+    'Фон во вмещающих породах. От него и от содержания в ядре\nсчитается '
+    'отсечка, которой отделяется тело.':
+        'The background in the host rock. The cutoff that separates the body '
+        'is computed from it and from the core grade.',
+    'Ноль берёт пятую часть расстояния между точками плана. Мельче делать '
+    'незачем: данных в промежутке всё равно нет, а число узлов растёт как '
+    'квадрат.':
+        'Zero takes a fifth of the distance between places in plan. Finer is '
+        'pointless: there is no data in between anyway, and the node count '
+        'grows as a square.',
+    'Ноль берёт половину шага опробования. Крупнее значит слить соседние '
+    'замеры и потерять различие по глубине.':
+        'Zero takes half the sampling step. Coarser means merging '
+        'neighbouring samples and losing the difference with depth.',
+    'На сколько интервалов разложить значение. Номер интервала пишется в поле'
+    ' cls и годится для окраски.':
+        'How many intervals to split the value into. The interval number goes'
+        ' into the cls field and suits colouring.',
+    'Ноль строит одно тело. Несколько интервалов дают объект на каждый, и '
+    'тело можно раскрасить по содержанию.':
+        'Zero builds one body. Several intervals give a feature each, and the'
+        ' body can be coloured by grade.',
+    'Полигоны, за пределами которых ячейки не выгружаются: подсчётный блок, '
+    'лицензионная площадь.':
+        'Polygons outside which cells are not written out: a computation '
+        'block, a licence area.',
+    'Полигоны, за пределами которых ячейки в тело не идут:\nподсчётный блок, '
+    'лицензионная площадь.':
+        'Polygons outside which cells do not reach the body: a computation '
+        'block, a licence area.',
+    'Содержание в ядре сверх фона. Граница тела проходит там, где содержание '
+    'падает до половины от него.':
+        'The core grade above background. The boundary of the body is where '
+        'the grade falls to half of it.',
+    'Куб значений из 2.02: каналы это уровни, отметка первого уровня и шаг '
+    'лежат в метаданных.':
+        'A cube of values from 2.02: bands are levels, the elevation of the '
+        'first level and the step live in the metadata.',
+    'Куб значений из 2.02: каналы это уровни, отметка первого уровня и шаг '
+    'лежат в метаданных.':
+        'A cube of values from 2.02: bands are levels, the elevation of the '
+        'first level and the step live in the metadata.',
+    'Значение, ниже которого ячейка в модель не идёт. Работает,\nтолько когда'
+    ' отсечка включена галкой выше.':
+        'The value below which a cell does not reach the model.',
+    'Ячейка не ниже отсечки считается телом. Отсечку для демонстрационных '
+    'данных печатает 2.01.':
+        'A cell not below the cutoff counts as a body. For the demonstration '
+        'data the cutoff is printed by 2.01.',
+    'При заданной плотности к каждому блоку добавляется масса в полях dens и '
+    'ore_t.':
+        'With a density given, mass is added to every block in the dens and '
+        'ore_t fields.',
+    'Глубина разбуривания вниз от поверхности. Пропорции тела считаются от '
+    'неё же.':
+        'The drilling depth down from the surface. The proportions of the '
+        'body are taken from it as well.',
+    'Если охват задан, он и берётся, а координаты угла и размеры ниже не '
+    'читаются.':
+        'When the extent is set, it wins, and the corner coordinates and '
+        'sizes below are not read.',
+    'Числовое поле, значение которого раскладывается по кубу: содержание, '
+    'концентрация, влажность.':
+        'The numeric field whose value is spread through the cube: grade, '
+        'concentration, moisture.',
+    'Сеть строится со сбивкой, а не правильной сеткой: правильная даёт '
+    'интерполяции слишком лёгкую задачу.':
+        'The grid is jittered rather than regular: a regular one gives '
+        'interpolation too easy a task.',
+    'Наклон стволов от вертикали. Ноль даёт вертикальные скважины.':
+        'The tilt of the holes from the vertical. Zero gives vertical '
+        'boreholes.',
+    'Слой проб. Отметка берётся из геометрии, из поля или считается от '
+    'поверхности, это задаётся ниже.':
+        'The layer of samples. The elevation comes from the geometry, from a '
+        'field or from a surface, which is set below.',
+    'Пласт со складкой и падением показывает главное: горизонтальные уровни '
+    'куба режут залежь поперёк. Линза изотропна и проще всех, жила это '
+    'обратный крайний случай.':
+        'A folded and dipping bed shows the main point: cube levels cut the '
+        'deposit across. A lens is isotropic and the simplest, a vein is the '
+        'opposite extreme.',
+    'Ноль берёт на одного больше, чем замеров в одной точке плана. Больше '
+    'значит смешать все уровни сразу и сгладить аномалию по глубине.':
+        'Zero takes one more than the number of samples at one place in plan.'
+        ' More means mixing all the levels at once and smoothing an anomaly '
+        'with depth away.',
+    'Слияние делает слой в разы легче, но ломает замкнутость: для подсчёта '
+    'объёма флаг надо снять.':
+        'Merging makes the layer many times lighter but breaks '
+        'watertightness: for volume computation the flag must be cleared.',
+    'Ближний сосед даёт ступени и годится для проверки данных. Обратные '
+    'расстояния дают сглаженное поле.':
+        'Nearest neighbour gives steps and suits checking the data. Inverse '
+        'distances give a smoothed field.',
+    'Узел, где точек в радиусе меньше этого числа, остаётся пропуском: '
+    'пустота лучше выдуманного значения.':
+        'A node with fewer points within the radius than this stays a gap: '
+        'emptiness beats an invented value.',
+    'Доля логнормального шума опробования. Ноль даёт данные без шума, на них '
+    'видно саму модель.':
+        'The share of lognormal sampling noise. Zero gives data without '
+        'noise, where the model itself is visible.',
+    'Пробы с полями hole, from_m, to_m, grade, truth, zone.':
+        'Samples with the fields hole, from_m, to_m, grade, truth, zone.',
+    'Многоканальный грид: канал это горизонтальный уровень, отметка первого '
+    'уровня и шаг пишутся в метаданные.':
+        'A multiband grid: a band is a horizontal level, and the elevation of'
+        ' the first level and the step go into the metadata.',
+    'Точка-центроид на занятую ячейку с размером блока, объёмом и значением.':
+        'A centroid point per occupied cell with the block size, volume and '
+        'value.',
+    'MULTIPOLYGON Z, объект на интервал окраски. Поля cls,\nvmin, vmax, faces'
+    ' и shell.':
+        'MULTIPOLYGON Z, one feature per colour interval. Fields cls, vmin, '
+        'vmax, faces and shell.',
+    'Чем больше степень, тем сильнее ближняя точка перевешивает дальние. '
+    'Двойка это обычный выбор.':
+        'The larger the power, the more a near point outweighs the far ones. '
+        'Two is the usual choice.',
+    'Ноль берёт четверть охвата данных. Узел, где точек в радиусе не '
+    'набралось, остаётся пропуском.':
+        'Zero takes a quarter of the data extent. A node with too few points '
+        'within the radius stays a gap.',
+    'Проба длиннее мощности залежи пропустит её между замерами. На пласте в '
+    'двадцать шесть метров десять метров это уже много.':
+        'A sample longer than the thickness of the deposit will miss it '
+        'between the readings. On a bed of twenty six metres, ten metres is '
+        'already a lot.',
+    'Окружность вокруг узла делится на равные части, из каждой берётся своя '
+    'доля точек. Без этого при анизотропии все соседи оказываются в одной '
+    'скважине.':
+        'The circle around the node is split into equal parts and each gives '
+        'its share of points. Without this, under anisotropy all the '
+        'neighbours land in one borehole.',
+    'Одно и то же зерно даёт одни и те же данные: с ним можно сравнивать '
+    'методы на неизменной выборке.':
+        'The same seed gives the same data: with it methods can be compared '
+        'on an unchanged sample set.',
+    'Доля недобуренных скважин. Нужна, чтобы у куба были места без данных, '
+    'как на настоящей разведке.':
+        'The share of holes stopped short. It is there so the cube has places'
+        ' without data, as on real exploration.',
+    'Ширина площадки в метрах. Читается, только когда охват\nне задан.':
+        'The site width in metres. Read only when the extent is not set.',
+    'Высота площадки. Ноль означает «как ширина».':
+        'The site height. Zero means the same as the width.',
+    'Средняя отметка дневной поверхности. Устья ставятся по пологому рельефу '
+    'вокруг неё.':
+        'The mean elevation of the ground surface. Collars are placed on a '
+        'gentle relief around it.',
+    'Общий наклон содержаний по площадке. Нужен, чтобы данные не сводились к '
+    'одному телу.':
+        'The overall grade trend across the site. It is there so the data '
+        'does not reduce to a single body.',
+    'Защип это касание двух ячеек одной диагональю. Дырой он не является, но '
+    'ребро в нём принадлежит четырём граням, и проверка замкнутости такое '
+    'тело отвергает.':
+        'A pinch is two cells touching along a single diagonal. It is not a '
+        'hole, but its edge belongs to four faces and a watertightness check '
+        'rejects such a body.',
+    'Без отсечки выгружаются все ячейки с данными, с отсечкой только те, что '
+    'не ниже её.':
+        'Without a cutoff every cell with data is written out, with one only '
+        'those not below it.',
+    'Левый нижний угол площадки по оси X. Читается, только когда\nохват не '
+    'задан.':
+        'The lower left corner of the site along X. Read only when the extent'
+        ' is not set.',
+    'Левый нижний угол площадки по оси Y. Читается, только когда\nохват не '
+    'задан.':
+        'The lower left corner of the site along Y. Read only when the extent'
+        ' is not set.',
+    'Для отметки из поля это сама отметка, для глубины это глубина вниз от '
+    'поверхности.':
+        'For elevation from a field this is the elevation itself, for depth '
+        'it is the depth measured down from the surface.',
+    'Плоский слой отдаёт нулевую Z у каждой точки. Если брать её из '
+    'геометрии, все пробы лягут в одну плоскость и куб выйдет бессмысленным.':
+        'A flat layer gives a zero Z at every point. Taking it from the '
+        'geometry would put every sample in one plane and the cube would be '
+        'meaningless.',
+    'Грид, от которого отсчитывается глубина. Нужен почвенным и подобным '
+    'пробам, где записана глубина, а не отметка.':
+        'The grid the depth is measured from. Needed by soil and similar '
+        'samples, which record a depth rather than an elevation.',
+    'Шаг по горизонтали, м (0 - от данных)':
+        'Step in plan, m (0 means from the data)',
+    'Шаг по вертикали, м (0 - от данных)':
+        'Vertical step, m (0 means from the data)',
+    'Наибольшее число точек (0 - от данных)':
+        'Largest number of points (0 means from the data)',
+    'Шаг по горизонтали от данных: %.1f м.':
+        'Step in plan from the data: %.1f m.',
+    'Шаг по вертикали от данных: %.2f м.':
+        'Vertical step from the data: %.2f m.',
+    'Наибольшее число точек от данных: %d.':
+        'Largest number of points from the data: %d.',
+    'Оболочек по отсечке': 'Shells at the cutoff',
+    'Оболочки %s: уровни %s, треугольников %d.':
+        'Shells %s: levels %s, triangles %d.',
+    'Сколько оболочек строить. Одна берётся по заданной отсечке, '
+    'несколько раскладываются от неё до наибольшего значения куба. '
+    'Цвет каждой берётся из шкалы, прозрачность растёт к наружным: '
+    'внутренние видно сквозь них.':
+        'How many shells to build. One is taken at the given cutoff, '
+        'several are spread from it up to the largest value of the '
+        'cube. Each takes its colour from the ramp, and the outer ones '
+        'are more transparent so the inner ones show through.',
+    'Обрезка по отметке. Контур и коридор режут только в плане, '
+    'а разрез по пачке пластов задаётся отметками. Наименьшее '
+    'значение означает «без границы».':
+        'Clipping by elevation. A contour and a corridor cut in plan '
+        'only, while a section across a pile of beds is set by elevations. '
+        'The lowest value means «no bound».',
+    'Нажмите «Обновить сцену».': 'Press «Rebuild the scene».',
+    'Сетка: %s.': 'Grid: %s.',
+    'Наибольшее число точек %d, а замеров в одной точке плана всего '
+    '%d. В среднее попадут все уровни сразу, и различие по глубине '
+    'сгладится. Поставьте не больше %d.':
+        'The largest number of points is %d, while there are only %d '
+        'samples at one place in plan. All the levels will fall into '
+        'the average at once and the difference with depth will be '
+        'smoothed away. Set it to %d at most.',
+    'Сеть: шаг по вертикали %.2f м, шаг в плане %.0f м, замеров '
+    'в одной точке плана %d.':
+        'Sampling net: vertical step %.2f m, plan step %.0f m, '
+        '%d samples at one place in plan.',
+    'Анизотропия сжимает вертикаль: большая сглаживает по вертикали, '
+    'малая сохраняет различие по глубине. Сейчас %.3f.':
+        'Anisotropy squeezes the vertical: a large value smooths '
+        'along it, a small one keeps the difference with depth. '
+        'Now %.3f.',
+    'Считает значение в узлах объёмной сетки по точкам с '
+    'высотой.\n\nАнизотропия это отношение вертикального масштаба к '
+    'горизонтальному. Без неё ближайшей точкой окажется соседняя скважина, а '
+    'не соседний замер в той же точке плана.\n\nУзлы, где точек в радиусе '
+    'меньше нужного, остаются пропуском: пустота лучше выдуманного '
+    'значения.\n\nСоседи набираются по секторам: окружность вокруг узла '
+    'делится на равные части, и из каждой берётся своя доля ближайших точек. '
+    'Без этого при анизотропии все соседи оказываются в одной скважине, '
+    'потому что проба в стволе в сотни раз ближе соседней скважины, и '
+    'обратные расстояния вырождаются в ближайшего соседа. Один сектор '
+    'отключает деление.\n\nИсточник отметки задаётся отдельно. Плоский слой '
+    'отдаёт нулевую Z у каждой точки, поэтому брать её из геометрии нельзя: '
+    'все пробы легли бы в одну плоскость. Поле отметки годится, когда отметка'
+    ' посчитана, а глубина от поверхности нужна пробам, где записана глубина,'
+    ' а не отметка. Точка, для которой отметку получить не удалось, в расчёт '
+    'не идёт, и число таких пишется в журнал.':
+        'Computes a value at the nodes of a volume grid from points with '
+        'elevation.\n\nAnisotropy is the ratio of the vertical scale to the '
+        'horizontal one. Without it the nearest point turns out to be the '
+        'neighbouring borehole rather than the neighbouring sample at the '
+        'same place in plan.\n\nNodes with fewer points within the radius '
+        'than needed stay a gap: emptiness beats an invented '
+        'value.\n\nNeighbours are gathered by sectors: the circle around the '
+        'node is split into equal parts and each gives its share of the '
+        'nearest points. Without this, under anisotropy all the neighbours '
+        'land in one borehole, because a sample in the hole is hundreds of '
+        'times closer than the neighbouring hole, and inverse distances '
+        'degenerate into nearest neighbour. One sector switches the split '
+        'off.\n\nThe elevation source is set separately. A flat layer gives a'
+        ' zero Z at every point, so taking it from the geometry will not do: '
+        'all the samples would land in one plane. An elevation field suits a '
+        'computed elevation, and depth below a surface suits samples that '
+        'record a depth rather than an elevation. A point whose elevation '
+        'could not be obtained is left out, and the number of those is '
+        'written to the log.',
+    'Источник отметки': 'Elevation source',
+    'Высота геометрии (Z)': 'Geometry elevation (Z)',
+    'Глубина от поверхности': 'Depth below a surface',
+    'Поле отметки или глубины': 'Elevation or depth field',
+    'Поверхность для отсчёта глубины':
+        'Surface the depth is measured from',
+    'Для этого источника отметки нужно поле.':
+        'This elevation source needs a field.',
+    'Для глубины нужна поверхность отсчёта.':
+        'Depth needs a surface to measure from.',
+    'Поверхность отсчёта не открылась.':
+        'The reference surface did not open.',
+    'Без отметки пропущено точек: %d.':
+        'Points skipped for want of an elevation: %d.',
+    'Все точки на одной отметке: куб не построить. Проверьте '
+    'источник отметки.':
+        'All the points share one elevation: a cube cannot be built. '
+        'Check the elevation source.',
+    'Секторов поиска': 'Search sectors',
+    'Считает значение в узлах объёмной сетки по точкам с '
+    'высотой.\n\nАнизотропия это отношение вертикального масштаба к '
+    'горизонтальному. Без неё ближайшей точкой окажется соседняя скважина, а '
+    'не соседний замер в той же точке плана.\n\nУзлы, где точек в радиусе '
+    'меньше наименьшего числа, остаются пропуском: пустота лучше выдуманного '
+    'значения.\n\nСоседи набираются по секторам: окружность вокруг узла '
+    'делится на равные части, и из каждой берётся своя доля ближайших точек. '
+    'Без этого при анизотропии все соседи оказываются в одной скважине, '
+    'потому что проба в стволе в сотни раз ближе соседней скважины, и '
+    'обратные расстояния вырождаются в ближайшего соседа. Один сектор '
+    'отключает деление.':
+        'Computes a value at the nodes of a volume grid from points with '
+        'elevation.\n\nAnisotropy is the ratio of the vertical scale to the '
+        'horizontal one. Without it the nearest point turns out to be the '
+        'neighbouring borehole rather than the neighbouring sample at the '
+        'same place in plan.\n\nNodes with fewer points within the radius '
+        'than the minimum stay a gap: emptiness beats an invented '
+        'value.\n\nNeighbours are gathered by sectors: the circle around the '
+        'node is split into equal parts and each gives its share of the '
+        'nearest points. Without this, under anisotropy all the neighbours '
+        'land in one borehole, because a sample in the hole is hundreds of '
+        'times closer than the neighbouring hole, and inverse distances '
+        'degenerate into nearest neighbour. One sector switches the split '
+        'off.',
     'Вид маркера': 'Marker shape',
     'Круг (экранный)': 'Circle (on screen)',
     'Квадрат': 'Square',
@@ -527,7 +1015,6 @@ TRANSLATIONS = {
     'Модель «стало» (центроиды)': 'The "after" model (centroids)',
     'Мощность средняя / мин / макс': 'Thickness mean / min / max',
     'Мощность, ед. карты': 'Thickness, map units',
-    'Наибольшее число точек': 'The largest number of points',
     'Наименьшее число точек': 'The smallest number of points',
     'Нарисованная линия': 'The drawn line',
     'Нарисованный контур': 'The drawn contour',
@@ -959,8 +1446,6 @@ TRANSLATIONS = {
     'Чертёж разреза не наложился: %s':
         'The section drawing was not draped: %s',
     'Чертёж разреза не отрисовался.': 'The section drawing did not render.',
-    'Шаг по вертикали, м': 'The vertical step, m',
-    'Шаг по горизонтали, м': 'The horizontal step, m',
     'Экспортирует гриды поверхностей в mesh-слои стандартного формата 2DM '
     '(MDAL). Такие слои понимают профильный инструмент QGIS, '
     'mesh-калькулятор, штатный 3D-вид и сторонние программы, а пачка '

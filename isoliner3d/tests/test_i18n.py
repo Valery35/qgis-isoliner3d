@@ -43,12 +43,34 @@ def _tr_strings(path):
     return out
 
 
+def _hint_strings(path):
+    """Подсказки к полям: значения словарей HINTS_*.
+
+    Они уходят пользователю через `alg.tr`, но лежат в словаре, а не
+    в вызове, и разбор по `tr()` их не видит. Без этого сорок семь
+    строк остались бы без английского незаметно.
+    """
+    with open(path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    out = set()
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        name = getattr(node.targets[0], "id", "")
+        if not name.startswith("HINTS_"):
+            continue
+        for val in node.value.values:
+            out.add(ast.literal_eval(val))
+    return out
+
+
 def collect():
     keys = set()
     for name in SOURCES:
         path = os.path.join(PKG, name)
         if os.path.isfile(path):
             keys |= _tr_strings(path)
+            keys |= _hint_strings(path)
     return keys
 
 

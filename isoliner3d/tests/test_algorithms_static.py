@@ -260,6 +260,105 @@ def test_enums_are_scoped():
     assert not bad, "плоские перечисления: %s" % "; ".join(bad[:8])
 
 
+def test_interp3d_data_params_come_first():
+    """В основном списке 2.02 только про исходные данные.
+
+    Настройка метода к данным отношения не имеет и в основном списке
+    только мешает выбирать: пятнадцать строк подряд читаются хуже,
+    чем семь.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    seg = src[src.index("class Interp3DAlgorithm"):]
+    seg = seg[:seg.index("class CubeToBlocks")]
+    init = seg[seg.index("def initAlgorithm"):seg.index("def _process")]
+    import re
+    adv = set(re.findall(
+        r'_advanced\(QgsProcessingParameter\w+\(\s*"([A-Z_]+)"', init))
+    for key in ("ANISO", "RADIUS", "POWER", "MINPTS", "SECTORS"):
+        assert key in adv, key
+    for key in ("INPUT", "FIELD", "ZSRC", "METHOD", "CELL", "OUTPUT"):
+        assert key not in adv, key
+
+
+def test_interp3d_zero_means_from_the_data():
+    """Ноль в шаге и числе точек означает «взять от данных»."""
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    seg = src[src.index("class Interp3DAlgorithm"):]
+    seg = seg[:seg.index("class CubeToBlocks")]
+    for key in ("CELL", "CELLZ", "MAXPTS"):
+        i = seg.index('"%s", self.tr(' % key)
+        block = seg[i:i + 260]
+        assert "0 - от данных" in block, key
+        assert "defaultValue=0" in block, key
+    assert "auto = auto_grid(*net) if net else None" in seg
+    for line in ("Шаг по горизонтали от данных", "Шаг по вертикали "
+                 "от данных", "Наибольшее число точек "):
+        assert line in seg, line
+
+
+def test_every_tool_has_field_hints():
+    """У каждого поля каждого инструмента есть своя подсказка.
+
+    Общая справка лежит сбоку и читается один раз, а решать «что сюда
+    писать» приходится у каждого поля.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    pairs = (("BedAssembleAlgorithm", "HINTS_1_01"),
+             ("BedCalculatorAlgorithm", "HINTS_1_02"),
+             ("BedToBlockModelAlgorithm", "HINTS_1_03"),
+             ("SectionSurfacesToMeshAlgorithm", "HINTS_1_04"),
+             ("DomainsToGridAlgorithm", "HINTS_1_05"),
+             ("ReserveDeltaAlgorithm", "HINTS_1_06"),
+             ("PolyhedralDemoAlgorithm", "HINTS_1_07"),
+             ("Demo3DPointsAlgorithm", "HINTS_2_01"),
+             ("Interp3DAlgorithm", "HINTS_2_02"),
+             ("CubeToBlocksAlgorithm", "HINTS_2_03"),
+             ("CubeVoxelBodyAlgorithm", "HINTS_2_04"))
+    tree = ast.parse(src)
+    dicts = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and \
+                getattr(node.targets[0], "id", "").startswith("HINTS_"):
+            dicts[node.targets[0].id] = {
+                k.value for k in node.value.keys}
+    for cls, name in pairs:
+        assert name in dicts, name
+        i = src.index("class %s(" % cls)
+        nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+        seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+        assert "_hints(self, %s)" % name in seg, cls
+        keys = set(re.findall(r'"([A-Z_0-9]+)",\s*self\.tr\(', seg))
+        keys |= set(re.findall(r'self\.addParameter\((?:_advanced\()?'
+                               r'QgsProcessingParameter\w+\(\s*\n?\s*'
+                               r'self\.([A-Z_0-9]+)\b', seg))
+        missing = sorted(k for k in keys if k not in dicts[name])
+        assert not missing, "%s: без подсказки %s" % (cls, missing)
+
+
+def test_field_hints_say_what_the_other_choice_costs():
+    """Подсказка не пересказывает имя поля, а объясняет выбор.
+
+    «Шаг по горизонтали» в подсказке «шаг по горизонтали» бесполезен.
+    Полезна цена другого выбора.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    tree = ast.parse(src)
+    for node in tree.body:
+        if not (isinstance(node, ast.Assign)
+                and getattr(node.targets[0], "id", "").startswith("HINTS_")):
+            continue
+        for key, val in zip(node.value.keys, node.value.values):
+            text = ast.literal_eval(val)
+            assert len(text) > 40, (key.value, text)
+            assert text[0].isupper(), (key.value, text)
+            assert text.rstrip().endswith("."), (key.value, text)
+
+
 if __name__ == "__main__":
     ok = 0
     for nm, fn in sorted(globals().items()):

@@ -239,6 +239,26 @@ def _set_output_name(context, path, name):
         pass
 
 
+def _hints(alg, mapping):
+    """Подсказки к полям: по одной на строку ввода.
+
+    Общая справка инструмента лежит сбоку и читается один раз, а решать
+    «что сюда писать» приходится у каждого поля. Подсказка отвечает
+    ровно на этот вопрос и говорит, чем плох другой выбор.
+
+    Раскладываются одним проходом по уже собранным параметрам, чтобы
+    не утяжелять сам список: там и без того по десять строк.
+    """
+    for prm in alg.parameterDefinitions():
+        text = mapping.get(prm.name())
+        if not text:
+            continue
+        try:
+            prm.setHelp(alg.tr(text))
+        except AttributeError:  # nosec
+            return
+
+
 def _advanced(param):
     try:
         # QGIS 3.x
@@ -403,6 +423,7 @@ class BedAssembleAlgorithm(IsolinerAlgorithm):
             parentLayerParameterName=self.BOTTOM)))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Грид пласта")))
+        _hints(self, HINTS_1_01)
 
     @staticmethod
     def _read_band(path, band):
@@ -526,6 +547,7 @@ class BedCalculatorAlgorithm(IsolinerAlgorithm):
             self.REPORT, self.tr("Отчёт (HTML)"),
             self.tr("HTML-файлы (*.html)"), optional=True,
             createByDefault=True))
+        _hints(self, HINTS_1_02)
 
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
@@ -720,6 +742,7 @@ class BedToBlockModelAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Блочная модель (центроиды)"),
             QgsProcessing.SourceType.TypeVectorPoint))
+        _hints(self, HINTS_1_03)
 
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
@@ -914,6 +937,7 @@ class SectionSurfacesToMeshAlgorithm(IsolinerAlgorithm):
             defaultValue=_dv(self, self.ZBAND, 1), minValue=1)))
         self.addParameter(QgsProcessingParameterFolderDestination(
             self.FOLDER, self.tr("Папка для мешей (2DM)")))
+        _hints(self, HINTS_1_04)
 
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
@@ -1026,6 +1050,7 @@ class DomainsToGridAlgorithm(IsolinerAlgorithm):
             type=QgsProcessingParameterField.DataType.Numeric)))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT, self.tr("Грид пласта с каналом domain")))
+        _hints(self, HINTS_1_05)
 
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
@@ -1144,6 +1169,7 @@ class ReserveDeltaAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Разность (центроиды)"),
             QgsProcessing.SourceType.TypeVectorPoint))
+        _hints(self, HINTS_1_06)
 
     def _process(self, parameters, context, feedback):
         feedback.pushInfo(_version_line())
@@ -1311,6 +1337,7 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
             QgsProcessing.SourceType.TypeVectorPolygon, optional=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
             self.OUTPUT_MAP, self.tr("Карта (демо)"), optional=True))
+        _hints(self, HINTS_1_07)
 
     @staticmethod
     def _resolve_wkb(*names):
@@ -1565,6 +1592,234 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
 # --- 2. Топография -----------------------------------------------------
 
 
+HINTS_2_02 = {
+    "INPUT": "Слой проб. Отметка берётся из геометрии, из поля или "
+             "считается от поверхности, это задаётся ниже.",
+    "FIELD": "Числовое поле, значение которого раскладывается по кубу: "
+             "содержание, концентрация, влажность.",
+    "ZSRC": "Плоский слой отдаёт нулевую Z у каждой точки. Если брать "
+            "её из геометрии, все пробы лягут в одну плоскость и куб "
+            "выйдет бессмысленным.",
+    "ZFIELD": "Для отметки из поля это сама отметка, для глубины это "
+              "глубина вниз от поверхности.",
+    "ZSURF": "Грид, от которого отсчитывается глубина. Нужен почвенным "
+             "и подобным пробам, где записана глубина, а не отметка.",
+    "METHOD": "Ближний сосед даёт ступени и годится для проверки "
+              "данных. Обратные расстояния дают сглаженное поле.",
+    "CELL": "Ноль берёт пятую часть расстояния между точками плана. "
+            "Мельче делать незачем: данных в промежутке всё равно нет, "
+            "а число узлов растёт как квадрат.",
+    "CELLZ": "Ноль берёт половину шага опробования. Крупнее значит "
+             "слить соседние замеры и потерять различие по глубине.",
+    "MAXPTS": "Ноль берёт на одного больше, чем замеров в одной точке "
+              "плана. Больше значит смешать все уровни сразу "
+              "и сгладить аномалию по глубине.",
+    "ANISO": "Отношение вертикального масштаба к горизонтальному. "
+             "Большая сглаживает по вертикали, малая сохраняет "
+             "различие по глубине.",
+    "RADIUS": "Ноль берёт четверть охвата данных. Узел, где точек "
+              "в радиусе не набралось, остаётся пропуском.",
+    "POWER": "Чем больше степень, тем сильнее ближняя точка "
+             "перевешивает дальние. Двойка это обычный выбор.",
+    "MINPTS": "Узел, где точек в радиусе меньше этого числа, остаётся "
+              "пропуском: пустота лучше выдуманного значения.",
+    "SECTORS": "Окружность вокруг узла делится на равные части, "
+               "из каждой берётся своя доля точек. Без этого при "
+               "анизотропии все соседи оказываются в одной скважине.",
+    "OUTPUT": "Многоканальный грид: канал это горизонтальный уровень, "
+              "отметка первого уровня и шаг пишутся в метаданные.",
+}
+
+HINTS_2_03 = {
+    "CUBE": "Куб значений из 2.02: каналы это уровни, отметка первого "
+            "уровня и шаг лежат в метаданных.",
+    "USE_CUTOFF": "Без отсечки выгружаются все ячейки с данными, "
+                  "с отсечкой только те, что не ниже её.",
+    "CUTOFF": "Значение, ниже которого ячейка в модель не идёт. Работает,\n"
+              "только когда отсечка включена галкой выше.",
+    "CONTOUR": "Полигоны, за пределами которых ячейки не выгружаются: "
+               "подсчётный блок, лицензионная площадь.",
+    "CLASSES": "На сколько интервалов разложить значение. Номер "
+               "интервала пишется в поле cls и годится для окраски.",
+    "DENS": "При заданной плотности к каждому блоку добавляется масса "
+            "в полях dens и ore_t.",
+    "OUTPUT": "Точка-центроид на занятую ячейку с размером блока, "
+              "объёмом и значением.",
+}
+
+HINTS_2_04 = {
+    "CUBE": "Куб значений из 2.02: каналы это уровни, отметка первого "
+            "уровня и шаг лежат в метаданных.",
+    "CUTOFF": "Ячейка не ниже отсечки считается телом. Отсечку для "
+              "демонстрационных данных печатает 2.01.",
+    "CONTOUR": "Полигоны, за пределами которых ячейки в тело не идут:\n"
+               "подсчётный блок, лицензионная площадь.",
+    "CLASSES": "Ноль строит одно тело. Несколько интервалов дают объект "
+               "на каждый, и тело можно раскрасить по содержанию.",
+    "MERGE": "Слияние делает слой в разы легче, но ломает замкнутость: "
+             "для подсчёта объёма флаг надо снять.",
+    "UNPINCH": "Защип это касание двух ячеек одной диагональю. Дырой он "
+               "не является, но ребро в нём принадлежит четырём граням, "
+               "и проверка замкнутости такое тело отвергает.",
+    "OUTPUT": "MULTIPOLYGON Z, объект на интервал окраски. Поля cls,\n"
+              "vmin, vmax, faces и shell.",
+}
+
+HINTS_1_01 = {
+    "ROOF": "Грид кровли пласта. Отметки в метрах, шаг и охват должны "
+            "совпадать с подошвой: иначе мощность считать не по чему.",
+    "BOTTOM": "Грид подошвы. Там, где подошва выше кровли, мощность "
+              "выходит отрицательной и ячейка уходит в пропуск.",
+    "PARAMS": "Дополнительные гриды, которые лягут отдельными каналами: "
+              "содержание, плотность, домен. Берётся первый канал "
+              "каждого.",
+    "ROOF_BAND": "Канал кровли в исходном гриде. Нужен, когда кровля "
+                 "лежит не первым каналом, а внутри многоканального.",
+    "BOTTOM_BAND": "Канал подошвы в исходном гриде. Нужен, когда "
+                   "подошва лежит внутри многоканального.",
+    "OUTPUT": "Многоканальный грид: канал 1 кровля, канал 2 подошва, "
+              "дальше параметры. Этот порядок читают все остальные "
+              "инструменты и окно просмотра.",
+}
+
+HINTS_1_02 = {
+    "BED": "Грид пласта из 1.01. Первый канал кровля, второй подошва, "
+           "по ним и считается мощность.",
+    "CONTENT_BAND": "Канал содержания. Пусто означает считать только "
+                    "объём и мощность, без запасов.",
+    "DENSITY": "Плотность руды. На неё умножается объём, чтобы получить "
+               "массу: без неё в отчёте будут кубометры, а не тонны.",
+    "CONTOUR": "Полигоны, за пределами которых ячейки в подсчёт "
+               "не идут: подсчётный блок, лицензионная площадь.",
+    "OUTPUT": "Тот же грид пласта с добавленными каналами мощности "
+              "и запасов на ячейку.",
+    "REPORT": "Сводка по контуру: площадь, объём, масса, среднее "
+              "содержание. Открывается в браузере.",
+}
+
+HINTS_1_03 = {
+    "BED": "Грид пласта из 1.01. Колонка между кровлей и подошвой "
+           "делится на блоки.",
+    "DENSITY": "Плотность руды, если её нет отдельным каналом. "
+               "На неё умножается объём блока.",
+    "DENS_BAND": "Канал плотности в гриде. Пусто означает брать одно "
+                 "значение, заданное выше, на весь пласт.",
+    "CONTOUR": "Полигоны, за пределами которых блоки не выгружаются: "
+               "подсчётный блок, лицензионная площадь.",
+    "NZ": "На сколько блоков делить колонку по вертикали. Один блок "
+          "даёт модель без вертикальной разбивки, а мощность пласта "
+          "тогда вся уходит в один слой.",
+    "OUTPUT": "Точка-центроид на блок с размером, объёмом и массой. "
+              "Дальше работает обычный векторный аппарат QGIS.",
+}
+
+HINTS_1_04 = {
+    "GRIDS": "Гриды, которые надо отдать мешем. Каждый становится "
+             "отдельным файлом 2DM.",
+    "ZSCALE": "Вертикальное преувеличение. Пласт в метр на площади "
+              "в километр без него не разглядеть, но объём по такому "
+              "мешу считать уже нельзя.",
+    "ZOFFSET": "Сдвиг всех отметок по вертикали. Нужен, чтобы разнести "
+               "пласты свиты и увидеть их по отдельности.",
+    "STEP": "Прореживание узлов. Каждый второй узел это вчетверо "
+            "меньше треугольников, а форма пласта на глаз та же.",
+    "SPACING": "Разнос поверхностей по вертикали. Пласты свиты иначе "
+               "лежат вплотную и спорят за глубину.",
+    "ZBAND": "Канал отметок в гриде. Для грида пласта это кровля "
+             "или подошва, смотря что показывать.",
+    "FOLDER": "Куда положить файлы. Имя файла берётся от имени грида.",
+}
+
+HINTS_1_05 = {
+    "BED": "Грид пласта, к которому добавится канал домена.",
+    "DOMAINS": "Полигоны доменов: сорта руды, участки, зоны. Ячейка "
+               "получает код того домена, внутрь которого попала.",
+    "FIELD": "Числовое поле с кодом домена. Пусто означает нумеровать "
+             "полигоны по порядку.",
+    "OUTPUT": "Тот же грид с добавленным каналом domain. Дальше по нему "
+              "фильтруют подсчёт и красят сцену.",
+}
+
+HINTS_1_06 = {
+    "BEFORE": "Блочная модель на начало периода. Сравнение идёт "
+              "по совпадающим блокам, поэтому обе модели должны быть "
+              "собраны на одной сетке.",
+    "AFTER": "Блочная модель на конец периода. Блок, которого в ней "
+             "нет, считается отработанным целиком.",
+    "FIELD": "Поле запаса, разность которого считается: масса, объём, "
+             "металл.",
+    "OUTPUT": "Центроиды с разностью по каждому блоку. Сумма поля "
+              "по слою и есть списание за период.",
+}
+
+HINTS_1_07 = {
+    "EXAMPLE": "Что именно создать: тело пласта, свиту, карту "
+               "для текстуры. От выбора зависит, какие поля ниже "
+               "читаются.",
+    "EXTENT": "Куда положить пример и какого размера. Пусто означает "
+              "взять охват окна вида.",
+    "THICKNESS": "Мощность пласта в единицах карты. От неё зависит, "
+                 "видно ли тело при обычном вертикальном масштабе.",
+    "NX": "На сколько ячеек делится сторона тела. Мельче значит "
+          "плавнее форма и больше треугольников.",
+    "AS_TIN": "Триангулировать тело. Без этого выходят четырёхугольные "
+              "грани, которые не всякий просмотрщик покажет.",
+    "BASE": "Отметка подошвы. Свита строится вверх от неё.",
+    "N_BEDS": "Сколько пластов в свите. Каждый ложится своим телом "
+              "со своим содержанием.",
+    "LIKE": "Растр, по охвату которого делать карту. Нужен, чтобы "
+            "текстура легла ровно на существующий грид.",
+    "PIXEL": "Сторона картинки в пикселях. Крупнее значит чётче "
+             "текстура и тяжелее файл.",
+    "CELLS": "Сколько клеток координатной сетки нарисовать на карте.",
+    "FIELDS": "Сколько полей пластов нарисовать на карте.",
+    "OUTPUT": "Слой с телами: полигоны с Z, годные для сцены и для "
+              "подсчёта объёма.",
+    "OUTPUT_MAP": "Картинка для текстуры: её можно натянуть "
+                  "на поверхность в окне просмотра.",
+}
+
+
+HINTS_2_01 = {
+    "KIND": "Пласт со складкой и падением показывает главное: "
+            "горизонтальные уровни куба режут залежь поперёк. Линза "
+            "изотропна и проще всех, жила это обратный крайний случай.",
+    "HOLES": "Сеть строится со сбивкой, а не правильной сеткой: "
+             "правильная даёт интерполяции слишком лёгкую задачу.",
+    "SAMPLE": "Проба длиннее мощности залежи пропустит её между "
+              "замерами. На пласте в двадцать шесть метров десять "
+              "метров это уже много.",
+    "EXTENT": "Если охват задан, он и берётся, а координаты угла "
+              "и размеры ниже не читаются.",
+    "X0": "Левый нижний угол площадки по оси X. Читается, только когда\n"
+          "охват не задан.",
+    "Y0": "Левый нижний угол площадки по оси Y. Читается, только когда\n"
+          "охват не задан.",
+    "SIZE": "Ширина площадки в метрах. Читается, только когда охват\n"
+            "не задан.",
+    "SIZE_Y": "Высота площадки. Ноль означает «как ширина».",
+    "TOP": "Средняя отметка дневной поверхности. Устья ставятся "
+           "по пологому рельефу вокруг неё.",
+    "DEPTH": "Глубина разбуривания вниз от поверхности. Пропорции тела "
+             "считаются от неё же.",
+    "NOISE": "Доля логнормального шума опробования. Ноль даёт данные "
+             "без шума, на них видно саму модель.",
+    "SEED": "Одно и то же зерно даёт одни и те же данные: с ним можно "
+            "сравнивать методы на неизменной выборке.",
+    "CORE": "Содержание в ядре сверх фона. Граница тела проходит там, "
+            "где содержание падает до половины от него.",
+    "BACK": "Фон во вмещающих породах. От него и от содержания в ядре\n"
+            "считается отсечка, которой отделяется тело.",
+    "TREND": "Общий наклон содержаний по площадке. Нужен, чтобы данные "
+             "не сводились к одному телу.",
+    "SHORT": "Доля недобуренных скважин. Нужна, чтобы у куба были "
+             "места без данных, как на настоящей разведке.",
+    "INCLINE": "Наклон стволов от вертикали. Ноль даёт вертикальные "
+               "скважины.",
+    "OUTPUT": "Пробы с полями hole, from_m, to_m, grade, truth, zone.",
+}
+
+
 class Demo3DPointsAlgorithm(IsolinerAlgorithm):
     """Демонстрационные скважины с опробованием по интервалам.
 
@@ -1712,6 +1967,8 @@ class Demo3DPointsAlgorithm(IsolinerAlgorithm):
             self.OUTPUT, self.tr("Пробы с содержаниями"),
             QgsProcessing.SourceType.TypeVectorPoint))
 
+        _hints(self, HINTS_2_01)
+
     def _process(self, parameters, context, feedback):
         from qgis.core import (QgsFields, QgsField, QgsFeature, QgsGeometry,
                                QgsPoint, QgsWkbTypes)
@@ -1853,7 +2110,21 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
             "соседняя скважина, а не соседний замер в той же точке "
             "плана.\n\n"
             "Узлы, где точек в радиусе меньше нужного, остаются "
-            "пропуском: пустота лучше выдуманного значения."
+            "пропуском: пустота лучше выдуманного значения.\n\n"
+            "Соседи набираются по секторам: окружность вокруг узла "
+            "делится на равные части, и из каждой берётся своя доля "
+            "ближайших точек. Без этого при анизотропии все соседи "
+            "оказываются в одной скважине, потому что проба в стволе "
+            "в сотни раз ближе соседней скважины, и обратные "
+            "расстояния вырождаются в ближайшего соседа. Один сектор "
+            "отключает деление.\n\n"
+            "Источник отметки задаётся отдельно. Плоский слой отдаёт "
+            "нулевую Z у каждой точки, поэтому брать её из геометрии "
+            "нельзя: все пробы легли бы в одну плоскость. Поле отметки "
+            "годится, когда отметка посчитана, а глубина от поверхности "
+            "нужна пробам, где записана глубина, а не отметка. Точка, "
+            "для которой отметку получить не удалось, в расчёт не идёт, "
+            "и число таких пишется в журнал."
         )
 
     def createInstance(self):
@@ -1868,46 +2139,98 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
             parentLayerParameterName="INPUT",
             type=QgsProcessingParameterField.DataType.Numeric))
         self.addParameter(QgsProcessingParameterEnum(
+            "ZSRC", self.tr("Источник отметки"),
+            options=[self.tr("Высота геометрии (Z)"),
+                     self.tr("Поле отметки"),
+                     self.tr("Глубина от поверхности")],
+            defaultValue=0))
+        self.addParameter(QgsProcessingParameterField(
+            "ZFIELD", self.tr("Поле отметки или глубины"),
+            parentLayerParameterName="INPUT", optional=True,
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            "ZSURF", self.tr("Поверхность для отсчёта глубины"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterEnum(
             "METHOD", self.tr("Метод"),
             options=[self.tr("Ближний сосед"),
                      self.tr("Обратные расстояния")], defaultValue=1))
+        # Ноль означает «взять от данных». Постоянные умолчания
+        # не подходят никому: на почвенных пробах через триста метров
+        # шаг в двадцать пять метров мельче самих данных, а на площадке
+        # в двадцать семь километров он даёт сорок пять миллионов узлов.
         self.addParameter(QgsProcessingParameterNumber(
-            "CELL", self.tr("Шаг по горизонтали, м"),
-            QgsProcessingParameterNumber.Type.Double, defaultValue=25.0,
-            minValue=1e-6))
-        self.addParameter(QgsProcessingParameterNumber(
-            "CELLZ", self.tr("Шаг по вертикали, м"),
-            QgsProcessingParameterNumber.Type.Double, defaultValue=5.0,
-            minValue=1e-6))
-        self.addParameter(QgsProcessingParameterNumber(
-            "ANISO", self.tr("Анизотропия (вертикаль к горизонтали)"),
-            QgsProcessingParameterNumber.Type.Double, defaultValue=20.0,
-            minValue=1e-6))
-        self.addParameter(QgsProcessingParameterNumber(
-            "RADIUS", self.tr("Радиус поиска, м (0 - авто)"),
+            "CELL", self.tr("Шаг по горизонтали, м (0 - от данных)"),
             QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
             minValue=0.0))
         self.addParameter(QgsProcessingParameterNumber(
+            "CELLZ", self.tr("Шаг по вертикали, м (0 - от данных)"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
+            minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            "MAXPTS", self.tr("Наибольшее число точек (0 - от данных)"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=0,
+            minValue=0))
+        # Ниже настройка самого метода. К исходным данным она отношения
+        # не имеет, и в основном списке только мешает выбирать.
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "ANISO", self.tr("Анизотропия (вертикаль к горизонтали)"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=20.0,
+            minValue=1e-6)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "RADIUS", self.tr("Радиус поиска, м (0 - авто)"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
+            minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
             "POWER", self.tr("Степень обратных расстояний"),
             QgsProcessingParameterNumber.Type.Double, defaultValue=2.0,
-            minValue=0.1, maxValue=10.0))
-        self.addParameter(QgsProcessingParameterNumber(
-            "MAXPTS", self.tr("Наибольшее число точек"),
-            QgsProcessingParameterNumber.Type.Integer, defaultValue=16,
-            minValue=1))
-        self.addParameter(QgsProcessingParameterNumber(
+            minValue=0.1, maxValue=10.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
             "MINPTS", self.tr("Наименьшее число точек"),
             QgsProcessingParameterNumber.Type.Integer, defaultValue=1,
-            minValue=1))
+            minValue=1)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "SECTORS", self.tr("Секторов поиска"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=8,
+            minValue=1, maxValue=32)))
         self.addParameter(QgsProcessingParameterRasterDestination(
             "OUTPUT", self.tr("Куб значений")))
 
+        _hints(self, HINTS_2_02)
+
     def _process(self, parameters, context, feedback):
         import numpy as np
-        from .interp3d import interpolate, grid_nodes
+        from .interp3d import (interpolate, grid_nodes, resolve_z,
+                               sampling_spacing, grid_advice, auto_grid,
+                               Z_SOURCES)
 
         src = self.parameterAsSource(parameters, "INPUT", context)
         field = self.parameterAsString(parameters, "FIELD", context)
+        zsrc = Z_SOURCES[self.parameterAsEnum(parameters, "ZSRC", context)]
+        zfield = self.parameterAsString(parameters, "ZFIELD", context)
+        zsurf = self.parameterAsRasterLayer(parameters, "ZSURF", context)
+        if zsrc in ("field", "depth") and not zfield:
+            raise QgsProcessingException(self.tr(
+                "Для этого источника отметки нужно поле."))
+        surf_arr = surf_gt = None
+        if zsrc == "depth":
+            if zsurf is None:
+                raise QgsProcessingException(self.tr(
+                    "Для глубины нужна поверхность отсчёта."))
+            # Поверхность читаем первым каналом: годится и обычный
+            # грид отметок, и кровля пласта из многоканального.
+            ds = gdal.Open(zsurf.source())
+            if ds is not None:
+                band = ds.GetRasterBand(1)
+                surf_arr = band.ReadAsArray().astype(float)
+                nd = band.GetNoDataValue()
+                if nd is not None:
+                    surf_arr[surf_arr == nd] = np.nan
+                surf_gt = ds.GetGeoTransform()
+                ds = None
+            if surf_arr is None:
+                raise QgsProcessingException(self.tr(
+                    "Поверхность отсчёта не открылась."))
         method = ("nearest", "idw")[
             self.parameterAsEnum(parameters, "METHOD", context)]
         cell = self.parameterAsDouble(parameters, "CELL", context)
@@ -1917,19 +2240,36 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
         power = self.parameterAsDouble(parameters, "POWER", context)
         maxp = self.parameterAsInt(parameters, "MAXPTS", context)
         minp = self.parameterAsInt(parameters, "MINPTS", context)
+        sectors = self.parameterAsInt(parameters, "SECTORS", context)
         out_path = self.parameterAsOutputLayer(parameters, "OUTPUT", context)
 
         xs, ys, zs, vals = [], [], [], []
+        skipped_z = 0
         for ft in src.getFeatures():
             g = ft.geometry()
             if g is None or g.isEmpty():
                 continue
             p = g.constGet()
-            try:
-                z = float(p.z())
-            except Exception:
-                z = 0.0
+            if zsrc == "geom":
+                try:
+                    z = float(p.z())
+                except Exception:  # nosec
+                    z = float("nan")
+            else:
+                try:
+                    fv = float(ft[zfield])
+                except (TypeError, ValueError, KeyError):
+                    fv = float("nan")
+                if zsrc == "field":
+                    z = fv
+                else:
+                    sv = sample_bilinear(surf_arr, surf_gt,
+                                         np.array([p.x()]),
+                                         np.array([p.y()]))[0]
+                    z = float(resolve_z("depth", surf=[sv],
+                                        depth=[fv])[0])
             if z != z:
+                skipped_z += 1
                 continue
             try:
                 v = float(ft[field])
@@ -1941,9 +2281,49 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
             ys.append(float(p.y()))
             zs.append(z)
             vals.append(v)
+        if skipped_z:
+            feedback.pushInfo(self.tr("Без отметки пропущено точек: %d.")
+                              % skipped_z)
         if len(vals) < 2:
             raise QgsProcessingException(
                 self.tr("Точек с высотой и значением меньше двух."))
+        net = sampling_spacing(np.column_stack([xs, ys, zs]))
+        auto = auto_grid(*net) if net else None
+        # Ноль в поле означает «взять от данных». Что подставили,
+        # печатается: иначе непонятно, почему сетка вышла такой.
+        if cell <= 0:
+            cell = auto["cell"] if auto else 25.0
+            feedback.pushInfo(self.tr("Шаг по горизонтали от данных: "
+                                      "%.1f м.") % cell)
+        if cellz <= 0:
+            cellz = auto["cellz"] if auto else 5.0
+            feedback.pushInfo(self.tr("Шаг по вертикали от данных: "
+                                      "%.2f м.") % cellz)
+        if maxp <= 0:
+            maxp = auto["max_points"] if auto else 16
+            feedback.pushInfo(self.tr("Наибольшее число точек "
+                                      "от данных: %d.") % maxp)
+        if net is not None:
+            dz_n, dxy_n, per_n = net
+            feedback.pushInfo(self.tr(
+                "Сеть: шаг по вертикали %.2f м, шаг в плане %.0f м, "
+                "замеров в одной точке плана %d.")
+                % (dz_n, dxy_n, per_n))
+            feedback.pushInfo(self.tr(
+                "Анизотропия сжимает вертикаль: большая сглаживает "
+                "по вертикали, малая сохраняет различие по глубине. "
+                "Сейчас %.3f.") % aniso)
+            if maxp > per_n > 1:
+                feedback.pushWarning(self.tr(
+                    "Наибольшее число точек %d, а замеров в одной "
+                    "точке плана всего %d. В среднее попадут все "
+                    "уровни сразу, и различие по глубине сгладится. "
+                    "Поставьте не больше %d.")
+                    % (maxp, per_n, per_n + 1))
+        if len(set(np.round(zs, 6).tolist())) < 2:
+            raise QgsProcessingException(self.tr(
+                "Все точки на одной отметке: куб не построить. "
+                "Проверьте источник отметки."))
 
         pts = np.column_stack([xs, ys, zs])
         vals = np.asarray(vals, dtype=float)
@@ -1956,6 +2336,9 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
         nz = max(int(np.ceil((z1 - z0) / cellz)) + 1, 1)
         feedback.pushInfo(self.tr("Сетка: %d x %d x %d, узлов %d")
                           % (nx, ny, nz, nx * ny * nz))
+        for note in grid_advice(nx, ny, nz, cell,
+                                net[1] if net else None):
+            feedback.pushWarning(self.tr("Сетка: %s.") % note)
 
         nodes = grid_nodes(x0, y1, z0, nx, ny, nz, cell, cell, cellz)
         vol = np.full(nx * ny * nz, np.nan)
@@ -1968,7 +2351,8 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
             vol[a:b] = interpolate(
                 pts, vals, nodes[a:b], method=method,
                 radius=(radius if radius > 0 else None), anisotropy=aniso,
-                power=power, max_points=maxp, min_points=minp)
+                power=power, max_points=maxp, min_points=minp,
+                sectors=sectors)
             if k % step == 0:
                 feedback.setProgress(100.0 * k / max(nz, 1))
         vol = vol.reshape(nz, ny, nx)
@@ -2123,6 +2507,8 @@ class CubeToBlocksAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Блочная модель"),
             QgsProcessing.SourceType.TypeVectorPoint))
+
+        _hints(self, HINTS_2_03)
 
     def _process(self, parameters, context, feedback):
         from qgis.core import (QgsFields, QgsField, QgsFeature, QgsGeometry,
@@ -2314,6 +2700,8 @@ class CubeVoxelBodyAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Тело вокселями"),
             QgsProcessing.SourceType.TypeVectorPolygon))
+
+        _hints(self, HINTS_2_04)
 
     def _process(self, parameters, context, feedback):
         from qgis.core import (QgsFields, QgsField, QgsFeature, QgsGeometry,

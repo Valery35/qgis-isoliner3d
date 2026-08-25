@@ -415,6 +415,20 @@ clipboard, and so does Ctrl+C. The camera icon saves the frame to a PNG
 file. The snapshot size equals the size of the scene window, so it is worth
 maximising the window before shooting.
 
+## Clipping by elevation
+
+A contour and a corridor cut in plan only, they have nothing to do with
+height. A section across a pile of beds is set by elevations, and for
+that the toolbar carries two fields, **z≥** and **z≤**. The lowest value
+means «no bound», as the caption shows.
+
+The filter applies to bodies and belts, lines, points, raster surfaces
+and voxels. The bounds are inclusive: an elevation exactly on the bound
+stays, otherwise the outermost level of a cube would disappear. Bounds
+given the wrong way round yield nothing rather than being swapped
+silently: a typo in a field is better seen at once than hunted for in the
+data.
+
 # The Bed and block model group
 
 Besides the 3D window the module installs an **Isoliner3D** provider into
@@ -607,6 +621,15 @@ grid colouring to **Texture: Map (demo)** and update the scene. If the
 corner marks are where they belong and the graticule cells are square, the
 draping works correctly.
 
+# Field hints
+
+Every field of every tool carries its own hint, shown right next to the
+input. The general help sits aside and is read once, while «what do I put
+here» has to be decided at every field. The hint answers that and says
+what the other choice costs. The grid step, for instance, says that finer
+than the distance between places is pointless, because there is no data
+in between and the node count grows as a square.
+
 # The Interpolation in three dimensions group
 
 The second group of the Processing toolbox works with a cube of values.
@@ -644,8 +667,27 @@ lower left corner, the width and the height.
 
 ## 2.02 Interpolation of points in three dimensions
 
-Nearest neighbour and inverse distances. **Anisotropy** is the ratio of
-the vertical scale to the horizontal one: when drilling with boreholes
+The main list holds ten rows and all of them are about the input data.
+Method tuning has moved to the advanced ones: anisotropy, radius, power,
+the smallest number of points, sectors.
+
+**The elevation source** is set apart from the geometry. A flat layer
+gives a zero Z at every point, and taking it as is would put every sample
+into one plane. The elevation comes from a field when it has been
+computed, or as a depth down from a chosen surface: the latter is for
+soil and similar samples, which record a depth rather than an elevation.
+
+**The grid step and the largest number of points** are taken from the
+data if left at zero. The step in plan is a fifth of the distance between
+places in plan, the vertical step is half the sampling step, and the
+neighbours are one more than the samples at one place. What was
+substituted is printed to the log.
+
+**Neighbours are gathered by sectors.** Without this, under anisotropy
+all the neighbours land in one borehole, and inverse distances degenerate
+into nearest neighbour.
+
+**Anisotropy** is the ratio of the vertical scale to the horizontal one: when drilling with boreholes
 there is an order of magnitude more data along the vertical, and without
 anisotropy the interpolation would pull values vertically harder than it
 should.
@@ -713,6 +755,19 @@ the shell.
 
 From there such a body lives as any other: it is clipped by a contour and
 a corridor, coloured, exported to GLB.
+
+## Several shells at once
+
+The **Shells at the cutoff** row sets how many shells to build. One is
+taken at the given cutoff, several are spread from it up to the top of
+the cube. Each takes its colour from the ramp, and the outer ones are
+more transparent so the inner ones read through them.
+
+The march walks the boundary cells rather than the whole cube: cells
+entirely inside and entirely outside give no faces, and they are the vast
+majority. Vertices are welded, so neighbouring faces share a point. On a
+hundred by hundred by sixty cube five shells take about a second and
+weigh eleven megabytes.
 
 ## Voxels
 
@@ -800,6 +855,9 @@ All three work independently: installing the whole set is not required.
 | Bodies are shown incomplete | The vertex budget ran out, the status line names the numbers. | Raise the **Vertex limit for the scene** in the scene properties. |
 | Contours are now visible, now sunk into the surface | The geometry coincides and the depth fight begins. | Raise the layer in the map tree or give it a **Vertical offset, m**. |
 | Part of the features vanished with elevation from a surface | The surface has no data there. | That is intended: a gap is not a zero. Check the extent of the elevation grid. |
+| Inverse distances give the same as nearest neighbour | All the neighbours were gathered from one borehole. | Raise the number of search sectors in the advanced parameters of 2.02. |
+| An anomaly with depth smoothed into a flat field | The number of points is larger than the number of samples per place. | Leave zero in the point count field: it will be taken from the data. |
+| The tool refuses, all the points share one elevation | The elevation was taken from the geometry of a flat layer. | Choose the elevation from a field or the depth below a surface. |
 | Voxels are not built and the log names a face count | The model is larger than the responsiveness limit. | Raise the cutoff, reduce the number of colour intervals, or coarsen the cube. |
 | Points are visible but labels are not | No label field is chosen, or the label count is zero. | Set the **Point label field** and **Labels at most**. |
 | A flat marker is hard to see from above | It lies in plan and flattens. | Take the circle: it is on screen and reads from any angle. |
