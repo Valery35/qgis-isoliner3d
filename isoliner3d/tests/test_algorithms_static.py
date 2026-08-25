@@ -34,6 +34,7 @@ EXPECTED = {
     "CubeVoxelBodyAlgorithm": ("cube_voxel_body", "2.04"),
     "CrossValidateAlgorithm": ("cross_validate_3d", "2.05"),
     "DemoMapAlgorithm": ("demo_map", "1.08"),
+    "Kriging3DAlgorithm": ("kriging_3d", "2.06"),
 }
 
 
@@ -321,7 +322,8 @@ def test_every_tool_has_field_hints():
              ("CubeToBlocksAlgorithm", "HINTS_2_03"),
              ("CubeVoxelBodyAlgorithm", "HINTS_2_04"),
              ("CrossValidateAlgorithm", "HINTS_2_05"),
-             ("DemoMapAlgorithm", "HINTS_1_08"))
+             ("DemoMapAlgorithm", "HINTS_1_08"),
+             ("Kriging3DAlgorithm", "HINTS_2_06"))
     tree = ast.parse(src)
     dicts = {}
     for node in tree.body:
@@ -422,6 +424,40 @@ def test_demo_map_is_a_tool_of_its_own():
     assert seg2.count("self.addParameter(") == 6, seg2.count(
         "self.addParameter(")
     assert "def _make_map" in seg2
+
+
+def test_kriging_writes_two_cubes():
+    """Кригинг отдаёт и оценку, и дисперсию.
+
+    Дисперсия это единственное, что кригинг даёт всегда, независимо
+    от густоты сети. Без неё брать его вместо обратных расстояний
+    на редкой сети незачем.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class Kriging3DAlgorithm(")
+    nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+    seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+    assert '"OUTPUT"' in seg and '"OUTVAR"' in seg
+    assert "ordinary(" in seg
+
+
+def test_kriging_measures_the_variogram_itself():
+    """Вариограмма замеряется по данным, а не спрашивается у человека.
+
+    Задавать три числа на глаз бессмысленно: их и надо было замерить.
+    Ручной ввод оставлен, но умолчание считает само.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class Kriging3DAlgorithm(")
+    nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+    seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+    assert "auto_fit(" in seg
+    assert 'direction="plan"' in seg and 'direction="vert"' in seg
+    assert "assemble(" in seg
 
 
 if __name__ == "__main__":

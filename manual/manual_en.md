@@ -755,6 +755,18 @@ This is the only way to learn whether the cube can be trusted: there is
 nothing to compare the built model with, and to the eye a good model and
 an invention look equally convincing.
 
+**What to remove.** Without a borehole field one sample is removed. On
+an exploration grid that flatters the model: it takes neighbours from the
+same hole three metres away, and what is measured is continuity along the
+hole rather than the ability to hit between holes. On the demonstration
+data the difference is sixfold: the error by samples is 0.17, by holes
+1.10. Given a borehole field, the whole hole is removed.
+
+A check by single samples also barely sees the anisotropy: the choice of
+nearest points does not depend on it while the nearest point is the
+layer's own down the hole. Such a check cannot decide anything about the
+plan.
+
 The parameters are the same as in 2.02. By changing them and watching the
 error one picks the anisotropy, the power and the number of neighbours:
 there is no right value for them at all, only the best one on this data.
@@ -771,6 +783,55 @@ computed one, `resid` the difference, `aresid` its absolute value. They
 show not only how large the miss is but where it happened.
 
 A thousand and a half samples are checked in about a second.
+
+## 2.06 Kriging in three dimensions
+
+Computes a cube of values by kriging and gives a cube of the estimation
+variance as a second output.
+
+**How it differs from 2.02.** Inverse distances weigh by distance alone:
+they do not care at what distance the connection fades or how much of
+the scatter is sampling error. Kriging takes its weights from the
+variogram and knows both. It also accounts for neighbours knowing about
+each other: two samples side by side carry almost the same thing and are
+not given a double vote.
+
+**When it pays off.** Not always, and this is worth knowing in advance.
+On the demonstration data at different grid densities:
+
+| holes | grid step | range | inverse distances | kriging | |
+|---|---|---|---|---|---|
+| 16 | 193 m | 243 m | 1.331 | 1.454 | −9 % |
+| 25 | 142 m | 285 m | 1.047 | 1.055 | −1 % |
+| 49 | 109 m | 264 m | 0.936 | 0.896 | +4 % |
+| 100 | 78 m | 294 m | 0.643 | 0.601 | +7 % |
+| 196 | 54 m | 261 m | 0.483 | 0.446 | +8 % |
+
+The turn is where the grid step is about half the range. When holes
+stand farther apart, neighbouring ones know almost nothing about each
+other, the weights come out nearly equal for any method, and the
+difference goes into noise. The tool prints the grid step and the range
+to the log and warns when the grid is sparse.
+
+**The estimation variance.** The second cube gives what inverse
+distances lack entirely: zero at a sample, growing away from the data.
+It is a map of trust, and on a sparse grid it is the only reason to take
+kriging. It is convenient to look at as voxels: they show at once where
+the model is guessing.
+
+**The variogram** is measured on the data itself. The range comes from
+the plan measurement, the nugget from the vertical one, the anisotropy
+as the ratio of the ranges. The nugget must not be taken from the plan
+measurement: in plan there are no pairs closer than the grid step at
+all, the first interval starts right there, and a nugget from it is a
+straight line continued to zero through emptiness. Down the hole there
+are pairs from three metres.
+
+**Negative values.** Kriging weights can be negative, and the estimate
+may go outside the range of the samples: on grades that means values
+below zero, which cannot be. The tool notices and says so. It is cured
+by the spherical model instead of the gaussian one, or by a raised
+nugget.
 
 # A cube of values: an isosurface and voxels
 
@@ -900,6 +961,9 @@ All three work independently: installing the whole set is not required.
 | The tool refuses, all the points share one elevation | The elevation was taken from the geometry of a flat layer. | Choose the elevation from a field or the depth below a surface. |
 | I do not know whether the cube can be trusted | There is nothing to compare the built model with. | Run 2.05 on the same samples: it removes each in turn and shows how far the model misses. |
 | The error is large but where is unclear | The numbers in the log say nothing about place. | Open the residual layer and colour it by aresid: it shows in which corner of the site the model misses. |
+| Kriging gave values below zero | Kriging weights can be negative. | Take the spherical model instead of the gaussian one, or raise the nugget. |
+| Kriging is no better than inverse distances | The grid step is above half the range. | That is expected. Take kriging for the variance, or make the grid denser. |
+| I do not know where to trust the model | Error numbers say nothing about place. | Look at the variance cube from 2.06 as voxels: where it is large the model is guessing. |
 | Voxels are not built and the log names a face count | The model is larger than the responsiveness limit. | Raise the cutoff, reduce the number of colour intervals, or coarsen the cube. |
 | Points are visible but labels are not | No label field is chosen, or the label count is zero. | Set the **Point label field** and **Labels at most**. |
 | A flat marker is hard to see from above | It lies in plan and flattens. | Take the circle: it is on screen and reads from any angle. |

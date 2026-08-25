@@ -476,6 +476,52 @@ def test_sectors_lower_the_error_on_boreholes():
     assert mae8 < mae1, (mae8, mae1)
 
 
+def test_grouped_check_is_harsher_than_pointwise():
+    """Исключение по скважине строже, чем по пробе.
+
+    Убрав одну пробу, соседей берут из того же ствола в трёх метрах,
+    и проверка меряет связность по стволу, а не умение попасть между
+    скважинами. На разведочной сети это занижает ошибку в разы,
+    и по такой проверке нельзя выбирать ничего, что касается плана.
+    """
+    pts, val, hole = _holes(n_side=4, step=200.0, sample=5.0)
+    # Радиус задан явно: убрав скважину целиком, до соседней остаётся
+    # двести метров, а автоматический радиус меньше, и проверять
+    # оказалось бы нечего.
+    kw = dict(method="idw", anisotropy=20.0, max_points=16, radius=400.0)
+    _r1, mae_pt, _s1 = interp3d.cross_validate(pts, val, **kw)
+    _r2, mae_gr, _s2 = interp3d.cross_validate(pts, val, groups=hole, **kw)
+    assert mae_gr > 2.0 * mae_pt, (mae_pt, mae_gr)
+
+
+def test_grouped_check_sees_anisotropy():
+    """По скважинам видно то, чего не видно по пробам.
+
+    Отбор ближайших почти не меняется от анизотропии, пока ближайшая
+    точка своя же по стволу. Уберёшь ствол целиком - и выбор масштаба
+    начинает решать.
+    """
+    pts, val, hole = _holes(n_side=4, step=200.0, sample=5.0)
+    kw = dict(method="idw", max_points=16, groups=hole, radius=400.0)
+    _r1, mae_a, _s1 = interp3d.cross_validate(pts, val, anisotropy=20.0,
+                                              **kw)
+    _r2, mae_b, _s2 = interp3d.cross_validate(pts, val, anisotropy=0.15,
+                                              **kw)
+    assert abs(mae_a - mae_b) > 1e-6, (mae_a, mae_b)
+
+
+def test_groups_of_one_match_the_pointwise_check():
+    """Если у каждой пробы своя группа, проверка совпадает с прежней."""
+    pts, val, _h = _holes(n_side=3, step=200.0, sample=20.0)
+    each = np.arange(len(val))
+    kw = dict(method="idw", anisotropy=5.0, max_points=8, radius=900.0)
+    r1, m1, s1 = interp3d.cross_validate(pts, val, **kw)
+    r2, m2, s2 = interp3d.cross_validate(pts, val, groups=each, **kw)
+    assert abs(m1 - m2) < 1e-9 and abs(s1 - s2) < 1e-9
+    ok = np.isfinite(r1) & np.isfinite(r2)
+    assert np.allclose(r1[ok], r2[ok])
+
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

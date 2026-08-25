@@ -30,6 +30,7 @@ MODULES = ("algorithms.py", "viewer3d.py", "texmesh.py", "plugin.py",
            "provider.py", "i18n.py", "mesh3d.py", "polyhedral.py",
            "demo_map.py", "trace.py", "gltf.py", "iso3d.py", "interp3d.py",
            "demo3d.py", "voxel.py",
+           "variogram.py", "kriging.py",
            "__init__.py")
 
 # коды, которые считаем ошибкой сборки

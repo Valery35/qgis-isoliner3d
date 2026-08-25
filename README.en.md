@@ -85,7 +85,8 @@ values: a grid band is a horizontal level.
 | 2.02 Interpolation of points in three dimensions | Nearest neighbour and inverse distances with anisotropy | A cube of values |
 | 2.03 Cube to a block model | A centroid per occupied cell, block size and volume | Points |
 | 2.04 Cube body as voxels | A body above the cutoff as cell boxes, one feature per interval | MULTIPOLYGON Z |
-| 2.05 Check of the interpolation | Leave-one-out, error and bias | Residual points |
+| 2.05 Check of the interpolation | Leave one sample or one hole out, error and bias | Residual points |
+| 2.06 Kriging in three dimensions | Weights from a variogram measured on the data | A cube and a variance cube |
 
 A bed grid assembled by the first tool is read by the 3D window as a body:
 computed and looked at right away.

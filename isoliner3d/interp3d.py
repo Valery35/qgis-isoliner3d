@@ -299,7 +299,7 @@ def _dense(pts, val, nodes, r2, method, power, max_points, min_points,
 
 def interpolate(points, values, grid, method="idw", radius=None,
                 anisotropy=1.0, power=2.0, max_points=16, min_points=1,
-                sectors=8):
+                sectors=8, vmodel=None):
     """Значения в узлах сетки по точкам.
 
     `points` это (N, 3) в координатах карты, `grid` это (M, 3) узлы,
@@ -311,7 +311,20 @@ def interpolate(points, values, grid, method="idw", radius=None,
     `sectors` делит окружность вокруг узла на равные части, и из каждой
     берётся своя доля ближайших точек. Единица отключает деление
     и возвращает прежний отбор просто по расстоянию.
+
+    Метод `kriging` требует модели вариограммы в `vmodel` и считается
+    отдельным модулем: там своя система на каждый узел, а здесь только
+    развилка, чтобы проверка исключением работала со всеми методами
+    одинаково.
     """
+    if method == "kriging":
+        if not vmodel:
+            raise ValueError("кригингу нужна модель вариограммы")
+        from .kriging import ordinary
+        est, _var = ordinary(points, values, grid, vmodel, radius=radius,
+                             max_points=max_points, sectors=sectors,
+                             anisotropy=anisotropy)
+        return est
     pts = np.asarray(points, dtype=float).copy()
     val = np.asarray(values, dtype=float)
     nodes = np.asarray(grid, dtype=float).copy()
@@ -406,22 +419,33 @@ def cv_report(residuals, values):
             "mae_share": mae / spread if spread > 0 else float("nan")}
 
 
-def cross_validate(points, values, method="idw", **kw):
-    """Проверка с исключением по одной точке.
+def cross_validate(points, values, method="idw", groups=None, **kw):
+    """Проверка с исключением: по одной пробе или по группе целиком.
 
     Возвращает (остатки, средняя ошибка, среднеквадратичная). Без неё
     сравнивать методы нельзя: у обратных расстояний степень и радиус
     подбираются, и подбирать надо по числам.
+
+    `groups` задаёт, что убирать за раз. Без него убирается одна проба,
+    и на разведочной сети это льстит модели: соседей она берёт из того же
+    ствола в трёх метрах, то есть меряется связность по стволу, а не
+    умение попасть между скважинами. Подав номер скважины, убираем ствол
+    целиком, и проверка отвечает уже на нужный вопрос.
     """
     pts = np.asarray(points, dtype=float)
     val = np.asarray(values, dtype=float)
     res = np.full(len(pts), np.nan)
-    for i in range(len(pts)):
-        mask = np.ones(len(pts), dtype=bool)
-        mask[i] = False
-        got = interpolate(pts[mask], val[mask], pts[i:i + 1],
+    if groups is None:
+        keys = np.arange(len(pts))
+    else:
+        keys = np.asarray(groups)
+    for key in np.unique(keys):
+        out = keys == key
+        if out.all():
+            continue
+        got = interpolate(pts[~out], val[~out], pts[out],
                           method=method, **kw)
-        res[i] = got[0] - val[i]
+        res[out] = got - val[out]
     ok = np.isfinite(res)
     if not ok.any():
         return res, float("nan"), float("nan")

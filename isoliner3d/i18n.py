@@ -81,6 +81,276 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'Значения: %.3f .. %.3f, в пробах %.3f .. %.3f.':
+        'Values: %.3f .. %.3f, in the samples %.3f .. %.3f.',
+    'Оценка вышла за размах проб. У кригинга веса бывают '
+    'отрицательными, и на содержаниях это даёт значения ниже нуля. '
+    'Гауссова модель к этому склонна сильнее прочих: попробуйте '
+    'сферическую или поднимите самородок.':
+        'The estimate went outside the range of the samples. Kriging '
+        'weights can be negative, and on grades that gives values '
+        'below zero. The gaussian model is more prone to it than the '
+        'others: try the spherical one or raise the nugget.',
+    '2.06 Кригинг в объёме':
+        '2.06 Kriging in three dimensions',
+    'Анизотропия (0 - от данных)':
+        'Anisotropy (0 means from the data)',
+    'Вариограмма в плане: %s, длина связи %.0f м, пар %d.':
+        'Variogram in plan: %s, range %.0f m, %d pairs.',
+    'Вариограмма замеряется по самим данным: длина связи из планового замера,'
+    ' самородок из вертикального. Задавать три числа на глаз бессмысленно, их'
+    ' и надо было замерить.':
+        'The variogram is measured on the data itself: the range from the '
+        'plan measurement, the nugget from the vertical one. Setting three '
+        'numbers by eye is pointless, measuring them was the whole idea.',
+    'Вариограмма по вертикали: длина связи %.1f м, самородок %.3f, пар %d.':
+        'Vertical variogram: range %.1f m, nugget %.3f, %d pairs.',
+    'Вид модели. Разница между ними невелика, важнее поведение у нуля: '
+    'гауссова даёт слишком гладкое поле там, где данные шумят.':
+        'The kind of model. The difference between them is small, what '
+        'matters more is the behaviour near zero: the gaussian one gives too '
+        'smooth a field where the data is noisy.',
+    'Гауссова':
+        'Gaussian',
+    'Грид, от которого отсчитывается глубина. Нужен пробам, где записана '
+    'глубина, а не отметка.':
+        'The grid the depth is measured from. Needed by samples that record a'
+        ' depth rather than an elevation.',
+    'Дисперсия оценки: %.4f .. %.4f, среднее %.4f.':
+        'Estimation variance: %.4f .. %.4f, mean %.4f.',
+    'Длина связи, м':
+        'Range, m',
+    'Для отметки из поля это сама отметка, для глубины это глубина вниз от '
+    'поверхности.':
+        'For elevation from a field this is the elevation itself, for depth '
+        'it is the depth measured down from the surface.',
+    'Замерить вариограмму по данным':
+        'Measure the variogram on the data',
+    'Куб дисперсии оценки':
+        'Cube of the estimation variance',
+    'Куб дисперсии оценки, тех же размеров. В самой пробе ноль, дальше от '
+    'данных растёт. Это карта доверия, и она единственное, что кригинг даёт '
+    'всегда, независимо от густоты сети.':
+        'A cube of the estimation variance, of the same size. Zero at a '
+        'sample, growing away from the data. It is a map of trust, and it is '
+        'the one thing kriging always gives, whatever the density of the '
+        'grid.',
+    'Куб значений: канал это горизонтальный уровень.':
+        'A cube of values: a band is a horizontal level.',
+    'Модель вариограммы':
+        'Variogram model',
+    'Модель: %s, самородок %.3f, порог %.3f, длина связи %.0f м, анизотропия '
+    '%.3f.':
+        'Model: %s, nugget %.3f, sill %.3f, range %.0f m, anisotropy %.3f.',
+    'Ноль берёт отношение вертикальной длины связи к плановой, замеренное по '
+    'данным. Это тот случай, когда гадать не нужно.':
+        'Zero takes the ratio of the vertical range to the plan one, measured'
+        ' on the data. This is the case where no guessing is needed.',
+    'Ноль берёт половину шага опробования. Крупнее значит слить соседние '
+    'замеры и потерять различие по глубине.':
+        'Zero takes half the sampling step. Coarser means merging '
+        'neighbouring samples and losing the difference with depth.',
+    'Ноль берёт пятую часть расстояния между точками плана. Мельче делать '
+    'незачем: данных в промежутке всё равно нет, а число узлов растёт как '
+    'квадрат.':
+        'Zero takes a fifth of the distance between places in plan. Finer is '
+        'pointless: there is no data in between anyway, and the node count '
+        'grows as a square.',
+    'Ноль берёт четверть охвата данных. Узел, где точек в радиусе не '
+    'набралось, остаётся пропуском.':
+        'Zero takes a quarter of the data extent. A node with too few points '
+        'within the radius stays a gap.',
+    'Общий разброс данных, к которому вариограмма выходит на больших '
+    'расстояниях.':
+        'The overall scatter of the data the variogram reaches at large '
+        'distances.',
+    'Окружность вокруг узла делится на равные части, из каждой берётся своя '
+    'доля точек. Без этого при анизотропии все соседи оказываются в одной '
+    'скважине.':
+        'The circle around the node is split into equal parts and each gives '
+        'its share of points. Without this, under anisotropy all the '
+        'neighbours land in one borehole.',
+    'Плоский слой отдаёт нулевую Z у каждой точки. Если брать её из '
+    'геометрии, все пробы лягут в одну плоскость и куб выйдет бессмысленным.':
+        'A flat layer gives a zero Z at every point. Taking it from the '
+        'geometry would put every sample in one plane and the cube would be '
+        'meaningless.',
+    'Показательная':
+        'Exponential',
+    'Порог':
+        'Sill',
+    'Разброс, который не убывает даже у соседних проб: ошибка опробования и '
+    'изменчивость мельче сети. Читается, только если снят автоматический '
+    'замер.':
+        'The scatter that does not fall even between neighbouring samples: '
+        'sampling error and variability finer than the grid. Read only when '
+        'the automatic measurement is off.',
+    'Расстояние, после которого пробы уже ничего не знают друг о друге.':
+        'The distance beyond which samples know nothing about each other.',
+    'Самородковый эффект':
+        'Nugget effect',
+    'Соседей на узел':
+        'Neighbours per node',
+    'Соседей на узел. Кригинг решает систему размером с их число, поэтому '
+    'цена растёт как куб: шестнадцать это обычный выбор, тридцать два уже '
+    'заметно дороже.':
+        'Neighbours per node. Kriging solves a system the size of their '
+        'number, so the cost grows as a cube: sixteen is the usual choice, '
+        'thirty two is already noticeably dearer.',
+    'Сферическая':
+        'Spherical',
+    'Считает куб значений кригингом и вторым выходом даёт куб дисперсии '
+    'оценки.\n\nЧЕМ ОТЛИЧАЕТСЯ ОТ 2.02. Обратные расстояния взвешивают по '
+    'одному расстоянию: им всё равно, на каком расстоянии связь пропадает и '
+    'сколько разброса приходится на ошибку опробования. Кригинг берёт веса из'
+    ' вариограммы, поэтому знает и то, и другое. Ещё он учитывает, что соседи'
+    ' знают друг про друга: две пробы рядом несут почти одно и то же, и '
+    'двойного голоса им не даётся.\n\nКОГДА ЭТО ОКУПАЕТСЯ. Не всегда. На '
+    'демонстрационных данных при густой сети кригинг выигрывает у обратных '
+    'расстояний до восьми процентов, при редкой проигрывает до девяти. '
+    'Перелом там, где шаг сети около половины длины связи. Причина проста: '
+    'когда скважины стоят реже, соседние уже почти ничего не знают друг о '
+    'друге, веса выходят почти равными у любого метода, и разница уходит в '
+    'шум. Числа сети и длины связи инструмент печатает в журнал, так что '
+    'решение видно сразу.\n\nДИСПЕРСИЯ. Второй куб даёт то, чего у обратных '
+    'расстояний нет вовсе: в самой пробе она ноль, дальше от данных растёт. '
+    'Это карта доверия, и на редкой сети она единственная причина брать '
+    'кригинг.\n\nВАРИОГРАММА. Замеряется по самим данным. Длина связи берётся'
+    ' из планового замера, самородок из вертикального, анизотропия как '
+    'отношение длин. Самородок из планового замера брать нельзя: в плане пар '
+    'ближе шага сети нет вовсе, первый интервал начинается там же, и '
+    'самородок оттуда это продолжение прямой к нулю через пустоту. По стволу '
+    'пары есть с трёх метров.\n\nПРОВЕРКА. Насколько верить получившемуся, '
+    'отвечает 2.05. Задавайте там поле скважины: проверка по одной пробе '
+    'льстит модели в разы, потому что соседей она берёт из того же ствола.':
+        'Computes a cube of values by kriging and gives a cube of the '
+        'estimation variance as a second output.\n\nHOW IT DIFFERS FROM 2.02.'
+        ' Inverse distances weigh by distance alone: they do not care at what'
+        ' distance the connection fades or how much of the scatter is '
+        'sampling error. Kriging takes its weights from the variogram and so '
+        'knows both. It also accounts for neighbours knowing about each '
+        'other: two samples side by side carry almost the same thing and are '
+        'not given a double vote.\n\nWHEN IT PAYS OFF. Not always. On the '
+        'demonstration data kriging beats inverse distances by up to eight '
+        'per cent on a dense grid and loses by up to nine on a sparse one. '
+        'The turn is where the grid step is about half the range. The reason '
+        'is simple: when holes stand farther apart, neighbouring ones know '
+        'almost nothing about each other, the weights come out nearly equal '
+        'for any method, and the difference goes into noise. The tool prints '
+        'the grid step and the range to the log, so the decision is visible '
+        'at once.\n\nTHE VARIANCE. The second cube gives what inverse '
+        'distances lack entirely: zero at a sample, growing away from the '
+        'data. It is a map of trust, and on a sparse grid it is the only '
+        'reason to take kriging.\n\nTHE VARIOGRAM. It is measured on the data'
+        ' itself. The range comes from the plan measurement, the nugget from '
+        'the vertical one, the anisotropy as the ratio of the ranges. The '
+        'nugget must not be taken from the plan measurement: in plan there '
+        'are no pairs closer than the grid step at all, the first interval '
+        'starts right there, and a nugget from it is a straight line '
+        'continued to zero through emptiness. Down the hole there are pairs '
+        'from three metres.\n\nTHE CHECK. How far to trust the result is '
+        'answered by 2.05. Set the borehole field there: a check by single '
+        'samples flatters the model several times over, because it takes '
+        'neighbours from the same hole.',
+    'Тот же слой проб, что подаётся в 2.02. Отметка задаётся ниже так же, как'
+    ' там.':
+        'The same layer of samples that goes into 2.02. The elevation is set '
+        'below in the same way.',
+    'Числовое поле, значение которого раскладывается по кубу.':
+        'The numeric field whose value is spread through the cube.',
+    'Шаг сети %.0f м больше половины длины связи %.0f м. На такой сети '
+    'кригинг обычно не точнее обратных расстояний: соседние скважины почти '
+    'ничего не знают друг о друге. Дисперсия оценки при этом остаётся '
+    'полезной.':
+        'The grid step of %.0f m is above half the range of %.0f m. On such a'
+        ' grid kriging is usually no more accurate than inverse distances: '
+        'neighbouring holes know almost nothing about each other. The '
+        'estimation variance stays useful all the same.',
+    'Исключаем по скважине, их %d.':
+        'Removing whole boreholes, %d of them.',
+    'Номер скважины. С ним из выборки убирается ствол целиком, и проверка '
+    'меряет умение попасть между скважинами. Без него убирается одна проба, '
+    'соседи берутся из того же ствола, и ошибка выходит в разы меньше '
+    'настоящей.':
+        'The borehole number. With it the whole hole is removed from the set '
+        'and the check measures the ability to hit between holes. Without it '
+        'one sample is removed, the neighbours come from the same hole, and '
+        'the error comes out several times smaller than the real one.',
+    'Поле скважины (0 - по одной пробе)':
+        'Borehole field (empty means one sample at a time)',
+    'Поле скважины пропущено: часть проб отброшена при разборе отметок, и '
+    'номера разошлись.':
+        'The borehole field is skipped: some samples were dropped while '
+        'resolving elevations and the numbering no longer matches.',
+    'Проверено %d проб из %d: у остальных соседей не нашлось. При исключении '
+    'по скважине до соседней бывает дальше, чем автоматический радиус: '
+    'задайте радиус вручную.':
+        'Checked %d samples of %d: the rest found no neighbours. When a whole'
+        ' hole is removed the neighbouring one may be farther than the '
+        'automatic radius: set the radius by hand.',
+    'Убирает пробы из выборки, считает значение в их точках по остальным и '
+    'сравнивает с настоящим.\n\nЗАЧЕМ. Это единственный способ узнать, можно '
+    'ли верить кубу. Сравнивать построенное не с чем: настоящего '
+    'распределения содержаний никто не видел, а на глаз одинаково убедительно'
+    ' выглядят и хорошая модель, и вымысел.\n\nЧТО ИСКЛЮЧАТЬ. Без поля '
+    'скважины убирается одна проба. На разведочной сети это льстит модели: '
+    'соседей она берёт из того же ствола в трёх метрах, и меряется связность '
+    'по стволу, а не умение попасть между скважинами. На демонстрационных '
+    'данных разница шестикратная: ошибка по пробам 0.17, по скважинам 1.10. '
+    'Задав поле скважины, убираем ствол целиком, и проверка отвечает на '
+    'нужный вопрос.\n\nЧИСЛА В ЖУРНАЛЕ. Средняя ошибка это обычный промах по '
+    'модулю. Среднеквадратичная тяжелее наказывает редкие крупные промахи: '
+    'если она заметно больше средней, модель иногда мажет сильно. Смещение '
+    'показывает, уводит ли модель в одну сторону: положительное значит '
+    'завышает. Разброс и односторонний увод выглядят одинаково, а лечатся по-'
+    'разному, поэтому смещение вынесено отдельно. Доля ошибки от размаха '
+    'данных ставит её в масштаб: единица это много на содержаниях до двух и '
+    'мало на содержаниях до ста.\n\nЧТО ПОДБИРАТЬ. Меняя анизотропию, '
+    'степень, число соседей и сектора и смотря на ошибку, эти параметры '
+    'выбирают по числам. Правильного значения у них нет вообще, есть только '
+    'лучшее на конкретных данных. Осторожно с проверкой по одной пробе: отбор'
+    ' ближайших от анизотропии почти не зависит, пока ближайшая точка своя же'
+    ' по стволу, и по такой проверке нельзя выбирать ничего, что касается '
+    'плана.\n\nРАДИУС. При исключении по скважине до соседней бывает дальше, '
+    'чем автоматический радиус, и тогда проверять оказывается нечего. '
+    'Инструмент скажет об этом, и радиус придётся задать вручную.\n\nСЛОЙ. '
+    'Поля: value настоящее значение, model посчитанное, resid разность, '
+    'aresid её модуль. Раскрасив по aresid, видно, в каком углу площадки '
+    'модель мажет: числа этого не говорят.':
+        'Removes samples from the set, computes the value at their places '
+        'from the rest and compares it with the real one.\n\nWHAT FOR. This '
+        'is the only way to learn whether the cube can be trusted. There is '
+        'nothing to compare the built model with: nobody has seen the real '
+        'distribution of grades, and to the eye a good model and an invention'
+        ' look equally convincing.\n\nWHAT TO REMOVE. Without a borehole '
+        'field one sample is removed. On an exploration grid that flatters '
+        'the model: it takes neighbours from the same hole three metres away,'
+        ' and what is measured is continuity along the hole rather than the '
+        'ability to hit between holes. On the demonstration data the '
+        'difference is sixfold: the error by samples is 0.17, by holes 1.10. '
+        'Given a borehole field, the whole hole is removed and the check '
+        'answers the right question.\n\nTHE NUMBERS IN THE LOG. The mean '
+        'error is the plain absolute miss. The root mean square one punishes '
+        'rare large misses harder: if it is noticeably above the mean, the '
+        'model sometimes misses badly. The bias shows whether the model leans'
+        ' one way: positive means it overstates. Scatter and a one-sided lean'
+        ' look the same and are cured differently, so the bias is kept apart.'
+        ' The share of the error in the spread of the data puts it in scale: '
+        'one is a lot on grades up to two and little on grades up to a '
+        'hundred.\n\nWHAT TO PICK. By changing the anisotropy, the power, the'
+        ' number of neighbours and the sectors and watching the error, these '
+        'are chosen by numbers. There is no right value for them at all, only'
+        ' the best one on the particular data. Beware the check by single '
+        'samples: the choice of nearest points barely depends on the '
+        'anisotropy while the nearest point is the layer\'s own down the '
+        'hole, and such a check cannot decide anything about the plan.\n\nTHE'
+        ' RADIUS. When a whole hole is removed, the neighbouring one is '
+        'sometimes farther than the automatic radius, and then there is '
+        'nothing to check. The tool says so, and the radius has to be set by '
+        'hand.\n\nTHE LAYER. Fields: value the real value, model the computed'
+        ' one, resid the difference, aresid its absolute value. Coloured by '
+        'aresid, it shows in which corner of the site the model misses: the '
+        'numbers do not say that.',
     'Охват площадки': 'Site extent',
     'Площадка по умолчанию: %.0f x %.0f м от начала координат. '
     'Задайте охват, чтобы положить пример на своё место.':
@@ -181,30 +451,6 @@ TRANSLATIONS = {
     'куб для неё не нужен.':
         'The same layer of samples that goes into 2.02. The check runs on the'
         ' samples themselves, no cube is needed for it.',
-    'Убирает каждую пробу по очереди, считает значение в её точке по '
-    'остальным и сравнивает с настоящим.\n\nЭто единственный способ узнать, '
-    'можно ли верить кубу: сравнивать построенное не с чем, а на глаз '
-    'одинаково убедительно выглядят и хорошая модель, и вымысел.\n\nПараметры'
-    ' задаются те же, что в 2.02. Меняя их и смотря на ошибку, подбирают '
-    'анизотропию, степень и число соседей: правильного значения у них нет '
-    'вообще, есть только лучшее на этих данных.\n\nВ журнал идут средняя '
-    'ошибка, среднеквадратичная, смещение и доля ошибки от размаха данных. '
-    'Смещение показывает, уводит ли модель в одну сторону: разброс и '
-    'односторонний увод лечатся по-разному.\n\nПоля слоя: value настоящее '
-    'значение, model посчитанное, resid разность, aresid её модуль.':
-        'Removes each sample in turn, computes the value at its place from '
-        'the rest and compares it with the real one.\n\nThis is the only way '
-        'to learn whether the cube can be trusted: there is nothing to '
-        'compare the built model with, and to the eye a good model and an '
-        'invention look equally convincing.\n\nThe parameters are the same as'
-        ' in 2.02. By changing them and watching the error one picks the '
-        'anisotropy, the power and the number of neighbours: there is no '
-        'right value for them at all, only the best one on this data.\n\nThe '
-        'log gets the mean error, the root mean square one, the bias and the '
-        'share of the error in the spread of the data. The bias shows whether'
-        ' the model leans one way: scatter and a one-sided lean are cured '
-        'differently.\n\nLayer fields: value the real value, model the '
-        'computed one, resid the difference, aresid its absolute value.',
     'Блочная модель на конец периода. Блок, которого в ней нет, считается '
     'отработанным целиком.':
         'The block model at the end of the period. A block absent from it '

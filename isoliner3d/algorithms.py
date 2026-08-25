@@ -2735,6 +2735,11 @@ HINTS_2_05 = {
               "глубина вниз от поверхности.",
     "ZSURF": "Грид, от которого отсчитывается глубина. Тот же, что "
              "и в 2.02.",
+    "GROUP": "Номер скважины. С ним из выборки убирается ствол "
+             "целиком, и проверка меряет умение попасть между "
+             "скважинами. Без него убирается одна проба, соседи "
+             "берутся из того же ствола, и ошибка выходит в разы "
+             "меньше настоящей.",
     "METHOD": "Метод, который собираетесь применять в 2.02. Проверка "
               "и нужна, чтобы выбрать между ними по числам, а не "
               "на глаз.",
@@ -2787,20 +2792,47 @@ class CrossValidateAlgorithm(IsolinerAlgorithm):
 
     def shortHelpString(self):
         return _help_version(self.tr(
-            "Убирает каждую пробу по очереди, считает значение в её "
-            "точке по остальным и сравнивает с настоящим.\n\nЭто "
-            "единственный способ узнать, можно ли верить кубу: "
-            "сравнивать построенное не с чем, а на глаз одинаково "
-            "убедительно выглядят и хорошая модель, и вымысел.\n\n"
-            "Параметры задаются те же, что в 2.02. Меняя их и смотря "
-            "на ошибку, подбирают анизотропию, степень и число "
-            "соседей: правильного значения у них нет вообще, есть "
-            "только лучшее на этих данных.\n\nВ журнал идут средняя "
-            "ошибка, среднеквадратичная, смещение и доля ошибки "
-            "от размаха данных. Смещение показывает, уводит ли модель "
-            "в одну сторону: разброс и односторонний увод лечатся "
-            "по-разному.\n\nПоля слоя: value настоящее значение, model "
-            "посчитанное, resid разность, aresid её модуль.")
+            "Убирает пробы из выборки, считает значение в их точках "
+            "по остальным и сравнивает с настоящим.\n\n"
+            "ЗАЧЕМ. Это единственный способ узнать, можно ли верить "
+            "кубу. Сравнивать построенное не с чем: настоящего "
+            "распределения содержаний никто не видел, а на глаз "
+            "одинаково убедительно выглядят и хорошая модель, "
+            "и вымысел.\n\n"
+            "ЧТО ИСКЛЮЧАТЬ. Без поля скважины убирается одна проба. "
+            "На разведочной сети это льстит модели: соседей она берёт "
+            "из того же ствола в трёх метрах, и меряется связность "
+            "по стволу, а не умение попасть между скважинами. "
+            "На демонстрационных данных разница шестикратная: ошибка "
+            "по пробам 0.17, по скважинам 1.10. Задав поле скважины, "
+            "убираем ствол целиком, и проверка отвечает на нужный "
+            "вопрос.\n\n"
+            "ЧИСЛА В ЖУРНАЛЕ. Средняя ошибка это обычный промах "
+            "по модулю. Среднеквадратичная тяжелее наказывает редкие "
+            "крупные промахи: если она заметно больше средней, модель "
+            "иногда мажет сильно. Смещение показывает, уводит ли "
+            "модель в одну сторону: положительное значит завышает. "
+            "Разброс и односторонний увод выглядят одинаково, "
+            "а лечатся по-разному, поэтому смещение вынесено "
+            "отдельно. Доля ошибки от размаха данных ставит её "
+            "в масштаб: единица это много на содержаниях до двух "
+            "и мало на содержаниях до ста.\n\n"
+            "ЧТО ПОДБИРАТЬ. Меняя анизотропию, степень, число соседей "
+            "и сектора и смотря на ошибку, эти параметры выбирают "
+            "по числам. Правильного значения у них нет вообще, есть "
+            "только лучшее на конкретных данных. Осторожно "
+            "с проверкой по одной пробе: отбор ближайших от "
+            "анизотропии почти не зависит, пока ближайшая точка своя "
+            "же по стволу, и по такой проверке нельзя выбирать "
+            "ничего, что касается плана.\n\n"
+            "РАДИУС. При исключении по скважине до соседней бывает "
+            "дальше, чем автоматический радиус, и тогда проверять "
+            "оказывается нечего. Инструмент скажет об этом, "
+            "и радиус придётся задать вручную.\n\n"
+            "СЛОЙ. Поля: value настоящее значение, model посчитанное, "
+            "resid разность, aresid её модуль. Раскрасив по aresid, "
+            "видно, в каком углу площадки модель мажет: числа этого "
+            "не говорят.")
             + _credit())
 
     def createInstance(self):
@@ -2828,6 +2860,9 @@ class CrossValidateAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterRasterLayer(
             "ZSURF", self.tr("Поверхность для отсчёта глубины"),
             optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            "GROUP", self.tr("Поле скважины (0 - по одной пробе)"),
+            parentLayerParameterName="INPUT", optional=True))
         self.addParameter(QgsProcessingParameterEnum(
             "METHOD", self.tr("Метод"),
             options=[self.tr("Ближний сосед"),
@@ -2879,9 +2914,29 @@ class CrossValidateAlgorithm(IsolinerAlgorithm):
         maxp = self.parameterAsInt(parameters, "MAXPTS", context)
         minp = self.parameterAsInt(parameters, "MINPTS", context)
         sectors = self.parameterAsInt(parameters, "SECTORS", context)
+        gfield = self.parameterAsString(parameters, "GROUP", context)
 
         xs, ys, zs, vals = _read_samples(self, parameters, context,
                                          feedback)
+        groups = None
+        if gfield:
+            groups = []
+            for ft in src.getFeatures():
+                try:
+                    groups.append(str(ft[gfield]))
+                except (TypeError, ValueError, KeyError):
+                    groups.append("")
+            if len(groups) != len(vals):
+                # Разбор проб выбрасывает точки без отметки, и номера
+                # перестают совпадать. Молча сдвинуть их значило бы
+                # проверить не то.
+                feedback.pushWarning(self.tr(
+                    "Поле скважины пропущено: часть проб отброшена "
+                    "при разборе отметок, и номера разошлись."))
+                groups = None
+            else:
+                feedback.pushInfo(self.tr("Исключаем по скважине, их %d.")
+                                  % len(set(groups)))
         net = sampling_spacing(np.column_stack([xs, ys, zs]))
         auto = auto_grid(*net) if net else None
         if maxp <= 0:
@@ -2897,7 +2952,7 @@ class CrossValidateAlgorithm(IsolinerAlgorithm):
             pts, val, method=method,
             radius=(radius if radius > 0 else None),
             anisotropy=aniso, power=power, max_points=maxp,
-            min_points=minp, sectors=sectors)
+            min_points=minp, sectors=sectors, groups=groups)
         feedback.setProgress(80)
         rep = cv_report(res, val)
 
@@ -2925,7 +2980,9 @@ class CrossValidateAlgorithm(IsolinerAlgorithm):
         if rep["n"] < len(val):
             feedback.pushWarning(self.tr(
                 "Проверено %d проб из %d: у остальных соседей "
-                "не нашлось.") % (rep["n"], len(val)))
+                "не нашлось. При исключении по скважине до соседней "
+                "бывает дальше, чем автоматический радиус: задайте "
+                "радиус вручную.") % (rep["n"], len(val)))
         feedback.pushInfo(self.tr(
             "Ошибка: средняя %.4f, среднеквадратичная %.4f, "
             "смещение %+.4f.") % (rep["mae"], rep["rmse"], rep["bias"]))
@@ -3082,6 +3139,342 @@ class DemoMapAlgorithm(IsolinerAlgorithm):
         return {self.OUTPUT_MAP: out}
 
 
+HINTS_2_06 = {
+    "INPUT": "Тот же слой проб, что подаётся в 2.02. Отметка задаётся "
+             "ниже так же, как там.",
+    "FIELD": "Числовое поле, значение которого раскладывается по кубу.",
+    "ZSRC": "Плоский слой отдаёт нулевую Z у каждой точки. Если брать "
+            "её из геометрии, все пробы лягут в одну плоскость и куб "
+            "выйдет бессмысленным.",
+    "ZFIELD": "Для отметки из поля это сама отметка, для глубины это "
+              "глубина вниз от поверхности.",
+    "ZSURF": "Грид, от которого отсчитывается глубина. Нужен пробам, "
+             "где записана глубина, а не отметка.",
+    "CELL": "Ноль берёт пятую часть расстояния между точками плана. "
+            "Мельче делать незачем: данных в промежутке всё равно нет, "
+            "а число узлов растёт как квадрат.",
+    "CELLZ": "Ноль берёт половину шага опробования. Крупнее значит "
+             "слить соседние замеры и потерять различие по глубине.",
+    "MAXPTS": "Соседей на узел. Кригинг решает систему размером "
+              "с их число, поэтому цена растёт как куб: шестнадцать "
+              "это обычный выбор, тридцать два уже заметно дороже.",
+    "AUTOVG": "Вариограмма замеряется по самим данным: длина связи "
+              "из планового замера, самородок из вертикального. "
+              "Задавать три числа на глаз бессмысленно, их и надо "
+              "было замерить.",
+    "NUGGET": "Разброс, который не убывает даже у соседних проб: "
+              "ошибка опробования и изменчивость мельче сети. Читается, "
+              "только если снят автоматический замер.",
+    "SILL": "Общий разброс данных, к которому вариограмма выходит "
+            "на больших расстояниях.",
+    "RANGE": "Расстояние, после которого пробы уже ничего не знают "
+             "друг о друге.",
+    "VGMODEL": "Вид модели. Разница между ними невелика, важнее "
+               "поведение у нуля: гауссова даёт слишком гладкое поле "
+               "там, где данные шумят.",
+    "ANISO": "Ноль берёт отношение вертикальной длины связи "
+             "к плановой, замеренное по данным. Это тот случай, когда "
+             "гадать не нужно.",
+    "RADIUS": "Ноль берёт четверть охвата данных. Узел, где точек "
+              "в радиусе не набралось, остаётся пропуском.",
+    "SECTORS": "Окружность вокруг узла делится на равные части, "
+               "из каждой берётся своя доля точек. Без этого при "
+               "анизотропии все соседи оказываются в одной скважине.",
+    "OUTPUT": "Куб значений: канал это горизонтальный уровень.",
+    "OUTVAR": "Куб дисперсии оценки, тех же размеров. В самой пробе "
+              "ноль, дальше от данных растёт. Это карта доверия, "
+              "и она единственное, что кригинг даёт всегда, независимо "
+              "от густоты сети.",
+}
+
+
+class Kriging3DAlgorithm(IsolinerAlgorithm):
+    """Обычный кригинг в объёме с замером вариограммы по данным.
+
+    Отличается от обратных расстояний двумя вещами. Веса учитывают, что
+    соседи знают друг про друга: две пробы рядом несут почти одно и то
+    же, и двойного голоса им не даётся. И выдаётся дисперсия оценки,
+    то есть карта доверия.
+
+    Выигрыш по точности не безусловен: он появляется, когда шаг сети
+    меньше примерно половины длины связи. На редкой сети соседние
+    скважины уже почти ничего не знают друг о друге, веса выходят почти
+    равными у любого метода, и разница уходит в шум.
+    """
+
+    def name(self):
+        return "kriging_3d"
+
+    def displayName(self):
+        return self.tr("2.06 Кригинг в объёме")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Считает куб значений кригингом и вторым выходом даёт куб "
+            "дисперсии оценки.\n\n"
+            "ЧЕМ ОТЛИЧАЕТСЯ ОТ 2.02. Обратные расстояния взвешивают "
+            "по одному расстоянию: им всё равно, на каком расстоянии "
+            "связь пропадает и сколько разброса приходится на ошибку "
+            "опробования. Кригинг берёт веса из вариограммы, поэтому "
+            "знает и то, и другое. Ещё он учитывает, что соседи знают "
+            "друг про друга: две пробы рядом несут почти одно и то же, "
+            "и двойного голоса им не даётся.\n\n"
+            "КОГДА ЭТО ОКУПАЕТСЯ. Не всегда. На демонстрационных "
+            "данных при густой сети кригинг выигрывает у обратных "
+            "расстояний до восьми процентов, при редкой проигрывает "
+            "до девяти. Перелом там, где шаг сети около половины длины "
+            "связи. Причина проста: когда скважины стоят реже, "
+            "соседние уже почти ничего не знают друг о друге, веса "
+            "выходят почти равными у любого метода, и разница уходит "
+            "в шум. Числа сети и длины связи инструмент печатает "
+            "в журнал, так что решение видно сразу.\n\n"
+            "ДИСПЕРСИЯ. Второй куб даёт то, чего у обратных расстояний "
+            "нет вовсе: в самой пробе она ноль, дальше от данных "
+            "растёт. Это карта доверия, и на редкой сети она "
+            "единственная причина брать кригинг.\n\n"
+            "ВАРИОГРАММА. Замеряется по самим данным. Длина связи "
+            "берётся из планового замера, самородок из вертикального, "
+            "анизотропия как отношение длин. Самородок из планового "
+            "замера брать нельзя: в плане пар ближе шага сети нет "
+            "вовсе, первый интервал начинается там же, и самородок "
+            "оттуда это продолжение прямой к нулю через пустоту. "
+            "По стволу пары есть с трёх метров.\n\n"
+            "ПРОВЕРКА. Насколько верить получившемуся, отвечает 2.05. "
+            "Задавайте там поле скважины: проверка по одной пробе "
+            "льстит модели в разы, потому что соседей она берёт "
+            "из того же ствола.")
+            + _credit())
+
+    def createInstance(self):
+        return Kriging3DAlgorithm()
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "INPUT", self.tr("Точки с высотой"),
+            [QgsProcessing.SourceType.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            "FIELD", self.tr("Поле значения"),
+            parentLayerParameterName="INPUT",
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterEnum(
+            "ZSRC", self.tr("Источник отметки"),
+            options=[self.tr("Высота геометрии (Z)"),
+                     self.tr("Поле отметки"),
+                     self.tr("Глубина от поверхности")],
+            defaultValue=0))
+        self.addParameter(QgsProcessingParameterField(
+            "ZFIELD", self.tr("Поле отметки или глубины"),
+            parentLayerParameterName="INPUT", optional=True,
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            "ZSURF", self.tr("Поверхность для отсчёта глубины"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            "CELL", self.tr("Шаг по горизонтали, м (0 - от данных)"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
+            minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            "CELLZ", self.tr("Шаг по вертикали, м (0 - от данных)"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
+            minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            "MAXPTS", self.tr("Соседей на узел"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=16,
+            minValue=2, maxValue=64))
+        self.addParameter(QgsProcessingParameterBoolean(
+            "AUTOVG", self.tr("Замерить вариограмму по данным"),
+            defaultValue=True))
+        self.addParameter(_advanced(QgsProcessingParameterEnum(
+            "VGMODEL", self.tr("Модель вариограммы"),
+            options=[self.tr("Сферическая"), self.tr("Показательная"),
+                     self.tr("Гауссова")], defaultValue=0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "NUGGET", self.tr("Самородковый эффект"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
+            minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "SILL", self.tr("Порог"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=1.0,
+            minValue=1e-9)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "RANGE", self.tr("Длина связи, м"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=100.0,
+            minValue=1e-6)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "ANISO", self.tr("Анизотропия (0 - от данных)"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
+            minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "RADIUS", self.tr("Радиус поиска, м (0 - авто)"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
+            minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "SECTORS", self.tr("Секторов поиска"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=8,
+            minValue=1, maxValue=32)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            "OUTPUT", self.tr("Куб значений")))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            "OUTVAR", self.tr("Куб дисперсии оценки")))
+        _hints(self, HINTS_2_06)
+
+    def _process(self, parameters, context, feedback):
+        import numpy as np
+        from .interp3d import (grid_nodes, sampling_spacing, grid_advice,
+                               auto_grid)
+        from .variogram import auto_fit, assemble, MODELS
+        from .kriging import ordinary
+
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        src = self.parameterAsSource(parameters, "INPUT", context)
+        cell = self.parameterAsDouble(parameters, "CELL", context)
+        cellz = self.parameterAsDouble(parameters, "CELLZ", context)
+        maxp = self.parameterAsInt(parameters, "MAXPTS", context)
+        auto_vg = self.parameterAsBool(parameters, "AUTOVG", context)
+        aniso = self.parameterAsDouble(parameters, "ANISO", context)
+        radius = self.parameterAsDouble(parameters, "RADIUS", context)
+        sectors = self.parameterAsInt(parameters, "SECTORS", context)
+        out_path = self.parameterAsOutputLayer(parameters, "OUTPUT",
+                                               context)
+        var_path = self.parameterAsOutputLayer(parameters, "OUTVAR",
+                                               context)
+        xs, ys, zs, vals = _read_samples(self, parameters, context,
+                                         feedback)
+        pts = np.column_stack([xs, ys, zs])
+        vals = np.asarray(vals, dtype=float)
+
+        net = sampling_spacing(pts)
+        auto = auto_grid(*net) if net else None
+        if cell <= 0:
+            cell = auto["cell"] if auto else 25.0
+            feedback.pushInfo(self.tr("Шаг по горизонтали от данных: "
+                                      "%.1f м.") % cell)
+        if cellz <= 0:
+            cellz = auto["cellz"] if auto else 5.0
+            feedback.pushInfo(self.tr("Шаг по вертикали от данных: "
+                                      "%.2f м.") % cellz)
+        if net:
+            feedback.pushInfo(self.tr(
+                "Сеть: шаг по вертикали %.2f м, шаг в плане %.0f м, "
+                "замеров в одной точке плана %d.") % net)
+
+        if auto_vg:
+            plan = auto_fit(pts, vals, nlags=12, direction="plan")
+            vert = auto_fit(pts, vals, nlags=12, direction="vert")
+            vm = assemble(plan, vert, float(np.var(vals)))
+            feedback.pushInfo(self.tr(
+                "Вариограмма в плане: %s, длина связи %.0f м, пар %d.")
+                % (plan["kind"], plan["range"], plan["n_pairs"]))
+            feedback.pushInfo(self.tr(
+                "Вариограмма по вертикали: длина связи %.1f м, "
+                "самородок %.3f, пар %d.")
+                % (vert["range"], vert["nugget"], vert["n_pairs"]))
+            if aniso <= 0:
+                aniso = vm["anisotropy"]
+        else:
+            vm = {"kind": MODELS[self.parameterAsEnum(
+                      parameters, "VGMODEL", context)],
+                  "nugget": self.parameterAsDouble(parameters, "NUGGET",
+                                                   context),
+                  "sill": self.parameterAsDouble(parameters, "SILL",
+                                                 context),
+                  "range": self.parameterAsDouble(parameters, "RANGE",
+                                                  context)}
+            if aniso <= 0:
+                aniso = 1.0
+        feedback.pushInfo(self.tr(
+            "Модель: %s, самородок %.3f, порог %.3f, длина связи "
+            "%.0f м, анизотропия %.3f.")
+            % (vm["kind"], vm["nugget"], vm["sill"], vm["range"], aniso))
+        if net and net[1] > 0.5 * vm["range"]:
+            feedback.pushWarning(self.tr(
+                "Шаг сети %.0f м больше половины длины связи %.0f м. "
+                "На такой сети кригинг обычно не точнее обратных "
+                "расстояний: соседние скважины почти ничего не знают "
+                "друг о друге. Дисперсия оценки при этом остаётся "
+                "полезной.") % (net[1], vm["range"]))
+
+        pad = cell
+        x0, x1 = pts[:, 0].min() - pad, pts[:, 0].max() + pad
+        y0, y1 = pts[:, 1].min() - pad, pts[:, 1].max() + pad
+        z0, z1 = pts[:, 2].min() - cellz, pts[:, 2].max() + cellz
+        nx = max(int(np.ceil((x1 - x0) / cell)), 1)
+        ny = max(int(np.ceil((y1 - y0) / cell)), 1)
+        nz = max(int(np.ceil((z1 - z0) / cellz)) + 1, 1)
+        feedback.pushInfo(self.tr("Сетка: %d x %d x %d, узлов %d")
+                          % (nx, ny, nz, nx * ny * nz))
+        for note in grid_advice(nx, ny, nz, cell,
+                                net[1] if net else None):
+            feedback.pushWarning(self.tr("Сетка: %s.") % note)
+
+        nodes = grid_nodes(x0, y1, z0, nx, ny, nz, cell, cell, cellz)
+        vol = np.full(nx * ny * nz, np.nan)
+        dsp = np.full(nx * ny * nz, np.nan)
+        per_level = nx * ny
+        step = max(nz // 20, 1)
+        for k in range(nz):
+            if feedback.isCanceled():
+                break
+            a, b = k * per_level, (k + 1) * per_level
+            est, var = ordinary(pts, vals, nodes[a:b], vm,
+                                radius=(radius if radius > 0 else None),
+                                max_points=maxp, sectors=sectors,
+                                anisotropy=aniso)
+            vol[a:b] = est
+            dsp[a:b] = var
+            if k % step == 0:
+                feedback.setProgress(100.0 * k / max(nz, 1))
+        vol = vol.reshape(nz, ny, nx)
+        dsp = dsp.reshape(nz, ny, nx)
+
+        filled = int(np.isfinite(vol).sum())
+        feedback.pushInfo(self.tr("Заполнено узлов: %d из %d")
+                          % (filled, vol.size))
+        if filled:
+            feedback.pushInfo(self.tr(
+                "Дисперсия оценки: %.4f .. %.4f, среднее %.4f.")
+                % (float(np.nanmin(dsp)), float(np.nanmax(dsp)),
+                   float(np.nanmean(dsp))))
+            lo, hi = float(np.nanmin(vol)), float(np.nanmax(vol))
+            dlo, dhi = float(vals.min()), float(vals.max())
+            feedback.pushInfo(self.tr(
+                "Значения: %.3f .. %.3f, в пробах %.3f .. %.3f.")
+                % (lo, hi, dlo, dhi))
+            if lo < dlo or hi > dhi:
+                # Веса кригинга бывают отрицательными, и оценка может
+                # выйти за размах данных. Для содержаний это означает
+                # отрицательные значения там, где их быть не может.
+                feedback.pushWarning(self.tr(
+                    "Оценка вышла за размах проб. У кригинга веса "
+                    "бывают отрицательными, и на содержаниях это даёт "
+                    "значения ниже нуля. Гауссова модель к этому "
+                    "склонна сильнее прочих: попробуйте сферическую "
+                    "или поднимите самородок."))
+
+        gt = (x0, cell, 0.0, y1, 0.0, -cell)
+        crs = src.sourceCrs()
+        wkt = crs.toWkt() if crs is not None else ""
+        names = [self.tr("уровень %d") % (k + 1) for k in range(nz)]
+        meta = {"Z0": "%.6f" % z0, "DZ": "%.6f" % cellz}
+        _write_grid_tiff(out_path, [vol[k] for k in range(nz)], gt, wkt,
+                         float("nan"), nx, ny, names, meta=meta)
+        _write_grid_tiff(var_path, [dsp[k] for k in range(nz)], gt, wkt,
+                         float("nan"), nx, ny, names, meta=meta)
+        _save_values(self, _saved)
+        return {"OUTPUT": out_path, "OUTVAR": var_path}
+
+
 ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
@@ -3094,6 +3487,7 @@ ALGORITHMS = [
     CubeToBlocksAlgorithm,
     CubeVoxelBodyAlgorithm,
     CrossValidateAlgorithm,
+    Kriging3DAlgorithm,
     PolyhedralDemoAlgorithm,
     DemoMapAlgorithm,
 ]
