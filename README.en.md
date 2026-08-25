@@ -73,7 +73,8 @@ NumPy and GDAL and need no kriging.
 | 1.04 Surfaces to 3D (meshes) | Export of grids to the 2DM format (MDAL) | Mesh layers |
 | 1.05 Domains to a bed band | Area polygons as an extra grid band | A bed grid |
 | 1.06 Reserve difference (write-off) | The difference of two block models per cell | Points |
-| 1.07 Create sample data (demo) | Bodies with Z and a test map for the texture | A layer or a raster |
+| 1.07 Create sample data (demo) | Bodies with Z: a bed, a pile, a cube, a tetrahedron | A layer |
+| 1.08 A map for a texture (demo) | A check map with a grid and fields | A raster |
 
 The **Interpolation in three dimensions** group works with a cube of
 values: a grid band is a horizontal level.
@@ -84,6 +85,7 @@ values: a grid band is a horizontal level.
 | 2.02 Interpolation of points in three dimensions | Nearest neighbour and inverse distances with anisotropy | A cube of values |
 | 2.03 Cube to a block model | A centroid per occupied cell, block size and volume | Points |
 | 2.04 Cube body as voxels | A body above the cutoff as cell boxes, one feature per interval | MULTIPOLYGON Z |
+| 2.05 Check of the interpolation | Leave-one-out, error and bias | Residual points |
 
 A bed grid assembled by the first tool is read by the 3D window as a body:
 computed and looked at right away.

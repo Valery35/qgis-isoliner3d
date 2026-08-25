@@ -433,6 +433,49 @@ def test_auto_grid_needs_a_measured_net():
     assert interp3d.auto_grid(None, None, None) is None
 
 
+def test_cv_report_counts_what_matters():
+    """Сводка по невязкам: сколько проверено, насколько промахнулись."""
+    res = np.array([1.0, -1.0, 2.0, np.nan])
+    val = np.array([10.0, 10.0, 10.0, 10.0])
+    rep = interp3d.cv_report(res, val)
+    assert rep["n"] == 3
+    assert abs(rep["mae"] - 4.0 / 3.0) < 1e-9
+    assert abs(rep["rmse"] - np.sqrt(6.0 / 3.0)) < 1e-9
+    assert abs(rep["bias"] - 2.0 / 3.0) < 1e-9
+
+
+def test_cv_report_share_of_spread():
+    """Ошибка сопоставляется с размахом самих данных.
+
+    Средняя ошибка в единицу мало что говорит, пока не видно, что
+    данные меняются от нуля до десяти или от нуля до единицы.
+    """
+    res = np.array([1.0, -1.0])
+    rep = interp3d.cv_report(res, np.array([0.0, 10.0]))
+    assert abs(rep["mae_share"] - 0.1) < 1e-9
+
+
+def test_cv_report_survives_all_gaps():
+    """Если проверить не удалось ничего, сводка не падает."""
+    rep = interp3d.cv_report(np.array([np.nan, np.nan]),
+                             np.array([1.0, 2.0]))
+    assert rep["n"] == 0
+    assert rep["mae"] != rep["mae"]
+
+
+def test_sectors_lower_the_error_on_boreholes():
+    """Сектора уменьшают ошибку на скважинной сети.
+
+    Это число из разбора: с одним сектором соседи берутся из одной
+    скважины, и проверка исключением по одной это видит.
+    """
+    pts, val, _h = _holes(n_side=4, step=200.0, sample=5.0)
+    kw = dict(method="idw", anisotropy=20.0, max_points=16)
+    _r1, mae1, _s1 = interp3d.cross_validate(pts, val, sectors=1, **kw)
+    _r8, mae8, _s8 = interp3d.cross_validate(pts, val, sectors=8, **kw)
+    assert mae8 < mae1, (mae8, mae1)
+
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

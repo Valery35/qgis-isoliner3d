@@ -375,6 +375,37 @@ def grid_nodes(x0, y0, z0, nx, ny, nz, dx, dy, dz):
                             Z.transpose(2, 1, 0).ravel()])
 
 
+def cv_report(residuals, values):
+    """Сводка по невязкам проверки с исключением по одной.
+
+    Средняя ошибка сама по себе мало что говорит: единица это много
+    на содержаниях от нуля до двух и мало на содержаниях от нуля
+    до ста. Поэтому рядом идёт её доля от размаха данных.
+
+    Смещение показывает, уводит ли модель в одну сторону: положительное
+    значит завышает. Ошибку без смещения глазом не отличить
+    от разброса, а лечится она по-разному.
+    """
+    res = np.asarray(residuals, dtype=float)
+    val = np.asarray(values, dtype=float)
+    ok = np.isfinite(res)
+    n = int(ok.sum())
+    if not n:
+        nan = float("nan")
+        return {"n": 0, "mae": nan, "rmse": nan, "bias": nan,
+                "mae_share": nan, "spread": nan}
+    r = res[ok]
+    good = np.isfinite(val)
+    spread = float(np.ptp(val[good])) if good.any() else 0.0
+    mae = float(np.mean(np.abs(r)))
+    return {"n": n,
+            "mae": mae,
+            "rmse": float(np.sqrt(np.mean(r ** 2))),
+            "bias": float(np.mean(r)),
+            "spread": spread,
+            "mae_share": mae / spread if spread > 0 else float("nan")}
+
+
 def cross_validate(points, values, method="idw", **kw):
     """Проверка с исключением по одной точке.
 

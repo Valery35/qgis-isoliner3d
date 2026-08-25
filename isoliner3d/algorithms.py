@@ -239,6 +239,97 @@ def _set_output_name(context, path, name):
         pass
 
 
+def _read_samples(alg, parameters, context, feedback):
+    """Разбор точечных проб: координаты, отметка, значение.
+
+    Общий для 2.02 и 2.05: оба берут один и тот же слой одинаково,
+    и разойтись им нельзя. Источник отметки, поле, поверхность
+    и отбраковка пропусков читаются здесь один раз.
+
+    Точка, для которой отметку получить не удалось, в расчёт не идёт,
+    и число таких пишется в журнал.
+    """
+    import numpy as np
+    from .interp3d import resolve_z, Z_SOURCES
+
+    src = alg.parameterAsSource(parameters, "INPUT", context)
+    field = alg.parameterAsString(parameters, "FIELD", context)
+    zsrc = Z_SOURCES[alg.parameterAsEnum(parameters, "ZSRC", context)]
+    zfield = alg.parameterAsString(parameters, "ZFIELD", context)
+    zsurf = alg.parameterAsRasterLayer(parameters, "ZSURF", context)
+    if zsrc in ("field", "depth") and not zfield:
+        raise QgsProcessingException(alg.tr(
+            "Для этого источника отметки нужно поле."))
+    surf_arr = surf_gt = None
+    if zsrc == "depth":
+        if zsurf is None:
+            raise QgsProcessingException(alg.tr(
+                "Для глубины нужна поверхность отсчёта."))
+        # Поверхность читаем первым каналом: годится и обычный грид
+        # отметок, и кровля пласта из многоканального.
+        ds = gdal.Open(zsurf.source())
+        if ds is not None:
+            band = ds.GetRasterBand(1)
+            surf_arr = band.ReadAsArray().astype(float)
+            nd = band.GetNoDataValue()
+            if nd is not None:
+                surf_arr[surf_arr == nd] = np.nan
+            surf_gt = ds.GetGeoTransform()
+            ds = None
+        if surf_arr is None:
+            raise QgsProcessingException(alg.tr(
+                "Поверхность отсчёта не открылась."))
+
+    xs, ys, zs, vals = [], [], [], []
+    skipped_z = 0
+    for ft in src.getFeatures():
+        g = ft.geometry()
+        if g is None or g.isEmpty():
+            continue
+        p = g.constGet()
+        if zsrc == "geom":
+            try:
+                z = float(p.z())
+            except Exception:  # nosec
+                z = float("nan")
+        else:
+            try:
+                fv = float(ft[zfield])
+            except (TypeError, ValueError, KeyError):
+                fv = float("nan")
+            if zsrc == "field":
+                z = fv
+            else:
+                sv = sample_bilinear(surf_arr, surf_gt,
+                                     np.array([p.x()]),
+                                     np.array([p.y()]))[0]
+                z = float(resolve_z("depth", surf=[sv], depth=[fv])[0])
+        if z != z:
+            skipped_z += 1
+            continue
+        try:
+            v = float(ft[field])
+        except (TypeError, ValueError, KeyError):
+            v = float("nan")    # не except/continue: сканер даёт B112
+        if v != v:
+            continue
+        xs.append(float(p.x()))
+        ys.append(float(p.y()))
+        zs.append(z)
+        vals.append(v)
+    if skipped_z:
+        feedback.pushInfo(alg.tr("Без отметки пропущено точек: %d.")
+                          % skipped_z)
+    if len(vals) < 2:
+        raise QgsProcessingException(
+            alg.tr("Точек с высотой и значением меньше двух."))
+    if len(set(np.round(zs, 6).tolist())) < 2:
+        raise QgsProcessingException(alg.tr(
+            "Все точки на одной отметке: куб не построить. "
+            "Проверьте источник отметки."))
+    return xs, ys, zs, vals
+
+
 def _hints(alg, mapping):
     """Подсказки к полям: по одной на строку ввода.
 
@@ -1230,8 +1321,6 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
     работают."""
 
     EXAMPLE = "EXAMPLE"
-    LIKE, PIXEL, CELLS, FIELDS = "LIKE", "PIXEL", "CELLS", "FIELDS"
-    OUTPUT_MAP = "OUTPUT_MAP"
     EXTENT = "EXTENT"
     NX = "NX"
     THICKNESS = "THICKNESS"
@@ -1240,7 +1329,7 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
     AS_TIN = "AS_TIN"
     OUTPUT = "OUTPUT"
 
-    _KINDS = ("bed", "suite", "cube", "tetra", "map")
+    _KINDS = ("bed", "suite", "cube", "tetra")
 
     def tr(self, s): return _tr(s)
     def createInstance(self): return PolyhedralDemoAlgorithm()
@@ -1289,8 +1378,7 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
             self.EXAMPLE, self.tr("Пример"),
             options=[self.tr("Тело пласта"),
                      self.tr("Свита (стопка складчатых пластов)"),
-                     self.tr("Куб"), self.tr("Тетраэдр"),
-                     self.tr("Карта (растр для текстуры)")],
+                     self.tr("Куб"), self.tr("Тетраэдр")],
             defaultValue=_dv(self, self.EXAMPLE, 0)))
         self.addParameter(QgsProcessingParameterExtent(
             self.EXTENT, self.tr("Охват (окно вида) - размещение и размер"),
@@ -1314,29 +1402,9 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
             self.N_BEDS, self.tr("Пластов в свите"),
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.N_BEDS, 3), minValue=2, maxValue=8)))
-        self.addParameter(QgsProcessingParameterRasterLayer(
-            self.LIKE, self.tr("Карта: по охвату грида (растр)"),
-            optional=True))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.PIXEL, self.tr("Карта: сторона картинки, пикселей"),
-            QgsProcessingParameterNumber.Type.Integer,
-            defaultValue=_dv(self, self.PIXEL, 1024),
-            minValue=64, maxValue=8192)))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.CELLS, self.tr("Карта: клеток координатной сетки"),
-            QgsProcessingParameterNumber.Type.Integer,
-            defaultValue=_dv(self, self.CELLS, 10),
-            minValue=2, maxValue=100)))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            self.FIELDS, self.tr("Карта: полей пластов"),
-            QgsProcessingParameterNumber.Type.Integer,
-            defaultValue=_dv(self, self.FIELDS, 6),
-            minValue=2, maxValue=8)))
         self.addParameter(QgsProcessingParameterFeatureSink(
             self.OUTPUT, self.tr("Тело (демо)"),
             QgsProcessing.SourceType.TypeVectorPolygon, optional=True))
-        self.addParameter(QgsProcessingParameterRasterDestination(
-            self.OUTPUT_MAP, self.tr("Карта (демо)"), optional=True))
         _hints(self, HINTS_1_07)
 
     @staticmethod
@@ -1391,66 +1459,12 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
                 "слоем.") % e)
             return False
 
-    def _make_map(self, parameters, context, feedback):
-        """Проверочная карта-растр для наложения текстуры.
-
-        Охват берётся из готового грида, если он задан, иначе из общего
-        параметра охвата: карта тогда ляжет ровно по границам поверхности.
-        """
-        from .demo_map import demo_map
-        like = self.parameterAsRasterLayer(parameters, self.LIKE, context)
-        if like is not None:
-            ext, crs = like.extent(), like.crs()
-        else:
-            crs = QgsProject.instance().crs()
-            ext = self.parameterAsExtent(parameters, self.EXTENT, context,
-                                         crs)
-        if ext is None or ext.isEmpty():
-            raise QgsProcessingException(self.tr(
-                "Задайте грид или охват: карте нужны границы."))
-        side = int(self.parameterAsInt(parameters, self.PIXEL, context))
-        cells = int(self.parameterAsInt(parameters, self.CELLS, context))
-        nfields = int(self.parameterAsInt(parameters, self.FIELDS, context))
-        w, h = ext.width(), ext.height()
-        if w >= h:
-            nx, ny = side, max(64, int(round(side * h / (w or 1.0))))
-        else:
-            nx, ny = max(64, int(round(side * w / (h or 1.0)))), side
-        img = demo_map(nx=nx, ny=ny, cells=cells, n_fields=nfields)
-        out = self.parameterAsOutputLayer(parameters, self.OUTPUT_MAP,
-                                          context)
-        if not out:
-            raise QgsProcessingException(self.tr(
-                "Укажите файл для карты в поле «Карта (демо)»."))
-        drv = gdal.GetDriverByName("GTiff")
-        ds = drv.Create(out, nx, ny, 3, gdal.GDT_Byte,
-                        options=["COMPRESS=LZW", "TILED=YES"])
-        ds.SetGeoTransform((ext.xMinimum(), w / float(nx), 0.0,
-                            ext.yMaximum(), 0.0, -h / float(ny)))
-        try:
-            ds.SetProjection(crs.toWkt())
-        except Exception:  # nosec
-            pass
-        for i in range(3):
-            band = ds.GetRasterBand(i + 1)
-            band.WriteArray(img[:, :, i])
-            band.SetDescription(["red", "green", "blue"][i])
-            band.FlushCache()
-        ds = None
-        feedback.pushInfo(self.tr("Карта: %d на %d пикселей.") % (nx, ny))
-        _set_output_name(context, out, self.tr("Карта (демо)"))
-        return {self.OUTPUT_MAP: out}
-
     def _process(self, parameters, context, feedback):
         from . import polyhedral as poly
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         idx = self.parameterAsEnum(parameters, self.EXAMPLE, context)
         kind = self._KINDS[idx]
-        if kind == "map":
-            res = self._make_map(parameters, context, feedback)
-            _save_values(self, _saved)
-            return res
         nx = self.parameterAsInt(parameters, self.NX, context)
         thickness = self.parameterAsDouble(parameters, self.THICKNESS, context)
         base = self.parameterAsDouble(parameters, self.BASE, context)
@@ -1753,9 +1767,9 @@ HINTS_1_06 = {
 }
 
 HINTS_1_07 = {
-    "EXAMPLE": "Что именно создать: тело пласта, свиту, карту "
-               "для текстуры. От выбора зависит, какие поля ниже "
-               "читаются.",
+    "EXAMPLE": "Что именно создать: тело пласта, свиту складчатых "
+               "пластов, куб или тетраэдр. Карта для текстуры вынесена "
+               "в отдельный инструмент 1.08.",
     "EXTENT": "Куда положить пример и какого размера. Пусто означает "
               "взять охват окна вида.",
     "THICKNESS": "Мощность пласта в единицах карты. От неё зависит, "
@@ -1767,16 +1781,8 @@ HINTS_1_07 = {
     "BASE": "Отметка подошвы. Свита строится вверх от неё.",
     "N_BEDS": "Сколько пластов в свите. Каждый ложится своим телом "
               "со своим содержанием.",
-    "LIKE": "Растр, по охвату которого делать карту. Нужен, чтобы "
-            "текстура легла ровно на существующий грид.",
-    "PIXEL": "Сторона картинки в пикселях. Крупнее значит чётче "
-             "текстура и тяжелее файл.",
-    "CELLS": "Сколько клеток координатной сетки нарисовать на карте.",
-    "FIELDS": "Сколько полей пластов нарисовать на карте.",
     "OUTPUT": "Слой с телами: полигоны с Z, годные для сцены и для "
               "подсчёта объёма.",
-    "OUTPUT_MAP": "Картинка для текстуры: её можно натянуть "
-                  "на поверхность в окне просмотра.",
 }
 
 
@@ -1789,15 +1795,8 @@ HINTS_2_01 = {
     "SAMPLE": "Проба длиннее мощности залежи пропустит её между "
               "замерами. На пласте в двадцать шесть метров десять "
               "метров это уже много.",
-    "EXTENT": "Если охват задан, он и берётся, а координаты угла "
-              "и размеры ниже не читаются.",
-    "X0": "Левый нижний угол площадки по оси X. Читается, только когда\n"
-          "охват не задан.",
-    "Y0": "Левый нижний угол площадки по оси Y. Читается, только когда\n"
-          "охват не задан.",
-    "SIZE": "Ширина площадки в метрах. Читается, только когда охват\n"
-            "не задан.",
-    "SIZE_Y": "Высота площадки. Ноль означает «как ширина».",
+    "EXTENT": "Площадка, на которой ставятся скважины. Пусто означает "
+              "километр от начала координат, об этом пишется в журнал.",
     "TOP": "Средняя отметка дневной поверхности. Устья ставятся "
            "по пологому рельефу вокруг неё.",
     "DEPTH": "Глубина разбуривания вниз от поверхности. Пропорции тела "
@@ -1837,10 +1836,6 @@ class Demo3DPointsAlgorithm(IsolinerAlgorithm):
     HOLES = "HOLES"
     SAMPLE = "SAMPLE"
     EXTENT = "EXTENT"
-    X0 = "X0"
-    Y0 = "Y0"
-    SIZE = "SIZE"
-    SIZE_Y = "SIZE_Y"
     TOP = "TOP"
     DEPTH = "DEPTH"
     CORE = "CORE"
@@ -1905,24 +1900,8 @@ class Demo3DPointsAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=_dv(self, self.SAMPLE, 3.0), minValue=0.05))
         self.addParameter(QgsProcessingParameterExtent(
-            self.EXTENT, self.tr("Охват площадки (если задан, он и берётся)"),
+            self.EXTENT, self.tr("Охват площадки"),
             optional=True))
-        self.addParameter(QgsProcessingParameterNumber(
-            self.X0, self.tr("X левого нижнего угла"),
-            QgsProcessingParameterNumber.Type.Double,
-            defaultValue=_dv(self, self.X0, 0.0)))
-        self.addParameter(QgsProcessingParameterNumber(
-            self.Y0, self.tr("Y левого нижнего угла"),
-            QgsProcessingParameterNumber.Type.Double,
-            defaultValue=_dv(self, self.Y0, 0.0)))
-        self.addParameter(QgsProcessingParameterNumber(
-            self.SIZE, self.tr("Ширина площадки, м"),
-            QgsProcessingParameterNumber.Type.Double,
-            defaultValue=_dv(self, self.SIZE, 1000.0), minValue=1.0))
-        self.addParameter(QgsProcessingParameterNumber(
-            self.SIZE_Y, self.tr("Высота площадки, м (0 - как ширина)"),
-            QgsProcessingParameterNumber.Type.Double,
-            defaultValue=_dv(self, self.SIZE_Y, 0.0), minValue=0.0))
         self.addParameter(QgsProcessingParameterNumber(
             self.TOP, self.tr("Отметка поверхности, м"),
             QgsProcessingParameterNumber.Type.Double,
@@ -1980,17 +1959,20 @@ class Demo3DPointsAlgorithm(IsolinerAlgorithm):
             parameters, self.KIND, context)]
         holes = self.parameterAsInt(parameters, self.HOLES, context)
         sample = self.parameterAsDouble(parameters, self.SAMPLE, context)
-        size = self.parameterAsDouble(parameters, self.SIZE, context)
-        size_y = self.parameterAsDouble(parameters, self.SIZE_Y, context)
         ext = self.parameterAsExtent(parameters, self.EXTENT, context)
         if ext is not None and not ext.isEmpty():
             x0, y0 = ext.xMinimum(), ext.yMinimum()
             w, h = ext.width(), ext.height()
         else:
-            x0 = self.parameterAsDouble(parameters, self.X0, context)
-            y0 = self.parameterAsDouble(parameters, self.Y0, context)
-            w = size
-            h = size_y if size_y > 0 else size
+            # Инструмент демонстрационный, и требовать охват до первого
+            # запуска незачем: даём километр от начала координат
+            # и говорим об этом в журнале.
+            x0 = y0 = 0.0
+            w = h = 1000.0
+            feedback.pushInfo(self.tr(
+                "Площадка по умолчанию: %.0f x %.0f м от начала "
+                "координат. Задайте охват, чтобы положить пример "
+                "на своё место.") % (w, h))
         top = self.parameterAsDouble(parameters, self.TOP, context)
         depth = self.parameterAsDouble(parameters, self.DEPTH, context)
         core = self.parameterAsDouble(parameters, self.CORE, context)
@@ -2200,37 +2182,10 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
 
     def _process(self, parameters, context, feedback):
         import numpy as np
-        from .interp3d import (interpolate, grid_nodes, resolve_z,
-                               sampling_spacing, grid_advice, auto_grid,
-                               Z_SOURCES)
+        from .interp3d import (interpolate, grid_nodes, sampling_spacing,
+                               grid_advice, auto_grid)
 
         src = self.parameterAsSource(parameters, "INPUT", context)
-        field = self.parameterAsString(parameters, "FIELD", context)
-        zsrc = Z_SOURCES[self.parameterAsEnum(parameters, "ZSRC", context)]
-        zfield = self.parameterAsString(parameters, "ZFIELD", context)
-        zsurf = self.parameterAsRasterLayer(parameters, "ZSURF", context)
-        if zsrc in ("field", "depth") and not zfield:
-            raise QgsProcessingException(self.tr(
-                "Для этого источника отметки нужно поле."))
-        surf_arr = surf_gt = None
-        if zsrc == "depth":
-            if zsurf is None:
-                raise QgsProcessingException(self.tr(
-                    "Для глубины нужна поверхность отсчёта."))
-            # Поверхность читаем первым каналом: годится и обычный
-            # грид отметок, и кровля пласта из многоканального.
-            ds = gdal.Open(zsurf.source())
-            if ds is not None:
-                band = ds.GetRasterBand(1)
-                surf_arr = band.ReadAsArray().astype(float)
-                nd = band.GetNoDataValue()
-                if nd is not None:
-                    surf_arr[surf_arr == nd] = np.nan
-                surf_gt = ds.GetGeoTransform()
-                ds = None
-            if surf_arr is None:
-                raise QgsProcessingException(self.tr(
-                    "Поверхность отсчёта не открылась."))
         method = ("nearest", "idw")[
             self.parameterAsEnum(parameters, "METHOD", context)]
         cell = self.parameterAsDouble(parameters, "CELL", context)
@@ -2241,52 +2196,10 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
         maxp = self.parameterAsInt(parameters, "MAXPTS", context)
         minp = self.parameterAsInt(parameters, "MINPTS", context)
         sectors = self.parameterAsInt(parameters, "SECTORS", context)
-        out_path = self.parameterAsOutputLayer(parameters, "OUTPUT", context)
-
-        xs, ys, zs, vals = [], [], [], []
-        skipped_z = 0
-        for ft in src.getFeatures():
-            g = ft.geometry()
-            if g is None or g.isEmpty():
-                continue
-            p = g.constGet()
-            if zsrc == "geom":
-                try:
-                    z = float(p.z())
-                except Exception:  # nosec
-                    z = float("nan")
-            else:
-                try:
-                    fv = float(ft[zfield])
-                except (TypeError, ValueError, KeyError):
-                    fv = float("nan")
-                if zsrc == "field":
-                    z = fv
-                else:
-                    sv = sample_bilinear(surf_arr, surf_gt,
-                                         np.array([p.x()]),
-                                         np.array([p.y()]))[0]
-                    z = float(resolve_z("depth", surf=[sv],
-                                        depth=[fv])[0])
-            if z != z:
-                skipped_z += 1
-                continue
-            try:
-                v = float(ft[field])
-            except (TypeError, ValueError, KeyError):
-                v = float("nan")   # не except/continue: сканер даёт B112
-            if v != v:
-                continue
-            xs.append(float(p.x()))
-            ys.append(float(p.y()))
-            zs.append(z)
-            vals.append(v)
-        if skipped_z:
-            feedback.pushInfo(self.tr("Без отметки пропущено точек: %d.")
-                              % skipped_z)
-        if len(vals) < 2:
-            raise QgsProcessingException(
-                self.tr("Точек с высотой и значением меньше двух."))
+        out_path = self.parameterAsOutputLayer(parameters, "OUTPUT",
+                                               context)
+        xs, ys, zs, vals = _read_samples(self, parameters, context,
+                                         feedback)
         net = sampling_spacing(np.column_stack([xs, ys, zs]))
         auto = auto_grid(*net) if net else None
         # Ноль в поле означает «взять от данных». Что подставили,
@@ -2811,6 +2724,364 @@ class CubeVoxelBodyAlgorithm(IsolinerAlgorithm):
         return {self.OUTPUT: dest}
 
 
+HINTS_2_05 = {
+    "INPUT": "Тот же слой проб, что подаётся в 2.02. Проверка идёт "
+             "по самим пробам, куб для неё не нужен.",
+    "FIELD": "Поле значения, по которому строится куб. Именно его "
+             "и проверяем.",
+    "ZSRC": "Источник отметки должен совпадать с тем, что задан в 2.02: "
+            "иначе проверяется не та расстановка точек.",
+    "ZFIELD": "Для отметки из поля это сама отметка, для глубины это "
+              "глубина вниз от поверхности.",
+    "ZSURF": "Грид, от которого отсчитывается глубина. Тот же, что "
+             "и в 2.02.",
+    "METHOD": "Метод, который собираетесь применять в 2.02. Проверка "
+              "и нужна, чтобы выбрать между ними по числам, а не "
+              "на глаз.",
+    "MAXPTS": "Ноль берёт на одного больше, чем замеров в одной точке "
+              "плана. Это тот же подбор, что и в 2.02.",
+    "ANISO": "Отношение вертикального масштаба к горизонтальному. "
+             "Подбирается как раз по ошибке проверки.",
+    "RADIUS": "Ноль берёт четверть охвата данных. Проба, вокруг которой "
+              "точек не нашлось, остаётся непроверенной.",
+    "POWER": "Степень обратных расстояний. Подбирается по ошибке "
+             "проверки вместе с анизотропией.",
+    "MINPTS": "Проба, вокруг которой точек меньше этого числа, остаётся "
+              "непроверенной и в ошибку не идёт.",
+    "SECTORS": "Окружность вокруг пробы делится на равные части. "
+               "На скважинной сети без этого ошибка выходит заметно "
+               "больше.",
+    "OUTPUT": "Пробы с полями value, model, resid и aresid. По ним "
+              "видно не только величину промаха, но и где он случился.",
+}
+
+
+class CrossValidateAlgorithm(IsolinerAlgorithm):
+    """Проверка интерполяции с исключением по одной пробе.
+
+    Каждая проба по очереди убирается из выборки, значение в её точке
+    считается по остальным, и разность с настоящим значением идёт
+    в невязку. Другого способа узнать, можно ли верить кубу, у нас нет:
+    сравнивать построенное не с чем, а на глаз одинаково убедительно
+    выглядят и хорошая модель, и вымысел.
+
+    По невязкам подбирают анизотропию, степень и число соседей: у этих
+    параметров нет правильного значения вообще, есть только лучшее
+    на этих данных.
+    """
+
+    def name(self):
+        return "cross_validate_3d"
+
+    def displayName(self):
+        return self.tr("2.05 Проверка интерполяции")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Убирает каждую пробу по очереди, считает значение в её "
+            "точке по остальным и сравнивает с настоящим.\n\nЭто "
+            "единственный способ узнать, можно ли верить кубу: "
+            "сравнивать построенное не с чем, а на глаз одинаково "
+            "убедительно выглядят и хорошая модель, и вымысел.\n\n"
+            "Параметры задаются те же, что в 2.02. Меняя их и смотря "
+            "на ошибку, подбирают анизотропию, степень и число "
+            "соседей: правильного значения у них нет вообще, есть "
+            "только лучшее на этих данных.\n\nВ журнал идут средняя "
+            "ошибка, среднеквадратичная, смещение и доля ошибки "
+            "от размаха данных. Смещение показывает, уводит ли модель "
+            "в одну сторону: разброс и односторонний увод лечатся "
+            "по-разному.\n\nПоля слоя: value настоящее значение, model "
+            "посчитанное, resid разность, aresid её модуль.")
+            + _credit())
+
+    def createInstance(self):
+        return CrossValidateAlgorithm()
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "INPUT", self.tr("Точки с высотой"),
+            [QgsProcessing.SourceType.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            "FIELD", self.tr("Поле значения"),
+            parentLayerParameterName="INPUT",
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterEnum(
+            "ZSRC", self.tr("Источник отметки"),
+            options=[self.tr("Высота геометрии (Z)"),
+                     self.tr("Поле отметки"),
+                     self.tr("Глубина от поверхности")],
+            defaultValue=0))
+        self.addParameter(QgsProcessingParameterField(
+            "ZFIELD", self.tr("Поле отметки или глубины"),
+            parentLayerParameterName="INPUT", optional=True,
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            "ZSURF", self.tr("Поверхность для отсчёта глубины"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterEnum(
+            "METHOD", self.tr("Метод"),
+            options=[self.tr("Ближний сосед"),
+                     self.tr("Обратные расстояния")], defaultValue=1))
+        self.addParameter(QgsProcessingParameterNumber(
+            "MAXPTS", self.tr("Наибольшее число точек (0 - от данных)"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=0,
+            minValue=0))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "ANISO", self.tr("Анизотропия (вертикаль к горизонтали)"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=20.0,
+            minValue=1e-6)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "RADIUS", self.tr("Радиус поиска, м (0 - авто)"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
+            minValue=0.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "POWER", self.tr("Степень обратных расстояний"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=2.0,
+            minValue=0.1, maxValue=10.0)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "MINPTS", self.tr("Наименьшее число точек"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=1,
+            minValue=1)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "SECTORS", self.tr("Секторов поиска"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=8,
+            minValue=1, maxValue=32)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            "OUTPUT", self.tr("Невязки проверки"),
+            QgsProcessing.SourceType.TypeVectorPoint))
+        _hints(self, HINTS_2_05)
+
+    def _process(self, parameters, context, feedback):
+        import numpy as np
+        from qgis.core import (QgsFields, QgsField, QgsFeature, QgsGeometry,
+                               QgsPoint, QgsWkbTypes)
+        from .interp3d import (cross_validate, cv_report, sampling_spacing,
+                               auto_grid)
+
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        src = self.parameterAsSource(parameters, "INPUT", context)
+        method = ("nearest", "idw")[
+            self.parameterAsEnum(parameters, "METHOD", context)]
+        aniso = self.parameterAsDouble(parameters, "ANISO", context)
+        radius = self.parameterAsDouble(parameters, "RADIUS", context)
+        power = self.parameterAsDouble(parameters, "POWER", context)
+        maxp = self.parameterAsInt(parameters, "MAXPTS", context)
+        minp = self.parameterAsInt(parameters, "MINPTS", context)
+        sectors = self.parameterAsInt(parameters, "SECTORS", context)
+
+        xs, ys, zs, vals = _read_samples(self, parameters, context,
+                                         feedback)
+        net = sampling_spacing(np.column_stack([xs, ys, zs]))
+        auto = auto_grid(*net) if net else None
+        if maxp <= 0:
+            maxp = auto["max_points"] if auto else 16
+            feedback.pushInfo(self.tr("Наибольшее число точек "
+                                      "от данных: %d.") % maxp)
+        pts = np.column_stack([xs, ys, zs])
+        val = np.array(vals, dtype=float)
+        feedback.pushInfo(self.tr("Проверяется проб: %d.") % len(val))
+        feedback.setProgress(10)
+
+        res, _mae, _rmse = cross_validate(
+            pts, val, method=method,
+            radius=(radius if radius > 0 else None),
+            anisotropy=aniso, power=power, max_points=maxp,
+            min_points=minp, sectors=sectors)
+        feedback.setProgress(80)
+        rep = cv_report(res, val)
+
+        fields = QgsFields()
+        for nm in ("value", "model", "resid", "aresid"):
+            fields.append(QgsField(nm, QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, "OUTPUT", context, fields,
+            QgsWkbTypes.Type.PointZ, src.sourceCrs())
+        if sink is None:
+            raise QgsProcessingException(
+                self.tr("Не удалось создать слой невязок."))
+        for i in range(len(val)):
+            r = float(res[i])
+            ft = QgsFeature(fields)
+            ft.setGeometry(QgsGeometry(QgsPoint(float(xs[i]), float(ys[i]),
+                                                float(zs[i]))))
+            ft.setAttributes([float(val[i]),
+                              float(val[i] + r) if r == r else None,
+                              r if r == r else None,
+                              abs(r) if r == r else None])
+            sink.addFeature(ft)
+        _set_output_name(context, dest, self.tr("Невязки проверки"))
+
+        if rep["n"] < len(val):
+            feedback.pushWarning(self.tr(
+                "Проверено %d проб из %d: у остальных соседей "
+                "не нашлось.") % (rep["n"], len(val)))
+        feedback.pushInfo(self.tr(
+            "Ошибка: средняя %.4f, среднеквадратичная %.4f, "
+            "смещение %+.4f.") % (rep["mae"], rep["rmse"], rep["bias"]))
+        if rep["spread"] > 0:
+            feedback.pushInfo(self.tr(
+                "Размах данных %.4f, средняя ошибка это %.1f процента "
+                "от него.") % (rep["spread"], 100.0 * rep["mae_share"]))
+        feedback.pushInfo(self.tr(
+            "Меняйте анизотропию, степень и число точек и смотрите "
+            "на эти числа: правильного значения у них нет, есть "
+            "лучшее на ваших данных."))
+        _save_values(self, _saved)
+        return {"OUTPUT": dest}
+
+
+HINTS_1_08 = {
+    "LIKE": "Растр, по охвату которого делать карту. Нужен, чтобы "
+            "текстура легла ровно на существующий грид.",
+    "EXTENT": "Границы карты, когда грид не задан. Пусто означает взять "
+              "охват окна вида.",
+    "PIXEL": "Сторона картинки в пикселях. Крупнее значит чётче "
+             "текстура и тяжелее файл.",
+    "CELLS": "Сколько клеток координатной сетки нарисовать на карте.",
+    "FIELDS": "Сколько полей пластов нарисовать на карте.",
+    "OUTPUT_MAP": "Картинка для текстуры: её можно натянуть "
+                  "на поверхность в окне просмотра.",
+}
+
+
+class DemoMapAlgorithm(IsolinerAlgorithm):
+    """Проверочная карта-растр для наложения текстуры.
+
+    Отделена от 1.07: у карты и у тел общего только охват, а поля
+    у каждого набора свои. В одном инструменте это были тринадцать
+    строк, из которых при любом выборе работала половина, и понять
+    по списку, какие из них про твой случай, было нельзя.
+    """
+
+    LIKE, PIXEL, CELLS, FIELDS = "LIKE", "PIXEL", "CELLS", "FIELDS"
+    EXTENT = "EXTENT"
+    OUTPUT_MAP = "OUTPUT_MAP"
+
+    def name(self):
+        return "demo_map"
+
+    def displayName(self):
+        return self.tr("1.08 Карта для текстуры (демо)")
+
+    def group(self):
+        return self.tr(GROUP4)
+
+    def groupId(self):
+        return GROUP4_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Рисует проверочную карту с координатной сеткой и полями "
+            "пластов.\n\nНужна, чтобы посмотреть, как ложится текстура "
+            "на поверхность в окне просмотра: на настоящей карте "
+            "перекосы и растяжения видно хуже, чем на клетках.\n\n"
+            "Охват берётся из готового грида, если он задан, иначе "
+            "из поля охвата: карта тогда ляжет ровно по границам "
+            "поверхности.")
+            + _credit())
+
+    def createInstance(self):
+        return DemoMapAlgorithm()
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Охват (если грид не задан)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.LIKE, self.tr("Карта: по охвату грида (растр)"),
+            optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.PIXEL, self.tr("Карта: сторона картинки, пикселей"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.PIXEL, 1024),
+            minValue=64, maxValue=8192)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.CELLS, self.tr("Карта: клеток координатной сетки"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.CELLS, 10),
+            minValue=2, maxValue=100)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.FIELDS, self.tr("Карта: полей пластов"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.FIELDS, 6),
+            minValue=2, maxValue=8)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_MAP, self.tr("Карта (демо)"), optional=True))
+        _hints(self, HINTS_1_08)
+
+    def _process(self, parameters, context, feedback):
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        res = self._make_map(parameters, context, feedback)
+        _save_values(self, _saved)
+        return res
+
+    def _make_map(self, parameters, context, feedback):
+        """Проверочная карта-растр для наложения текстуры.
+
+        Охват берётся из готового грида, если он задан, иначе из общего
+        параметра охвата: карта тогда ляжет ровно по границам поверхности.
+        """
+        from .demo_map import demo_map
+        like = self.parameterAsRasterLayer(parameters, self.LIKE, context)
+        if like is not None:
+            ext, crs = like.extent(), like.crs()
+        else:
+            crs = QgsProject.instance().crs()
+            ext = self.parameterAsExtent(parameters, self.EXTENT, context,
+                                         crs)
+        if ext is None or ext.isEmpty():
+            raise QgsProcessingException(self.tr(
+                "Задайте грид или охват: карте нужны границы."))
+        side = int(self.parameterAsInt(parameters, self.PIXEL, context))
+        cells = int(self.parameterAsInt(parameters, self.CELLS, context))
+        nfields = int(self.parameterAsInt(parameters, self.FIELDS, context))
+        w, h = ext.width(), ext.height()
+        if w >= h:
+            nx, ny = side, max(64, int(round(side * h / (w or 1.0))))
+        else:
+            nx, ny = max(64, int(round(side * w / (h or 1.0)))), side
+        img = demo_map(nx=nx, ny=ny, cells=cells, n_fields=nfields)
+        out = self.parameterAsOutputLayer(parameters, self.OUTPUT_MAP,
+                                          context)
+        if not out:
+            raise QgsProcessingException(self.tr(
+                "Укажите файл для карты в поле «Карта (демо)»."))
+        drv = gdal.GetDriverByName("GTiff")
+        ds = drv.Create(out, nx, ny, 3, gdal.GDT_Byte,
+                        options=["COMPRESS=LZW", "TILED=YES"])
+        ds.SetGeoTransform((ext.xMinimum(), w / float(nx), 0.0,
+                            ext.yMaximum(), 0.0, -h / float(ny)))
+        try:
+            ds.SetProjection(crs.toWkt())
+        except Exception:  # nosec
+            pass
+        for i in range(3):
+            band = ds.GetRasterBand(i + 1)
+            band.WriteArray(img[:, :, i])
+            band.SetDescription(["red", "green", "blue"][i])
+            band.FlushCache()
+        ds = None
+        feedback.pushInfo(self.tr("Карта: %d на %d пикселей.") % (nx, ny))
+        _set_output_name(context, out, self.tr("Карта (демо)"))
+        return {self.OUTPUT_MAP: out}
+
+
 ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
@@ -2822,5 +3093,7 @@ ALGORITHMS = [
     Interp3DAlgorithm,
     CubeToBlocksAlgorithm,
     CubeVoxelBodyAlgorithm,
+    CrossValidateAlgorithm,
     PolyhedralDemoAlgorithm,
+    DemoMapAlgorithm,
 ]

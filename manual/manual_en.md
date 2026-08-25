@@ -630,6 +630,20 @@ what the other choice costs. The grid step, for instance, says that finer
 than the distance between places is pointless, because there is no data
 in between and the node count grows as a square.
 
+## 1.08 A map for a texture (demo)
+
+Draws a check map with a coordinate grid and bed fields. It is there to
+see how a texture lands on a surface in the viewer: on a real map skews
+and stretches show up worse than on squares.
+
+The extent is taken from a ready grid when one is given, otherwise from
+the extent field: the map then lands exactly on the bounds of the
+surface.
+
+The map used to be one of the examples in 1.07. Four fields out of
+thirteen worked for it there, and the rest were not read at all when it
+was chosen.
+
 # The Interpolation in three dimensions group
 
 The second group of the Processing toolbox works with a cube of values.
@@ -662,8 +676,8 @@ The boundary of the body is where the grade falls to half the core value
 above background. That is the cutoff, and it is printed to the log
 together with the number of samples and the range of grades.
 
-The site rectangle is set either by an extent or by the coordinates of the
-lower left corner, the width and the height.
+The site is set by an extent. An empty extent gives a kilometre from the
+origin, which is written to the log.
 
 ## 2.02 Interpolation of points in three dimensions
 
@@ -731,6 +745,32 @@ The **Remove edge pinches** flag fills the corner with one cell, and the
 contact becomes a face contact. On the demonstration bed of seventeen
 thousand cells there is exactly one such pinch, and two added cells cure
 it.
+
+## 2.05 Check of the interpolation
+
+Removes each sample in turn, computes the value at its place from the
+rest and compares it with the real one.
+
+This is the only way to learn whether the cube can be trusted: there is
+nothing to compare the built model with, and to the eye a good model and
+an invention look equally convincing.
+
+The parameters are the same as in 2.02. By changing them and watching the
+error one picks the anisotropy, the power and the number of neighbours:
+there is no right value for them at all, only the best one on this data.
+
+The log gets four numbers. The mean error and the root mean square one
+tell how large the miss is, the bias tells whether the model leans one
+way, and the share of the error in the spread of the data puts it in
+scale: one is a lot on grades up to two and little on grades up to a
+hundred. Scatter and a one-sided lean look the same and are cured
+differently, so the bias is kept apart.
+
+Fields of the residual layer: `value` the real value, `model` the
+computed one, `resid` the difference, `aresid` its absolute value. They
+show not only how large the miss is but where it happened.
+
+A thousand and a half samples are checked in about a second.
 
 # A cube of values: an isosurface and voxels
 
@@ -858,6 +898,8 @@ All three work independently: installing the whole set is not required.
 | Inverse distances give the same as nearest neighbour | All the neighbours were gathered from one borehole. | Raise the number of search sectors in the advanced parameters of 2.02. |
 | An anomaly with depth smoothed into a flat field | The number of points is larger than the number of samples per place. | Leave zero in the point count field: it will be taken from the data. |
 | The tool refuses, all the points share one elevation | The elevation was taken from the geometry of a flat layer. | Choose the elevation from a field or the depth below a surface. |
+| I do not know whether the cube can be trusted | There is nothing to compare the built model with. | Run 2.05 on the same samples: it removes each in turn and shows how far the model misses. |
+| The error is large but where is unclear | The numbers in the log say nothing about place. | Open the residual layer and colour it by aresid: it shows in which corner of the site the model misses. |
 | Voxels are not built and the log names a face count | The model is larger than the responsiveness limit. | Raise the cutoff, reduce the number of colour intervals, or coarsen the cube. |
 | Points are visible but labels are not | No label field is chosen, or the label count is zero. | Set the **Point label field** and **Labels at most**. |
 | A flat marker is hard to see from above | It lies in plan and flattens. | Take the circle: it is on screen and reads from any angle. |

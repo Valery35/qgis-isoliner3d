@@ -32,6 +32,8 @@ EXPECTED = {
     "Interp3DAlgorithm": ("interpolate_3d", "2.02"),
     "CubeToBlocksAlgorithm": ("cube_to_block_model", "2.03"),
     "CubeVoxelBodyAlgorithm": ("cube_voxel_body", "2.04"),
+    "CrossValidateAlgorithm": ("cross_validate_3d", "2.05"),
+    "DemoMapAlgorithm": ("demo_map", "1.08"),
 }
 
 
@@ -317,7 +319,9 @@ def test_every_tool_has_field_hints():
              ("Demo3DPointsAlgorithm", "HINTS_2_01"),
              ("Interp3DAlgorithm", "HINTS_2_02"),
              ("CubeToBlocksAlgorithm", "HINTS_2_03"),
-             ("CubeVoxelBodyAlgorithm", "HINTS_2_04"))
+             ("CubeVoxelBodyAlgorithm", "HINTS_2_04"),
+             ("CrossValidateAlgorithm", "HINTS_2_05"),
+             ("DemoMapAlgorithm", "HINTS_1_08"))
     tree = ast.parse(src)
     dicts = {}
     for node in tree.body:
@@ -357,6 +361,67 @@ def test_field_hints_say_what_the_other_choice_costs():
             assert len(text) > 40, (key.value, text)
             assert text[0].isupper(), (key.value, text)
             assert text.rstrip().endswith("."), (key.value, text)
+
+
+def test_demo_site_is_one_field():
+    """Площадка задаётся одним охватом, а не пятью полями.
+
+    Охват, X угла, Y угла, ширина и высота описывали один и тот же
+    прямоугольник, причём четыре последних читались, только когда
+    охват пуст. Пять строк на одно понятие.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class Demo3DPointsAlgorithm(")
+    nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+    seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+    for key in ("X0", "Y0", "SIZE_Y"):
+        assert "self.%s" % key not in seg, key
+    assert "self.EXTENT" in seg
+    assert seg.count("self.addParameter(") == 14, seg.count(
+        "self.addParameter(")
+
+
+def test_demo_site_falls_back_to_a_default():
+    """Пустой охват даёт площадку по умолчанию, а не отказ.
+
+    Инструмент демонстрационный, и требовать охват до первого запуска
+    незачем: размер по умолчанию печатается в журнал.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class Demo3DPointsAlgorithm(")
+    seg = src[i:src.index("\nclass ", i + 10)]
+    assert "Площадка по умолчанию" in seg
+
+
+def test_demo_map_is_a_tool_of_its_own():
+    """Карта для текстуры отделена от тел.
+
+    В 1.07 было тринадцать полей и пять примеров с непересекающимися
+    наборами: при выборе карты четыре поля картинки читались, а мощность
+    и разбиение не читались вовсе. По списку было не понять, какие поля
+    про твой случай.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    assert "class DemoMapAlgorithm(" in src
+    i = src.index("class PolyhedralDemoAlgorithm(")
+    nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+    seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+    for key in ("LIKE", "PIXEL", "CELLS", "FIELDS", "OUTPUT_MAP"):
+        assert "self.%s" % key not in seg, key
+    assert '"map"' not in seg
+    assert seg.count("self.addParameter(") == 8, seg.count(
+        "self.addParameter(")
+    j = src.index("class DemoMapAlgorithm(")
+    nxt2 = re.search(r"\nclass \w+Algorithm\(", src[j + 10:])
+    seg2 = src[j:j + 10 + nxt2.start()] if nxt2 else src[j:]
+    assert seg2.count("self.addParameter(") == 6, seg2.count(
+        "self.addParameter(")
+    assert "def _make_map" in seg2
 
 
 if __name__ == "__main__":

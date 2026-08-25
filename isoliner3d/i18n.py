@@ -81,6 +81,130 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'Охват площадки': 'Site extent',
+    'Площадка по умолчанию: %.0f x %.0f м от начала координат. '
+    'Задайте охват, чтобы положить пример на своё место.':
+        'Default site: %.0f x %.0f m from the origin. Set an extent '
+        'to put the example in its place.',
+    'Площадка, на которой ставятся скважины. Пусто означает '
+    'километр от начала координат, об этом пишется в журнал.':
+        'The site the boreholes are placed on. Empty means a kilometre '
+        'from the origin, which is written to the log.',
+    '1.08 Карта для текстуры (демо)':
+        '1.08 A map for a texture (demo)',
+    'Границы карты, когда грид не задан. Пусто означает взять охват окна '
+    'вида.':
+        'The bounds of the map when no grid is set. Empty means taking the '
+        'extent of the view window.',
+    'Охват (если грид не задан)':
+        'Extent (when no grid is set)',
+    'Рисует проверочную карту с координатной сеткой и полями '
+    'пластов.\n\nНужна, чтобы посмотреть, как ложится текстура на поверхность'
+    ' в окне просмотра: на настоящей карте перекосы и растяжения видно хуже, '
+    'чем на клетках.\n\nОхват берётся из готового грида, если он задан, иначе'
+    ' из поля охвата: карта тогда ляжет ровно по границам поверхности.':
+        'Draws a check map with a coordinate grid and bed fields.\n\nIt is '
+        'there to see how a texture lands on a surface in the viewer: on a '
+        'real map skews and stretches show up worse than on squares.\n\nThe '
+        'extent is taken from a ready grid when one is given, otherwise from '
+        'the extent field: the map then lands exactly on the bounds of the '
+        'surface.',
+    'Что именно создать: тело пласта, свиту складчатых пластов, куб или '
+    'тетраэдр. Карта для текстуры вынесена в отдельный инструмент 1.08.':
+        'What exactly to create: a bed body, a pile of folded beds, a cube or'
+        ' a tetrahedron. The map for a texture has moved to the separate tool'
+        ' 1.08.',
+    '2.05 Проверка интерполяции':
+        '2.05 Check of the interpolation',
+    'Грид, от которого отсчитывается глубина. Тот же, что и в 2.02.':
+        'The grid the depth is measured from. The same one as in 2.02.',
+    'Для отметки из поля это сама отметка, для глубины это глубина вниз от '
+    'поверхности.':
+        'For elevation from a field this is the elevation itself, for depth '
+        'it is the depth measured down from the surface.',
+    'Источник отметки должен совпадать с тем, что задан в 2.02: иначе '
+    'проверяется не та расстановка точек.':
+        'The elevation source must match the one set in 2.02, otherwise a '
+        'different arrangement of points is checked.',
+    'Меняйте анизотропию, степень и число точек и смотрите на эти числа: '
+    'правильного значения у них нет, есть лучшее на ваших данных.':
+        'Change the anisotropy, the power and the number of points and watch '
+        'these numbers: there is no right value for them, only the best one '
+        'on your data.',
+    'Метод, который собираетесь применять в 2.02. Проверка и нужна, чтобы '
+    'выбрать между ними по числам, а не на глаз.':
+        'The method you intend to use in 2.02. The check is there to choose '
+        'between them by numbers rather than by eye.',
+    'Не удалось создать слой невязок.':
+        'Could not create the residual layer.',
+    'Невязки проверки':
+        'Check residuals',
+    'Ноль берёт на одного больше, чем замеров в одной точке плана. Это тот же'
+    ' подбор, что и в 2.02.':
+        'Zero takes one more than the number of samples at one place in plan.'
+        ' This is the same choice as in 2.02.',
+    'Ноль берёт четверть охвата данных. Проба, вокруг которой точек не '
+    'нашлось, остаётся непроверенной.':
+        'Zero takes a quarter of the data extent. A sample with no points '
+        'around it stays unchecked.',
+    'Окружность вокруг пробы делится на равные части. На скважинной сети без '
+    'этого ошибка выходит заметно больше.':
+        'The circle around the sample is split into equal parts. On a '
+        'borehole grid the error is noticeably larger without this.',
+    'Отношение вертикального масштаба к горизонтальному. Подбирается как раз '
+    'по ошибке проверки.':
+        'The ratio of the vertical scale to the horizontal one. It is picked '
+        'exactly by the error of this check.',
+    'Ошибка: средняя %.4f, среднеквадратичная %.4f, смещение %+.4f.':
+        'Error: mean %.4f, root mean square %.4f, bias %+.4f.',
+    'Поле значения, по которому строится куб. Именно его и проверяем.':
+        'The value field the cube is built from. That is what we check.',
+    'Проба, вокруг которой точек меньше этого числа, остаётся непроверенной и'
+    ' в ошибку не идёт.':
+        'A sample with fewer points around it than this stays unchecked and '
+        'does not enter the error.',
+    'Пробы с полями value, model, resid и aresid. По ним видно не только '
+    'величину промаха, но и где он случился.':
+        'Samples with the fields value, model, resid and aresid. They show '
+        'not only how large the miss is but where it happened.',
+    'Проверено %d проб из %d: у остальных соседей не нашлось.':
+        'Checked %d samples of %d: the rest found no neighbours.',
+    'Проверяется проб: %d.':
+        'Samples under check: %d.',
+    'Размах данных %.4f, средняя ошибка это %.1f процента от него.':
+        'Data spread %.4f, the mean error is %.1f per cent of it.',
+    'Степень обратных расстояний. Подбирается по ошибке проверки вместе с '
+    'анизотропией.':
+        'The power of inverse distances. It is picked by the error of this '
+        'check together with the anisotropy.',
+    'Тот же слой проб, что подаётся в 2.02. Проверка идёт по самим пробам, '
+    'куб для неё не нужен.':
+        'The same layer of samples that goes into 2.02. The check runs on the'
+        ' samples themselves, no cube is needed for it.',
+    'Убирает каждую пробу по очереди, считает значение в её точке по '
+    'остальным и сравнивает с настоящим.\n\nЭто единственный способ узнать, '
+    'можно ли верить кубу: сравнивать построенное не с чем, а на глаз '
+    'одинаково убедительно выглядят и хорошая модель, и вымысел.\n\nПараметры'
+    ' задаются те же, что в 2.02. Меняя их и смотря на ошибку, подбирают '
+    'анизотропию, степень и число соседей: правильного значения у них нет '
+    'вообще, есть только лучшее на этих данных.\n\nВ журнал идут средняя '
+    'ошибка, среднеквадратичная, смещение и доля ошибки от размаха данных. '
+    'Смещение показывает, уводит ли модель в одну сторону: разброс и '
+    'односторонний увод лечатся по-разному.\n\nПоля слоя: value настоящее '
+    'значение, model посчитанное, resid разность, aresid её модуль.':
+        'Removes each sample in turn, computes the value at its place from '
+        'the rest and compares it with the real one.\n\nThis is the only way '
+        'to learn whether the cube can be trusted: there is nothing to '
+        'compare the built model with, and to the eye a good model and an '
+        'invention look equally convincing.\n\nThe parameters are the same as'
+        ' in 2.02. By changing them and watching the error one picks the '
+        'anisotropy, the power and the number of neighbours: there is no '
+        'right value for them at all, only the best one on this data.\n\nThe '
+        'log gets the mean error, the root mean square one, the bias and the '
+        'share of the error in the spread of the data. The bias shows whether'
+        ' the model leans one way: scatter and a one-sided lean are cured '
+        'differently.\n\nLayer fields: value the real value, model the '
+        'computed one, resid the difference, aresid its absolute value.',
     'Блочная модель на конец периода. Блок, которого в ней нет, считается '
     'отработанным целиком.':
         'The block model at the end of the period. A block absent from it '
@@ -793,8 +917,6 @@ TRANSLATIONS = {
     'Ширина площадки, м': 'Site width, m',
     'Высота площадки, м (0 - как ширина)':
         'Site height, m (0 means the same as the width)',
-    'Охват площадки (если задан, он и берётся)':
-        'Site extent (when set, it wins)',
     'Воксели по кубу': 'Voxels from the cube',
     'Отсечка куба': 'Cube cutoff',
     'Интервалов окраски': 'Colour intervals',
