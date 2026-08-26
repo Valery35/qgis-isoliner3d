@@ -644,6 +644,21 @@ The map used to be one of the examples in 1.07. Four fields out of
 thirteen worked for it there, and the rest were not read at all when it
 was chosen.
 
+# Clipping by surfaces
+
+The roof and the floor change across the area, and a flat elevation
+cannot replace them. Clipping by two surfaces leaves what is between
+them: that is how everything above the ground surface or outside the
+bed is removed.
+
+In the scene these are two property rows, any raster of the project. In
+tool 2.03 the same is done for the block model: the number of removed
+points goes to the log.
+
+A single surface works too. A point with no surface under it does not
+stay: letting it through would show data where the clipping did not
+work.
+
 # The Interpolation in three dimensions group
 
 The second group of the Processing toolbox works with a cube of values.
@@ -885,6 +900,23 @@ majority. Vertices are welded, so neighbouring faces share a point. On a
 hundred by hundred by sixty cube five shells take about a second and
 weigh eleven megabytes.
 
+## The coordinate box
+
+A button on the toolbar draws the edges of the extent, ticks with
+labels and a north arrow. A scene without ticks gives no sense of size:
+a body looks the same at a hundred metres and at twenty kilometres.
+Down the vertical the elevations are labelled, which matters most for a
+section.
+
+Ticks go by round numbers: the step is one, two or five times a power
+of ten. The edges of the extent are not labelled, the number there is
+usually not round.
+
+The grid is set by the scene properties: on which planes to draw and
+with what step. The floor gives the scale in plan, the walls give it by
+elevation. Zero as the step takes a round step from the span, and too
+fine a step is coarsened by itself.
+
 ## A wall along a line
 
 The third way to show a cube is the **Wall along a line** mode. A shell
@@ -932,6 +964,21 @@ The log gets the numbers that show what happened: how many faces are
 left, the distance from the line to the data, how many bodies are not
 watertight before the cut, how many boundary edges landed on the cut
 contour and how many cap polygons were built.
+
+## Cleaning an isosurface
+
+A marching surface goes in steps of the cube cells, and small scraps on
+it add noise. Two rows in the layer properties: **smoothing** and
+**drop parts smaller than**.
+
+Small parts are dropped before smoothing: otherwise a scrap pulls its
+neighbours towards itself, and after its removal a dent is left behind.
+The edges do not move, because the cap on the cut is built from the
+boundary edges.
+
+If the threshold removes everything, the surface stays as it was.
+Smoothing shrinks the body a little, so for volume computation take the
+unsmoothed one.
 
 ## Voxels
 
@@ -1020,6 +1067,7 @@ All three work independently: installing the whole set is not required.
 | Contours are now visible, now sunk into the surface | The geometry coincides and the depth fight begins. | Raise the layer in the map tree or give it a **Vertical offset, m**. |
 | Part of the features vanished with elevation from a surface | The surface has no data there. | That is intended: a gap is not a zero. Check the extent of the elevation grid. |
 | The cube came out in steps by number | The value field is `hole`. | Take `grade`: 2.02 substitutes the first numeric field, and that is the borehole number. |
+| Stars and rays in the interpolated field | The sector split on plan samples. | Leave zero in the sectors field: it is taken from the data. For samples in plan there will be no split. |
 | Inverse distances give the same as nearest neighbour | All the neighbours were gathered from one borehole. | Raise the number of search sectors in the advanced parameters of 2.02. |
 | An anomaly with depth smoothed into a flat field | The number of points is larger than the number of samples per place. | Leave zero in the point count field: it will be taken from the data. |
 | The tool refuses, all the points share one elevation | The elevation was taken from the geometry of a flat layer. | Choose the elevation from a field or the depth below a surface. |

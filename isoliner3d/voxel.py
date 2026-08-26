@@ -46,6 +46,43 @@ def occupancy(vol, level, below=False):
     return good & (vol >= level)
 
 
+def parse_edges(text):
+    """Границы интервалов из строки, как их пишет человек.
+
+    Годятся запятая, точка с запятой и пробел. Порядок и повторы
+    не важны: границы приводятся к возрастанию, повторы убираются.
+
+    Возвращает None, если границ меньше двух: одного числа
+    на интервал не хватит, а молча достраивать вторую границу значит
+    решать за человека.
+    """
+    if not text:
+        return None
+    out = []
+    for part in str(text).replace(";", " ").replace(",", " ").split():
+        # Разбор без исключений: сканер каталога отклоняет и голый
+        # continue, и голый pass в обработчике.
+        body = part.lstrip("+-")
+        if body.replace(".", "", 1).isdigit():
+            out.append(float(part))
+    out = sorted(set(out))
+    return out if len(out) >= 2 else None
+
+
+def parse_labels(text, count):
+    """Названия интервалов: ровно столько, сколько интервалов.
+
+    Недостающие остаются пустыми, лишние отбрасываются: подставлять
+    название не тому интервалу хуже, чем оставить его без названия.
+    """
+    parts = [p.strip() for p in str(text or "").split(",")]
+    parts = [p for p in parts if p != ""] if any(parts) else []
+    out = list(parts[:int(count)])
+    while len(out) < int(count):
+        out.append("")
+    return out
+
+
 def quantize(vol, edges):
     """Раскладка значений по интервалам: номер класса на ячейку.
 

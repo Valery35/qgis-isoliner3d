@@ -39,6 +39,30 @@ def sample(x, y, surf, gt):
                            np.asarray(y, dtype=float))
 
 
+def keep_between(x, y, z, top, top_gt, bottom, bottom_gt):
+    """Отбор по поверхностям: что лежит между кровлей и подошвой.
+
+    Одной отметкой этого не заменить: кровля и подошва меняются
+    по площади, а отметка плоская. Так отсекают всё выше дневного
+    рельефа или всё вне пласта.
+
+    Любая из поверхностей может отсутствовать: тогда с той стороны
+    не отсекается ничего. Границы включаются, иначе пропала бы сама
+    кровля. Точка, под которой поверхности нет, не остаётся: пропустить
+    её значит показать данные там, где отсечка не работала, а на глаз
+    одно от другого не отличить.
+    """
+    z = np.asarray(z, dtype=float)
+    keep = np.isfinite(z)
+    if top is not None:
+        zt = sample(x, y, top, top_gt)
+        keep &= np.isfinite(zt) & (z <= zt)
+    if bottom is not None:
+        zb = sample(x, y, bottom, bottom_gt)
+        keep &= np.isfinite(zb) & (z >= zb)
+    return keep
+
+
 def to_flat(x, y, z, roof, gt, floor=None):
     """Абсолютная отметка в спрямлённую.
 

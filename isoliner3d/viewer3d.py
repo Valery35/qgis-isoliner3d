@@ -486,6 +486,27 @@ def _tool_icon(kind, size=18):
                    QPointF(0.62 * s, 0.20 * s))
         p.setBrush(QColor("#cfe3f2"))
         p.drawEllipse(QPointF(0.50 * s, 0.55 * s), 0.16 * s, 0.16 * s)
+    elif kind == "grid":          # короб: рамка, сетка и стрелка севера
+        p.drawRect(int(0.14 * s), int(0.28 * s),
+                   int(0.56 * s), int(0.56 * s))
+        p.drawLine(QPointF(0.32 * s, 0.28 * s),
+                   QPointF(0.32 * s, 0.84 * s))
+        p.drawLine(QPointF(0.52 * s, 0.28 * s),
+                   QPointF(0.52 * s, 0.84 * s))
+        p.drawLine(QPointF(0.14 * s, 0.48 * s),
+                   QPointF(0.70 * s, 0.48 * s))
+        p.drawLine(QPointF(0.14 * s, 0.66 * s),
+                   QPointF(0.70 * s, 0.66 * s))
+        pen3 = QPen(QColor("#0E7C66"))
+        pen3.setWidthF(1.6)
+        pen3.setCapStyle(cap)
+        p.setPen(pen3)
+        p.drawLine(QPointF(0.84 * s, 0.80 * s),
+                   QPointF(0.84 * s, 0.22 * s))
+        p.drawLine(QPointF(0.84 * s, 0.22 * s),
+                   QPointF(0.74 * s, 0.36 * s))
+        p.drawLine(QPointF(0.84 * s, 0.22 * s),
+                   QPointF(0.94 * s, 0.36 * s))
     elif kind == "top":           # вид сверху: рамка и перекрестие
         p.drawRect(int(0.18 * s), int(0.18 * s),
                    int(0.64 * s), int(0.64 * s))

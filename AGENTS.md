@@ -62,13 +62,15 @@ v3.2.0`, домен codeload из контейнера доступен.
 | `variogram.py` | вариограмма: замер по парам, направления план и вертикаль, подбор модели, сборка рабочей |
 | `kriging.py` | обычный кригинг в объёме: система по соседям, веса из вариограммы, дисперсия оценки |
 | `slice3d.py` | стенка по линии: обход ломаной, трилинейная выборка куба, меш среза |
+| `axes.py` | координатный короб: круглые деления, рёбра, сетка, стрелка севера |
+| `cleanup.py` | чистка поверхности: сглаживание с закреплённым краем, отброс мелких кусков |
 | `voxel.py` | воксельная модель куба: отбрасывание невидимых граней, слияние в прямоугольники, защипы по ребру |
 | `demo3d.py` | модель демонстрационной залежи и разбуривание: три типа тела, опробование интервалами, логнормальный шум |
 | `i18n.py` | словарь RU в EN, `tr`, `set_language`, `missing_keys` |
 | `icon.svg`, `icon_3d.svg` | иконки панели и меню |
 | `libs/` | вложенные pyqtgraph 0.14.0 и PyOpenGL 3.1.10, заморожены |
 | `doc/` | `Isoliner3D.pdf` и `Isoliner3D_en.pdf`, открываются кнопкой Справка и кнопкой справки в диалогах инструментов |
-| `tests/` | двадцать два headless-набора |
+| `tests/` | двадцать шесть headless-наборов |
 | `LICENSE` | GPL-2.0-or-later |
 
 Вне папки модуля, в корне репозитория: `README.md` и `README.en.md`
@@ -246,7 +248,7 @@ LOW, все до одного B101 (`assert`) и все в `tests/`, котор�
 
 ## Тесты
 
-Двадцать два файла, все headless, QGIS не требуется:
+Двадцать шесть файлов, все headless, QGIS не требуется:
 
 ```
 python isoliner3d/tests/test_mesh3d.py
@@ -270,6 +272,10 @@ python isoliner3d/tests/test_zclip.py
 python isoliner3d/tests/test_variogram.py
 python isoliner3d/tests/test_kriging.py
 python isoliner3d/tests/test_slice3d.py
+python isoliner3d/tests/test_volume.py
+python isoliner3d/tests/test_flatten.py
+python isoliner3d/tests/test_cleanup.py
+python isoliner3d/tests/test_axes.py
 ```
 
 `test_viewer3d.py` проверяет, что модуль импортируется без QGIS.

@@ -81,6 +81,148 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'Секторов поиска (0 - от данных)':
+        'Search sectors (0 means from the data)',
+    'Секторов поиска от данных: %d.':
+        'Search sectors from the data: %d.',
+    'Ноль берёт от данных: у скважин деление нужно, иначе все '
+    'соседи окажутся в одном стволе, а у проб в плане оно только '
+    'рвёт поле. Граница сектора идёт лучом от узла, и на ней набор '
+    'соседей меняется скачком: отсюда звёзды на почвенных пробах.':
+        'Zero takes it from the data: boreholes need the split, or all '
+        'the neighbours land in one hole, while for samples in plan it '
+        'only tears the field. A sector boundary runs as a ray from the '
+        'node, and the set of neighbours changes across it in a jump: '
+        'hence the stars on soil samples.',
+    'Ноль берёт от данных: у скважин деление нужно, иначе все '
+    'соседи окажутся в одном стволе, а у одиночных проб в плане оно '
+    'только рвёт поле.':
+        'Zero takes it from the data: boreholes need the split, or all '
+        'the neighbours land in one hole, while for single samples in '
+        'plan it only tears the field.',
+    'Вид': 'View',
+    'Обрезка': 'Clipping',
+    'Координатный короб': 'Coordinate box',
+    'По контуру': 'By contour',
+    'По отметке': 'By elevation',
+    'По поверхностям': 'By surfaces',
+    'Сетка': 'Grid',
+    'Координатная сетка': 'Coordinate grid',
+    'Шаг сетки, м': 'Grid step, m',
+    'Только короб': 'Box only',
+    'Пол': 'Floor',
+    'Пол и стены': 'Floor and walls',
+    'Стены': 'Walls',
+    '(от размаха)': '(from the span)',
+    'Сетка: линий %d.': 'Grid: %d lines.',
+    'На каких плоскостях короба рисовать сетку. Пол даёт масштаб '
+    'в плане, стены - по отметкам, что для разреза важнее.':
+        'On which planes of the box to draw the grid. The floor '
+        'gives the scale in plan, the walls give it by elevation, '
+        'which matters more for a section.',
+    'Шаг сетки в единицах карты. Ноль берёт круглый шаг '
+    'от размаха сцены. Слишком мелкий шаг укрупняется сам: сетка '
+    'гуще самой сцены читать не помогает, а рисуется долго.':
+        'The grid step in map units. Zero takes a round step from '
+        'the span of the scene. Too fine a step is coarsened by '
+        'itself: a grid denser than the scene does not help reading '
+        'and takes long to draw.',
+    'С': 'N',
+    'Координатный короб: деления и подписи по осям':
+        'Coordinate box: ticks and labels along the axes',
+    'Подписей осей больше %d, остальные не ставим: они забили бы '
+    'сцену.':
+        'More than %d axis labels, the rest are not placed: they '
+        'would clutter the scene.',
+    'Сглаживание, проходов': 'Smoothing, rounds',
+    'Отбросить куски мельче, граней':
+        'Drop parts smaller than, faces',
+    'Отброшено кусков: %d из %d.': 'Parts dropped: %d of %d.',
+    'Сколько проходов сглаживания. Маршевая поверхность идёт '
+    'ступенями по ячейкам куба, и сглаживание их сажает. Тело '
+    'при этом слегка ужимается, поэтому для подсчёта объёма '
+    'берите несглаженное.':
+        'How many rounds of smoothing. A marching surface goes in '
+        'steps of the cube cells, and smoothing settles them. The '
+        'body shrinks a little in the process, so for volume '
+        'computation take the unsmoothed one.',
+    'Отбросить куски мельче этого числа граней. Мелкие обрывки '
+    'на поверхности шумят и мешают читать форму. Если порог '
+    'убирает всё, поверхность остаётся как была: пустая сцена '
+    'это не чистка, а потеря.':
+        'Drop parts smaller than this number of faces. Small scraps '
+        'on the surface add noise and make the shape harder to '
+        'read. If the threshold removes everything, the surface '
+        'stays as it was: an empty scene is not cleaning but loss.',
+    'Названия интервалов через запятую: низкое, среднее, высокое. Пишутся в '
+    'поле name. Недостающие остаются пустыми, лишние отбрасываются.':
+        'Interval names, comma separated: low, medium, high. They go into the'
+        ' name field. Missing ones stay empty, extra ones are dropped.',
+    'Названия интервалов, через запятую':
+        'Interval names, comma separated',
+    'Ноль строит одно тело. Несколько интервалов дают объект на каждый, и '
+    'тело можно раскрасить по содержанию. Не читается, если заданы свои '
+    'границы.':
+        'Zero builds one body. Several intervals give a feature each, and the'
+        ' body can be coloured by grade. Not read when own bounds are given.',
+    'Отсечка поверхностями убрала всё. Проверьте, что кровля выше подошвы и '
+    'что поверхности накрывают куб.':
+        'Surface clipping removed everything. Check that the roof is above '
+        'the floor and that the surfaces cover the cube.',
+    'Отсечка поверхностями убрала точек: %d, осталось %d.':
+        'Surface clipping removed %d points, %d left.',
+    'Поверхность отсечки сверху не открылась.':
+        'The upper clipping surface did not open.',
+    'Поверхность отсечки снизу не открылась.':
+        'The lower clipping surface did not open.',
+    'Поверхность сверху: остаются точки ниже неё. Так отсекают всё выше '
+    'дневного рельефа или выше кровли пласта.':
+        'The surface above: the points below it stay. That is how everything '
+        'above the ground surface or above the bed roof is cut off.',
+    'Поверхность снизу: остаются точки выше неё. Вместе с верхней остаётся '
+    'только пласт.':
+        'The surface below: the points above it stay. Together with the upper'
+        ' one only the bed is left.',
+    'Свои границы интервалов через запятую: 0, 5, 10, 15. Задают разбивку '
+    'вместо равных долей. Порядок и повторы не важны. Ячейка выше последней '
+    'границы остаётся в последнем интервале, терять её нельзя.':
+        'Own interval bounds, comma separated: 0, 5, 10, 15. They set the '
+        'split instead of equal shares. Order and repeats do not matter. A '
+        'cell above the last bound stays in the last interval, it must not be'
+        ' lost.',
+    'Свои границы интервалов, через запятую':
+        'Own interval bounds, comma separated',
+    'Свои границы интервалов: %s.':
+        'Own interval bounds: %s.',
+    'Отсечка сверху (поверхность)': 'Clip above (surface)',
+    'Отсечка снизу (поверхность)': 'Clip below (surface)',
+    'Поверхность сверху: остаётся то, что ниже неё. Так отсекают '
+    'всё выше дневного рельефа или выше кровли пласта.':
+        'The surface above: what lies below it stays. That is how '
+        'everything above the ground surface or above the bed roof '
+        'is cut off.',
+    'Поверхность снизу: остаётся то, что выше неё. Вместе '
+    'с верхней оставляет только пласт.':
+        'The surface below: what lies above it stays. Together with '
+        'the upper one it leaves the bed alone.',
+    'Полуширина коридора, м': 'Corridor half-width, m',
+    'Обрезка по отметке': 'Clipping by elevation',
+    'Снять': 'Clear',
+    'Обрезка по отметке. Контур и коридор режут только в плане, '
+    'а разрез по пачке пластов задаётся отметками. Обе строки живут '
+    'в свойствах сцены, рядом с остальной обрезкой. Снимаются '
+    'кнопкой «Снять» или общей кнопкой очистки на плашке.':
+        'Clipping by elevation. A contour and a corridor cut in plan '
+        'only, while a section across a pile of beds is set by '
+        'elevations. Both rows live in the scene properties, next to '
+        'the rest of the clipping. They are cleared by the «Clear» '
+        'button or by the general clear button on the toolbar.',
+    'Полуширина коридора вдоль линии, в единицах карты. Профиль '
+    'разреза и данные по обе стороны от него. Работает при режиме '
+    '«Коридор вдоль линии».':
+        'The half-width of the corridor along the line, in map units. '
+        'The section profile and the data on both sides of it. Works '
+        'in the «Corridor along a line» mode.',
     'Тело не замкнуто до резки: тел %d, краевых рёбер %d. '
     'Крышку на срезе такому телу не построить: кольцо не замыкается. '
     'Пересоберите тело в 2.04 этой версией со снятым слиянием '
@@ -203,13 +345,6 @@ TRANSLATIONS = {
     'пусто': 'empty',
     'Снять обрезку по отметке': 'Clear the elevation clip',
     'Обрезка по отметке снята.': 'The elevation clip is cleared.',
-    'Обрезка по отметке. Контур и коридор режут только в плане, '
-    'а разрез по пачке пластов задаётся отметками. Снять обрезку '
-    'по отметке можно кнопкой рядом либо общей кнопкой очистки.':
-        'Clipping by elevation. A contour and a corridor cut in plan '
-        'only, while a section across a pile of beds is set by '
-        'elevations. The elevation clip is cleared by the button '
-        'next to these or by the general clear button.',
     'Проб: %d.': 'Samples: %d.',
     'Проб очень много. Кригинг держит матрицы размером с число проб, '
     'узлы считаются мелкими порциями, и счёт будет долгим. '
@@ -1115,7 +1250,6 @@ TRANSLATIONS = {
     'источник отметки.':
         'All the points share one elevation: a cube cannot be built. '
         'Check the elevation source.',
-    'Секторов поиска': 'Search sectors',
     'Считает значение в узлах объёмной сетки по точкам с '
     'высотой.\n\nАнизотропия это отношение вертикального масштаба к '
     'горизонтальному. Без неё ближайшей точкой окажется соседняя скважина, а '

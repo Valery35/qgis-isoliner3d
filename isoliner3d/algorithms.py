@@ -43,6 +43,7 @@ from qgis.core import (
     QgsProcessingContext,
     QgsProcessingParameterBand,
     QgsProcessingParameterBoolean,
+    QgsProcessingParameterString,
     QgsProcessingParameterEnum,
     QgsProcessingParameterExtent,
     QgsProcessingParameterFeatureSink,
@@ -1690,9 +1691,11 @@ HINTS_2_02 = {
              "перевешивает дальние. Двойка это обычный выбор.",
     "MINPTS": "Узел, где точек в радиусе меньше этого числа, остаётся "
               "пропуском: пустота лучше выдуманного значения.",
-    "SECTORS": "Окружность вокруг узла делится на равные части, "
-               "из каждой берётся своя доля точек. Без этого при "
-               "анизотропии все соседи оказываются в одной скважине.",
+    "SECTORS": "Ноль берёт от данных: у скважин деление нужно, иначе "
+               "все соседи окажутся в одном стволе, а у проб в плане "
+               "оно только рвёт поле. Граница сектора идёт лучом "
+               "от узла, и на ней набор соседей меняется скачком: "
+               "отсюда звёзды на почвенных пробах.",
     "OUTPUT": "Многоканальный грид: канал это горизонтальный уровень, "
               "отметка первого уровня и шаг пишутся в метаданные.",
 }
@@ -1706,6 +1709,11 @@ HINTS_2_03 = {
               "только когда отсечка включена галкой выше.",
     "CONTOUR": "Полигоны, за пределами которых ячейки не выгружаются: "
                "подсчётный блок, лицензионная площадь.",
+    "TOPSURF": "Поверхность сверху: остаются точки ниже неё. Так "
+               "отсекают всё выше дневного рельефа или выше кровли "
+               "пласта.",
+    "BOTSURF": "Поверхность снизу: остаются точки выше неё. Вместе "
+               "с верхней остаётся только пласт.",
     "CLASSES": "На сколько интервалов разложить значение. Номер "
                "интервала пишется в поле cls и годится для окраски.",
     "DENS": "При заданной плотности к каждому блоку добавляется масса "
@@ -1722,7 +1730,15 @@ HINTS_2_04 = {
     "CONTOUR": "Полигоны, за пределами которых ячейки в тело не идут:\n"
                "подсчётный блок, лицензионная площадь.",
     "CLASSES": "Ноль строит одно тело. Несколько интервалов дают объект "
-               "на каждый, и тело можно раскрасить по содержанию.",
+               "на каждый, и тело можно раскрасить по содержанию. "
+               "Не читается, если заданы свои границы.",
+    "EDGES": "Свои границы интервалов через запятую: 0, 5, 10, 15. "
+             "Задают разбивку вместо равных долей. Порядок и повторы "
+             "не важны. Ячейка выше последней границы остаётся "
+             "в последнем интервале, терять её нельзя.",
+    "LABELS": "Названия интервалов через запятую: низкое, среднее, "
+              "высокое. Пишутся в поле name. Недостающие остаются "
+              "пустыми, лишние отбрасываются.",
     "MERGE": "Слияние делает слой в разы легче, но рвёт границу тела "
              "Т-образными стыками. Такое тело нельзя ни посчитать "
              "по объёму, ни разрезать в сцене: срез останется "
@@ -2238,9 +2254,9 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Integer, defaultValue=1,
             minValue=1)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
-            "SECTORS", self.tr("Секторов поиска"),
-            QgsProcessingParameterNumber.Type.Integer, defaultValue=8,
-            minValue=1, maxValue=32)))
+            "SECTORS", self.tr("Секторов поиска (0 - от данных)"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=0,
+            minValue=0, maxValue=32)))
         self.addParameter(QgsProcessingParameterRasterDestination(
             "OUTPUT", self.tr("Куб значений")))
 
@@ -2249,7 +2265,7 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
     def _process(self, parameters, context, feedback):
         import numpy as np
         from .interp3d import (interpolate, grid_nodes, sampling_spacing,
-                               grid_advice, auto_grid)
+                               grid_advice, auto_grid, auto_sectors)
         from .flatten import to_flat, flat_span
         from .variogram import auto_fit, assemble
 
@@ -2272,6 +2288,10 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
         auto = auto_grid(*net) if net else None
         # Ноль в поле означает «взять от данных». Что подставили,
         # печатается: иначе непонятно, почему сетка вышла такой.
+        if sectors <= 0:
+            sectors = auto_sectors(net[2] if net else None)
+            feedback.pushInfo(self.tr(
+                "Секторов поиска от данных: %d.") % sectors)
         if cell <= 0:
             cell = auto["cell"] if auto else 25.0
             feedback.pushInfo(self.tr("Шаг по горизонтали от данных: "
@@ -2484,6 +2504,8 @@ class CubeToBlocksAlgorithm(IsolinerAlgorithm):
     CUTOFF = "CUTOFF"
     USE_CUTOFF = "USE_CUTOFF"
     CONTOUR = "CONTOUR"
+    TOPSURF = "TOPSURF"
+    BOTSURF = "BOTSURF"
     CLASSES = "CLASSES"
     DENS = "DENS"
     OUTPUT = "OUTPUT"
@@ -2536,6 +2558,12 @@ class CubeToBlocksAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.CONTOUR, self.tr("Контур подсчёта"),
             [QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.TOPSURF, self.tr("Отсечка сверху (поверхность)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            self.BOTSURF, self.tr("Отсечка снизу (поверхность)"),
+            optional=True))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             self.CLASSES, self.tr("Интервалов окраски (0 - без классов)"),
             QgsProcessingParameterNumber.Type.Integer,
@@ -2622,6 +2650,39 @@ class CubeToBlocksAlgorithm(IsolinerAlgorithm):
                 self.tr("Не удалось создать слой блочной модели."))
 
         idx = np.argwhere(occ)
+        # Отсечка поверхностями: точки выше кровли или ниже подошвы
+        # в модель не идут. Одной отметкой этого не заменить,
+        # поверхности меняются по площади.
+        top_l = self.parameterAsRasterLayer(parameters, self.TOPSURF,
+                                            context)
+        bot_l = self.parameterAsRasterLayer(parameters, self.BOTSURF,
+                                            context)
+        if (top_l is not None or bot_l is not None) and len(idx):
+            from .flatten import keep_between
+            ta, tg = _read_surface(top_l) if top_l is not None \
+                else (None, None)
+            ba, bg = _read_surface(bot_l) if bot_l is not None \
+                else (None, None)
+            if top_l is not None and ta is None:
+                raise QgsProcessingException(
+                    self.tr("Поверхность отсечки сверху не открылась."))
+            if bot_l is not None and ba is None:
+                raise QgsProcessingException(
+                    self.tr("Поверхность отсечки снизу не открылась."))
+            px = gt[0] + (idx[:, 2] + 0.5) * gt[1]
+            py = gt[3] + (idx[:, 1] + 0.5) * gt[5]
+            pz = z0 + idx[:, 0] * dz
+            keep = keep_between(px, py, pz, ta, tg, ba, bg)
+            cut = int((~keep).sum())
+            idx = idx[keep]
+            feedback.pushInfo(self.tr(
+                "Отсечка поверхностями убрала точек: %d, осталось %d.")
+                % (cut, len(idx)))
+            if not len(idx):
+                raise QgsProcessingException(self.tr(
+                    "Отсечка поверхностями убрала всё. Проверьте, "
+                    "что кровля выше подошвы и что поверхности "
+                    "накрывают куб."))
         step = max(len(idx) // 50, 1)
         for n, (k, i, j) in enumerate(idx):
             if feedback.isCanceled():
@@ -2672,6 +2733,8 @@ class CubeVoxelBodyAlgorithm(IsolinerAlgorithm):
     CUTOFF = "CUTOFF"
     CONTOUR = "CONTOUR"
     CLASSES = "CLASSES"
+    EDGES = "EDGES"
+    LABELS = "LABELS"
     MERGE = "MERGE"
     UNPINCH = "UNPINCH"
     OUTPUT = "OUTPUT"
@@ -2732,6 +2795,12 @@ class CubeVoxelBodyAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Integer,
             defaultValue=_dv(self, self.CLASSES, 0),
             minValue=0, maxValue=64))
+        self.addParameter(QgsProcessingParameterString(
+            self.EDGES, self.tr("Свои границы интервалов, через запятую"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterString(
+            self.LABELS, self.tr("Названия интервалов, через запятую"),
+            optional=True))
         self.addParameter(QgsProcessingParameterBoolean(
             self.MERGE, self.tr("Сливать соседние грани"),
             defaultValue=_dv(self, self.MERGE, True)))
@@ -2788,13 +2857,27 @@ class CubeVoxelBodyAlgorithm(IsolinerAlgorithm):
                 "граням, и замкнутой оболочка не будет."))
         vals_in = vol[occ]
         vmin, vmax = float(vals_in.min()), float(vals_in.max())
-        if nclass > 1 and vmax > vmin:
+        # Свои границы важнее числа интервалов: человек задал разбивку
+        # руками, и подменять её равными долями значит решать за него.
+        own = voxel.parse_edges(
+            self.parameterAsString(parameters, self.EDGES, context))
+        if own:
+            bounds = np.asarray(own, dtype=float)
+            cls = voxel.quantize(vol, bounds[1:-1]) if len(bounds) > 2 \
+                else voxel.quantize(vol, bounds[1:])
+            nclass = len(bounds) - 1
+            feedback.pushInfo(self.tr("Свои границы интервалов: %s.")
+                              % ", ".join("%g" % b for b in bounds))
+        elif nclass > 1 and vmax > vmin:
             bounds = np.linspace(vmin, vmax, nclass + 1)
             cls = voxel.quantize(vol, bounds[1:-1])
         else:
             nclass = 1
             bounds = np.array([vmin, vmax])
             cls = np.zeros(vol.shape, dtype=np.int32)
+        names = voxel.parse_labels(
+            self.parameterAsString(parameters, self.LABELS, context),
+            nclass)
 
         feedback.setProgress(20)
         verts, faces, tri_cls, over = voxel.voxel_mesh(
@@ -2809,7 +2892,8 @@ class CubeVoxelBodyAlgorithm(IsolinerAlgorithm):
                           % (n_cells, voxel.visible_faces(occ), len(faces)))
 
         fields = QgsFields()
-        for nm, tp in (("cls", QVariant.Int), ("vmin", QVariant.Double),
+        for nm, tp in (("cls", QVariant.Int), ("name", QVariant.String),
+                       ("vmin", QVariant.Double),
                        ("vmax", QVariant.Double), ("faces", QVariant.Int),
                        ("shell", QVariant.Int)):
             fields.append(_field(nm, tp))
@@ -2837,7 +2921,9 @@ class CubeVoxelBodyAlgorithm(IsolinerAlgorithm):
                 mp.addGeometry(poly)
             ft = QgsFeature(fields)
             ft.setGeometry(QgsGeometry(mp))
-            ft.setAttributes([c, float(bounds[c]), float(bounds[c + 1]),
+            nm_c = names[c] if 0 <= c < len(names) else ""
+            ft.setAttributes([c, nm_c, float(bounds[c]),
+                              float(bounds[c + 1]),
                               int(sel.sum()), 1])
             sink.addFeature(ft)
             made += 1
@@ -2882,9 +2968,9 @@ HINTS_2_05 = {
              "проверки вместе с анизотропией.",
     "MINPTS": "Проба, вокруг которой точек меньше этого числа, остаётся "
               "непроверенной и в ошибку не идёт.",
-    "SECTORS": "Окружность вокруг пробы делится на равные части. "
-               "На скважинной сети без этого ошибка выходит заметно "
-               "больше.",
+    "SECTORS": "Ноль берёт от данных: у скважин деление нужно, иначе "
+               "все соседи окажутся в одном стволе, а у одиночных проб "
+               "в плане оно только рвёт поле.",
     "OUTPUT": "Пробы с полями value, model, resid и aresid. По ним "
               "видно не только величину промаха, но и где он случился.",
 }
@@ -3017,9 +3103,9 @@ class CrossValidateAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Integer, defaultValue=1,
             minValue=1)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
-            "SECTORS", self.tr("Секторов поиска"),
-            QgsProcessingParameterNumber.Type.Integer, defaultValue=8,
-            minValue=1, maxValue=32)))
+            "SECTORS", self.tr("Секторов поиска (0 - от данных)"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=0,
+            minValue=0, maxValue=32)))
         self.addParameter(QgsProcessingParameterFeatureSink(
             "OUTPUT", self.tr("Невязки проверки"),
             QgsProcessing.SourceType.TypeVectorPoint))
@@ -3030,7 +3116,7 @@ class CrossValidateAlgorithm(IsolinerAlgorithm):
         from qgis.core import (QgsFields, QgsFeature, QgsGeometry,
                                QgsPoint, QgsWkbTypes)
         from .interp3d import (cross_validate, cv_report, sampling_spacing,
-                               auto_grid)
+                               auto_grid, auto_sectors)
 
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
@@ -3068,6 +3154,10 @@ class CrossValidateAlgorithm(IsolinerAlgorithm):
                                   % len(set(groups)))
         net = sampling_spacing(np.column_stack([xs, ys, zs]))
         auto = auto_grid(*net) if net else None
+        if sectors <= 0:
+            sectors = auto_sectors(net[2] if net else None)
+            feedback.pushInfo(self.tr(
+                "Секторов поиска от данных: %d.") % sectors)
         if maxp <= 0:
             maxp = auto["max_points"] if auto else 16
             feedback.pushInfo(self.tr("Наибольшее число точек "
@@ -3314,9 +3404,11 @@ HINTS_2_06 = {
              "гадать не нужно.",
     "RADIUS": "Ноль берёт четверть охвата данных. Узел, где точек "
               "в радиусе не набралось, остаётся пропуском.",
-    "SECTORS": "Окружность вокруг узла делится на равные части, "
-               "из каждой берётся своя доля точек. Без этого при "
-               "анизотропии все соседи оказываются в одной скважине.",
+    "SECTORS": "Ноль берёт от данных: у скважин деление нужно, иначе "
+               "все соседи окажутся в одном стволе, а у проб в плане "
+               "оно только рвёт поле. Граница сектора идёт лучом "
+               "от узла, и на ней набор соседей меняется скачком: "
+               "отсюда звёзды на почвенных пробах.",
     "OUTPUT": "Куб значений: канал это горизонтальный уровень.",
     "OUTVAR": "Куб дисперсии оценки, тех же размеров. В самой пробе "
               "ноль, дальше от данных растёт. Это карта доверия, "
@@ -3462,9 +3554,9 @@ class Kriging3DAlgorithm(IsolinerAlgorithm):
             QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
             minValue=0.0)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
-            "SECTORS", self.tr("Секторов поиска"),
-            QgsProcessingParameterNumber.Type.Integer, defaultValue=8,
-            minValue=1, maxValue=32)))
+            "SECTORS", self.tr("Секторов поиска (0 - от данных)"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=0,
+            minValue=0, maxValue=32)))
         self.addParameter(QgsProcessingParameterRasterDestination(
             "OUTPUT", self.tr("Куб значений")))
         self.addParameter(QgsProcessingParameterRasterDestination(
@@ -3474,7 +3566,7 @@ class Kriging3DAlgorithm(IsolinerAlgorithm):
     def _process(self, parameters, context, feedback):
         import numpy as np
         from .interp3d import (grid_nodes, sampling_spacing, grid_advice,
-                               auto_grid)
+                               auto_grid, auto_sectors)
         from .variogram import auto_fit, assemble, MODELS
         from .kriging import ordinary
         from .flatten import to_flat
@@ -3538,6 +3630,10 @@ class Kriging3DAlgorithm(IsolinerAlgorithm):
 
         net = sampling_spacing(pts)
         auto = auto_grid(*net) if net else None
+        if sectors <= 0:
+            sectors = auto_sectors(net[2] if net else None)
+            feedback.pushInfo(self.tr(
+                "Секторов поиска от данных: %d.") % sectors)
         if cell <= 0:
             cell = auto["cell"] if auto else 25.0
             feedback.pushInfo(self.tr("Шаг по горизонтали от данных: "

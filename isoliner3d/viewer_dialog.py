@@ -258,6 +258,7 @@ class ViewerDialog(QDialog):
         self._hover = None       # точка под курсором для резинки
         self._show_sketch = True  # показывать ли контур и линию
         self._clip_now = None    # контур обрезки на время сборки
+        self._z_surf_now = None  # поверхности отсечки
         self._clip_seen = 0      # граней до обрезки, для отчёта
         self._clip_kept = 0      # граней после
         self._cap_open = 0       # тел, у которых срез остался открытым
@@ -335,6 +336,38 @@ class ViewerDialog(QDialog):
             "Профиль разреза и данные по обе стороны от него."))
         self.clip_width.setFixedWidth(84)
         self.clip_width.setPrefix("\u00b1 ")
+        self.grid_planes = QComboBox()
+        for lab, key in ((tr("Только короб"), ""),
+                         (tr("Пол"), "floor"),
+                         (tr("Пол и стены"), "floor,walls"),
+                         (tr("Стены"), "walls")):
+            self.grid_planes.addItem(lab, key)
+        self.grid_planes.setToolTip(tr(
+            "На каких плоскостях короба рисовать сетку. Пол даёт "
+            "масштаб в плане, стены - по отметкам, что для разреза "
+            "важнее."))
+        self.grid_step = QDoubleSpinBox()
+        self.grid_step.setRange(0.0, 1000000.0)
+        self.grid_step.setDecimals(1)
+        self.grid_step.setValue(0.0)
+        self.grid_step.setSpecialValueText(tr("(от размаха)"))
+        self.grid_step.setToolTip(tr(
+            "Шаг сетки в единицах карты. Ноль берёт круглый шаг "
+            "от размаха сцены. Слишком мелкий шаг укрупняется сам: "
+            "сетка гуще самой сцены читать не помогает, а рисуется "
+            "долго."))
+        self.zs_top = QComboBox()
+        self.zs_bot = QComboBox()
+        for w, tip in (
+                (self.zs_top,
+                 tr("Поверхность сверху: остаётся то, что ниже неё. "
+                    "Так отсекают всё выше дневного рельефа или выше "
+                    "кровли пласта.")),
+                (self.zs_bot,
+                 tr("Поверхность снизу: остаётся то, что выше неё. "
+                    "Вместе с верхней оставляет только пласт."))):
+            w.setToolTip(tip)
+            w.setMinimumWidth(140)
         self.zlo = QDoubleSpinBox()
         self.zhi = QDoubleSpinBox()
         for w, pref in ((self.zlo, "z\u2265 "), (self.zhi, "z\u2264 ")):
@@ -347,8 +380,9 @@ class ViewerDialog(QDialog):
             w.setToolTip(tr(
                 "Обрезка по отметке. Контур и коридор режут только "
                 "в плане, а разрез по пачке пластов задаётся "
-                "отметками. Снять обрезку по отметке можно кнопкой "
-                "рядом либо общей кнопкой очистки."))
+                "отметками. Обе строки живут в свойствах сцены, "
+                "рядом с остальной обрезкой. Снимаются кнопкой «Снять» "
+                "или общей кнопкой очистки на плашке."))
         for w in (self.clip_combo, self.clip_side, self.clip_width,
                   self.zlo, self.zhi):
             sig = getattr(w, "currentIndexChanged", None) or \
@@ -369,17 +403,48 @@ class ViewerDialog(QDialog):
         self.texside.setToolTip(tr(
             "Сторона текстуры по длинной оси охвата. Больше значение - "
             "детальнее карта на поверхности и больше видеопамяти."))
+        # Тринадцать строк подряд читаются как свалка. Делим на три
+        # части по смыслу: как показывать, что отрезать, чем мерить.
+        # В каждой не больше пяти строк, и нужное находится глазом.
         self.scene_box = QGroupBox(tr("Сцена"))
-        sf = QFormLayout(self.scene_box)
-        sf.addRow(tr("Вертикальное преувеличение"), self.vex)
-        sf.addRow(tr("Разнос по Z (шаг вниз)"), self.spacing)
-        sf.addRow(tr("Прозрачность поверхностей (процентов)"),
+        sv = QVBoxLayout(self.scene_box)
+
+        box_view = QGroupBox(tr("Вид"))
+        f1 = QFormLayout(box_view)
+        f1.addRow(tr("Вертикальное преувеличение"), self.vex)
+        f1.addRow(tr("Разнос по Z (шаг вниз)"), self.spacing)
+        f1.addRow(tr("Прозрачность поверхностей (процентов)"),
                   self.opacity)
-        sf.addRow(tr("Сторона текстуры (пикселей)"), self.texside)
-        sf.addRow(tr("Предел вершин в сцене (тысяч)"), self.vert_cap)
-        sf.addRow(tr("Обрезка по контуру"), self.clip_combo)
-        sf.addRow(tr("Кусок"), self.clip_side)
-        sf.addRow(self.auto_rebuild)
+        f1.addRow(tr("Сторона текстуры (пикселей)"), self.texside)
+        f1.addRow(tr("Предел вершин в сцене (тысяч)"), self.vert_cap)
+        sv.addWidget(box_view)
+
+        box_clip = QGroupBox(tr("Обрезка"))
+        f2 = QFormLayout(box_clip)
+        f2.addRow(tr("По контуру"), self.clip_combo)
+        f2.addRow(tr("Кусок"), self.clip_side)
+        f2.addRow(tr("Полуширина коридора, м"), self.clip_width)
+        zrow = QHBoxLayout()
+        zrow.addWidget(self.zlo)
+        zrow.addWidget(self.zhi)
+        self.btn_zclear = QToolButton()
+        self.btn_zclear.setText(tr("Снять"))
+        self.btn_zclear.setToolTip(tr("Снять обрезку по отметке"))
+        self.btn_zclear.clicked.connect(lambda *_a: self._z_clear())
+        zrow.addWidget(self.btn_zclear)
+        f2.addRow(tr("По отметке"), zrow)
+        srow = QHBoxLayout()
+        srow.addWidget(self.zs_top)
+        srow.addWidget(self.zs_bot)
+        f2.addRow(tr("По поверхностям"), srow)
+        sv.addWidget(box_clip)
+
+        box_grid = QGroupBox(tr("Координатный короб"))
+        f3 = QFormLayout(box_grid)
+        f3.addRow(tr("Сетка"), self.grid_planes)
+        f3.addRow(tr("Шаг сетки, м"), self.grid_step)
+        sv.addWidget(box_grid)
+        sv.addWidget(self.auto_rebuild)
 
         self.legend_pix = QLabel()
         self.legend_txt = QLabel("")
@@ -434,6 +499,23 @@ class ViewerDialog(QDialog):
         crow.addWidget(self.color_btn, 0)
         of.addRow(tr("Окраска"), crow)
         of.addRow(tr("Канал атрибута"), self.aband)
+        self.iso_smooth = QSpinBox()
+        self.iso_smooth.setRange(0, 20)
+        self.iso_smooth.setValue(0)
+        self.iso_smooth.setToolTip(tr(
+            "Сколько проходов сглаживания. Маршевая поверхность идёт "
+            "ступенями по ячейкам куба, и сглаживание их сажает. Тело "
+            "при этом слегка ужимается, поэтому для подсчёта объёма "
+            "берите несглаженное."))
+        self.iso_min_faces = QSpinBox()
+        self.iso_min_faces.setRange(0, 1000000)
+        self.iso_min_faces.setValue(0)
+        self.iso_min_faces.setSingleStep(50)
+        self.iso_min_faces.setToolTip(tr(
+            "Отбросить куски мельче этого числа граней. Мелкие обрывки "
+            "на поверхности шумят и мешают читать форму. Если порог "
+            "убирает всё, поверхность остаётся как была: пустая сцена "
+            "это не чистка, а потеря."))
         self.iso_count = QSpinBox()
         self.iso_count.setRange(1, 12)
         self.iso_count.setValue(1)
@@ -480,6 +562,9 @@ class ViewerDialog(QDialog):
             "по этой модели считается объём."))
         of.addRow(tr("Отсечка куба"), self.iso_level)
         of.addRow(tr("Оболочек по отсечке"), self.iso_count)
+        of.addRow(tr("Сглаживание, проходов"), self.iso_smooth)
+        of.addRow(tr("Отбросить куски мельче, граней"),
+                  self.iso_min_faces)
         of.addRow(tr("Интервалов окраски"), self.vox_classes)
         of.addRow(tr("Шаг стенки, м (0 - шаг грида)"), self.wall_step)
         of.addRow(tr("Плотность заливки"), self.fog_density)
@@ -487,6 +572,8 @@ class ViewerDialog(QDialog):
         self.iso_level.valueChanged.connect(self._save_opts)
         self.vox_classes.valueChanged.connect(self._save_opts)
         self.iso_count.valueChanged.connect(self._save_opts)
+        self.iso_smooth.valueChanged.connect(self._save_opts)
+        self.iso_min_faces.valueChanged.connect(self._save_opts)
         self.wall_step.valueChanged.connect(self._save_opts)
         self.fog_density.valueChanged.connect(self._save_opts)
         self.vox_merge.toggled.connect(self._save_opts)
@@ -655,6 +742,10 @@ class ViewerDialog(QDialog):
                 b.clicked.connect(slot)
             return b
 
+        self.btn_axes = tool("grid", tr("Координатный короб: деления "
+                                        "и подписи по осям"),
+                             lambda *_a: self._schedule_rebuild(0),
+                             checkable=True)
         btn_top = tool("top", tr("Вид сверху, план"),
                        lambda: self._set_view(90, -90, plan=True))
         self.btn_ortho = tool(
@@ -757,24 +848,16 @@ class ViewerDialog(QDialog):
         sep.setFrameShadow(getattr(getattr(QFrame, "Shadow", QFrame),
                                    "Sunken"))
         tb.addWidget(sep)
-        for b in (btn_top, self.btn_ortho, self.btn_draw,
+        for b in (btn_top, self.btn_ortho, self.btn_axes, self.btn_draw,
                   self.btn_undo,
                   self.btn_done, self.btn_line, self.btn_sketch,
                   btn_clip_off,
                   btn_draw_save, btn_export, btn_copy, btn_png):
             b.setParent(self.tools)
             tb.addWidget(b)
-        # Полуширина коридора стоит здесь же: она нужна ровно тогда,
-        # когда режут линией, а в свойствах сцены её никто не искал.
-        self.clip_width.setParent(self.tools)
-        tb.addWidget(self.clip_width)
-        for w in (self.zlo, self.zhi):
-            w.setParent(self.tools)
-            tb.addWidget(w)
-        btn_zclear = tool("clear", tr("Снять обрезку по отметке"),
-                          self._z_clear)
-        btn_zclear.setParent(self.tools)
-        tb.addWidget(btn_zclear)
+        # Полуширина коридора и границы отметок переехали в свойства
+        # сцены, к остальной обрезке: на плашке они занимали место
+        # у кнопок, которыми пользуются постоянно, а правят их редко.
         self.clip_side.currentIndexChanged.connect(
             lambda *_a: self._sync_corridor())
         # Стиль вешаем только на саму плашку, по имени. Без имени
@@ -1172,6 +1255,19 @@ class ViewerDialog(QDialog):
         icl = _find_data(self.clip_combo, prev_cl)
         self.clip_combo.setCurrentIndex(max(icl, 0))
         self.clip_combo.blockSignals(False)
+
+        # Поверхности отсечки: растры проекта. Одной отметкой этого
+        # не заменить, кровля и подошва меняются по площади.
+        for combo in (self.zs_top, self.zs_bot):
+            prev = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem(tr("(нет)"), None)
+            for lyr in proj.mapLayers().values():
+                if isinstance(lyr, QgsRasterLayer):
+                    combo.addItem(lyr.name(), lyr.id())
+            combo.setCurrentIndex(max(_find_data(combo, prev), 0))
+            combo.blockSignals(False)
 
         prev_dr = self.draw_combo.currentData()
         self.draw_combo.blockSignals(True)
@@ -2284,7 +2380,8 @@ class ViewerDialog(QDialog):
                 fcol = self._style_color(by_style, ft) or "#7a5c3c"
                 off = self._zoff_of(o)
                 for pts in _parts_xyz(g, zf):
-                    pts = [p for p in pts if self._z_kept([p[2]])[0]]
+                    pts = [p for p in pts
+                           if self._z_kept([p[2]], [p[0]], [p[1]])[0]]
                     if not pts:
                         continue
                     if surf:
@@ -2366,7 +2463,7 @@ class ViewerDialog(QDialog):
         xs = np.fromiter((p[0] for p in out), dtype=float, count=len(out))
         ys = np.fromiter((p[1] for p in out), dtype=float, count=len(out))
         zs = np.fromiter((p[2] for p in out), dtype=float, count=len(out))
-        keep = self._points_kept(xs, ys) & self._z_kept(zs)
+        keep = self._points_kept(xs, ys) & self._z_kept(zs, xs, ys)
         if keep.all():
             return out
         return [p for p, ok in zip(out, keep) if ok]
@@ -2733,7 +2830,7 @@ class ViewerDialog(QDialog):
         # выбрасывается. Резать его по горизонтали было бы точнее,
         # но грани тут мельче шага уровней, и разница не видна.
         inside_v = (self._points_kept(v[:, 0], v[:, 1])
-                    & self._z_kept(v[:, 2]))
+                    & self._z_kept(v[:, 2], v[:, 0], v[:, 1]))
         tri_in = inside_v[f]
         n_in = tri_in.sum(axis=1)
         keep_all = n_in == 3
@@ -2873,6 +2970,88 @@ class ViewerDialog(QDialog):
         for g2 in parts[1:]:
             out = out.combine(g2)
         return out
+
+    def _add_axes_box(self, gl, lo, hi, cx, cy, cz, vex):
+        """Координатный короб: рёбра, штрихи и подписи.
+
+        Сцена без делений не даёт размера: тело выглядит одинаково
+        и на сто метров, и на двадцать километров. По вертикали
+        подписываются отметки, что для разреза важнее всего.
+
+        Подписи ставятся у штрихов и только на ближней к началу
+        стороне: по всем рёбрам сразу их было бы вчетверо больше,
+        и они забили бы сцену.
+        """
+        import numpy as np
+        from .axes import (box_edges, tick_marks, tick_label,
+                           north_arrow, grid_lines)
+
+        def put(p):
+            return (float(p[0]) - cx, float(p[1]) - cy,
+                    (float(p[2]) - cz) * vex)
+
+        segs = [(put(a), put(b)) for a, b in box_edges(lo, hi)]
+        if not segs:
+            return
+        pos = np.array([q for seg in segs for q in seg], dtype=float)
+        item = gl.GLLinePlotItem(pos=pos, mode='lines', width=1.0,
+                                 antialias=True,
+                                 color=(0.35, 0.38, 0.45, 0.65),
+                                 glOptions='translucent')
+        self._add_item(item)
+
+        # Сетка на выбранных плоскостях: пол даёт масштаб в плане,
+        # стены по отметкам, что для разреза важнее.
+        planes = tuple(p for p in
+                       (self.grid_planes.currentData() or "").split(",")
+                       if p)
+        if planes:
+            gsegs = grid_lines(lo, hi, float(self.grid_step.value()),
+                               planes)
+            if gsegs:
+                gp = np.array([q for seg in gsegs
+                               for q in (put(seg[0]), put(seg[1]))],
+                              dtype=float)
+                self._add_item(gl.GLLinePlotItem(
+                    pos=gp, mode='lines', width=1.0, antialias=True,
+                    color=(0.45, 0.48, 0.55, 0.35),
+                    glOptions='translucent'))
+                _log(tr("Сетка: линий %d.") % len(gsegs))
+
+        marks = tick_marks(lo, hi, want=5)
+        if not marks:
+            return
+        tp = np.array([q for _a, _v, s0, s1 in marks
+                       for q in (put(s0), put(s1))], dtype=float)
+        self._add_item(gl.GLLinePlotItem(
+            pos=tp, mode='lines', width=1.4, antialias=True,
+            color=(0.25, 0.28, 0.36, 0.9), glOptions='translucent'))
+        # Стрелка севера: на повёрнутой сцене стороны света теряются
+        # мгновенно, а по одной подписи их не восстановить.
+        arrow = north_arrow(lo, hi)
+        ap = np.array([q for seg in arrow for q in (put(seg[0]),
+                                                    put(seg[1]))],
+                      dtype=float)
+        self._add_item(gl.GLLinePlotItem(
+            pos=ap, mode='lines', width=2.0, antialias=True,
+            color=(0.20, 0.24, 0.38, 0.95), glOptions='translucent'))
+
+        TextItem = _halo_text_item(gl)
+        if TextItem is None:
+            return
+        from qgis.PyQt.QtGui import QFont
+        fnt = QFont()
+        fnt.setPointSize(8)
+        self._add_item(TextItem(pos=put(arrow[0][1]), text=tr("С"),
+                                color=(30, 30, 30, 255), font=fnt))
+        cap = 60
+        for n, (_axis, val, _s0, s1) in enumerate(marks):
+            if n >= cap:
+                _log(tr("Подписей осей больше %d, остальные "
+                        "не ставим: они забили бы сцену.") % cap)
+                break
+            self._add_item(TextItem(pos=put(s1), text=tick_label(val),
+                                    color=(30, 30, 30, 255), font=fnt))
 
     def _cap_cut(self, v, f):
         """Крышка на срезе оболочки.
@@ -3278,6 +3457,8 @@ class ViewerDialog(QDialog):
         другу невыполнимы, и сцена выходит пустой. Молчать об этом
         значит отправить человека искать причину в данных.
         """
+        if self.zs_top.currentData() or self.zs_bot.currentData():
+            return True
         lo, hi = self._z_bounds()
         if lo is not None and hi is not None and lo > hi:
             self._warn(tr("Границы отметок перепутаны: z\u2265 %.1f "
@@ -3308,13 +3489,49 @@ class ViewerDialog(QDialog):
         return (None if lo <= -1e7 + 1 else lo,
                 None if hi <= -1e7 + 1 else hi)
 
-    def _z_kept(self, zs):
-        """Отбор вершин по отметке."""
+    def _z_surfaces(self):
+        """Поверхности отсечки: (массив, геопривязка) сверху и снизу.
+
+        Читаются раз на сборку сцены: растр открывается дорого,
+        а нужен он на каждый слой.
+        """
+        if self._z_surf_now is not None:
+            return self._z_surf_now
+        from qgis.core import QgsProject
+        out = []
+        for combo in (self.zs_top, self.zs_bot):
+            lid = combo.currentData()
+            got = (None, None)
+            if lid:
+                lyr = QgsProject.instance().mapLayer(lid)
+                if lyr is not None:
+                    arr, gt = _read_raster(lyr.source(), 1)
+                    if arr is not None:
+                        got = (arr, gt)
+            out.append(got)
+        self._z_surf_now = tuple(out)
+        return self._z_surf_now
+
+    def _z_kept(self, zs, xs=None, ys=None):
+        """Отбор вершин по отметке и по поверхностям.
+
+        Отметка плоская, а кровля и подошва меняются по площади,
+        поэтому поверхности отсекают точнее. Без координат в плане
+        поверхности не применяются: отсечь по ним нечем.
+        """
         import numpy as np
+        from .flatten import keep_between
+        zs = np.asarray(zs, dtype=float)
         lo, hi = self._z_bounds()
-        if lo is None and hi is None:
-            return np.ones(np.asarray(zs).shape, dtype=bool)
-        return z_range_mask(zs, lo, hi)
+        keep = (z_range_mask(zs, lo, hi)
+                if (lo is not None or hi is not None)
+                else np.ones(zs.shape, dtype=bool))
+        if xs is None or ys is None:
+            return keep
+        (ta, tg), (ba, bg) = self._z_surfaces()
+        if ta is None and ba is None:
+            return keep
+        return keep & keep_between(xs, ys, zs, ta, tg, ba, bg)
 
     def _points_kept(self, xs, ys):
         """Отбор сразу для множества точек.
@@ -4176,6 +4393,27 @@ class ViewerDialog(QDialog):
         got = isosurface_levels(vol, levels, gt, z0, dz)
         if prof is not None:
             prof.add("mesh")
+        # Чистка: отброс мелочи до сглаживания, иначе обрывки успевают
+        # затянуть к себе соседей.
+        rounds = int(opts.get("iso_smooth", 0) or 0)
+        minf = int(opts.get("iso_min_faces", 0) or 0)
+        if rounds or minf > 1:
+            from .cleanup import drop_small, smooth, count_parts
+            cleaned = []
+            for lev, cv, cf in got:
+                if len(cf) and minf > 1:
+                    before = count_parts(cv, cf)
+                    cv, cf = drop_small(cv, cf, minf)
+                    after = count_parts(cv, cf)
+                    if after < before:
+                        _log(tr("Отброшено кусков: %d из %d.")
+                             % (before - after, before))
+                if len(cf) and rounds:
+                    cv = smooth(cv, cf, rounds=rounds, strength=0.5)
+                cleaned.append((lev, cv, cf))
+            got = cleaned
+            if prof is not None:
+                prof.add("clean")
         out = []
         span = max(len(levels) - 1, 1)
         for k, (lev, v, f) in enumerate(got):
@@ -4493,6 +4731,7 @@ class ViewerDialog(QDialog):
         prof = _Prof()
         self._clip_now = None
         self._clip_geom_now = None
+        self._z_surf_now = None
         self._clip_seen = 0
         self._clip_kept = 0
         self._clip_dmin = float("inf")
@@ -4724,6 +4963,10 @@ class ViewerDialog(QDialog):
         cy = 0.5 * (min(ys) + max(ys))
         cz = 0.5 * (min(zs_) + max(zs_))
         span_xy = max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
+        if self.btn_axes.isChecked():
+            self._add_axes_box(gl, (min(xs), min(ys), min(zs_)),
+                               (max(xs), max(ys), max(zs_)),
+                               cx, cy, cz, vex)
         # окраска пер-слойно: свой канал cband; если 0 - внешний
         # атрибутный растр слоя; иначе палитра
         prof.skip()

@@ -413,6 +413,46 @@ def test_class_interface_gets_two_faces():
     assert (tri_cls == 2).sum() == 12
 
 
+def test_edges_are_parsed_from_text():
+    """Границы интервалов читаются строкой, как их пишет человек."""
+    assert voxel.parse_edges("0,5,10,15") == [0.0, 5.0, 10.0, 15.0]
+    assert voxel.parse_edges(" 0 ; 5 ; 10 ") == [0.0, 5.0, 10.0]
+    assert voxel.parse_edges("0 5 10") == [0.0, 5.0, 10.0]
+
+
+def test_edges_are_sorted_and_deduped():
+    """Границы вразнобой и с повторами приводятся к порядку."""
+    assert voxel.parse_edges("10,0,5,5") == [0.0, 5.0, 10.0]
+
+
+def test_bad_edges_are_refused():
+    """Мусор и одна граница не годятся: интервала из них не выйдет."""
+    assert voxel.parse_edges("") is None
+    assert voxel.parse_edges("5") is None
+    assert voxel.parse_edges("abc, def") is None
+
+
+def test_labels_follow_the_intervals():
+    """Названий столько же, сколько интервалов, лишние отброшены."""
+    got = voxel.parse_labels("низкое, среднее, высокое", 3)
+    assert got == ["низкое", "среднее", "высокое"]
+    assert voxel.parse_labels("низкое", 3)[1:] == ["", ""]
+    assert voxel.parse_labels("a,b,c,d", 2) == ["a", "b"]
+    assert voxel.parse_labels("", 2) == ["", ""]
+
+
+def test_quantize_by_own_edges():
+    """Ячейка попадает в свой интервал по заданным границам."""
+    vol = np.array([[[-1.0, 0.0, 4.9, 5.0, 9.9, 20.0]]])
+    cls = voxel.quantize(vol, np.array([0.0, 5.0, 10.0]))
+    assert cls[0, 0, 1] == 1 and cls[0, 0, 2] == 1
+    assert cls[0, 0, 3] == 2 and cls[0, 0, 4] == 2
+    # ниже первой границы нулевой класс, выше последней последний:
+    # ячейка выше верхней границы всё равно в теле, и терять её нельзя
+    assert cls[0, 0, 0] == 0
+    assert cls[0, 0, 5] == 3
+
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

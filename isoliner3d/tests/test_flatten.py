@@ -127,6 +127,76 @@ def test_thickness_mode_returns_back():
     assert np.allclose(back, f, atol=1e-6)
 
 
+def test_between_surfaces_keeps_the_slab():
+    """Между двумя поверхностями остаётся то, что внутри.
+
+    Одной отметкой этого не заменить: кровля и подошва меняются
+    по площади, а отметка плоская.
+    """
+    roof = _roof()
+    floor = roof - 20.0
+    x = np.array([500.0, 500.0, 500.0, 500.0])
+    y = np.full(4, 500.0)
+    top = flatten.sample(x, y, roof, GT)
+    z = np.array([top[0] + 5.0, top[1] - 5.0, top[2] - 15.0,
+                  top[3] - 25.0])
+    keep = flatten.keep_between(x, y, z, roof, GT, floor, GT)
+    assert keep.tolist() == [False, True, True, False], keep
+
+
+def test_only_top_surface_cuts_from_above():
+    """Одна поверхность сверху отсекает всё, что выше неё."""
+    roof = _roof()
+    x = np.array([500.0, 500.0])
+    y = np.full(2, 500.0)
+    top = flatten.sample(x, y, roof, GT)
+    z = np.array([top[0] + 1.0, top[1] - 1.0])
+    keep = flatten.keep_between(x, y, z, roof, GT, None, None)
+    assert keep.tolist() == [False, True]
+
+
+def test_only_bottom_surface_cuts_from_below():
+    roof = _roof()
+    x = np.array([500.0, 500.0])
+    y = np.full(2, 500.0)
+    base = flatten.sample(x, y, roof, GT)
+    z = np.array([base[0] + 1.0, base[1] - 1.0])
+    keep = flatten.keep_between(x, y, z, None, None, roof, GT)
+    assert keep.tolist() == [True, False]
+
+
+def test_outside_the_surface_is_dropped():
+    """Точка без поверхности не остаётся: отсечь её нечем.
+
+    Пропустить её значит показать данные там, где отсечка не работала,
+    и человек не отличит одно от другого.
+    """
+    roof = _roof().copy()
+    roof[:, :3] = np.nan
+    keep = flatten.keep_between(np.array([50.0, 950.0]),
+                                np.array([500.0, 500.0]),
+                                np.array([0.0, 0.0]), roof, GT,
+                                None, None)
+    assert not keep[0]
+
+
+def test_no_surfaces_keeps_everything():
+    keep = flatten.keep_between(np.array([1.0, 2.0]),
+                                np.array([1.0, 2.0]),
+                                np.array([1.0, 2.0]),
+                                None, None, None, None)
+    assert keep.all()
+
+
+def test_bounds_are_inclusive():
+    """Точка ровно на поверхности остаётся: иначе пропадёт кровля."""
+    roof = _roof()
+    x = np.array([500.0])
+    y = np.array([500.0])
+    z = flatten.sample(x, y, roof, GT)
+    assert flatten.keep_between(x, y, z, roof, GT, None, None)[0]
+
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

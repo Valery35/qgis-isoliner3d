@@ -498,6 +498,64 @@ def test_value_field_hint_names_the_demo_field():
                 assert "grade" in _ast.literal_eval(v), name
 
 
+def test_sectors_are_taken_from_the_data():
+    """Число секторов берётся от опробования, а не ставится наугад.
+
+    Умолчание в восемь было сделано под скважины и не разведено
+    с плановыми данными: у почвенных проб деление рвёт поле лучами
+    от узлов.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    for cls in ("Interp3DAlgorithm", "CrossValidateAlgorithm",
+                "Kriging3DAlgorithm"):
+        i = src.index("class %s(" % cls)
+        nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+        seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+        assert "auto_sectors(" in seg, cls
+        j = seg.index('"SECTORS", self.tr(')
+        assert "0 - от данных" in seg[j:j + 200], cls
+        assert "defaultValue=0" in seg[j:j + 260], cls
+
+
+def test_blocks_can_be_clipped_by_surfaces():
+    """2.03 отсекает точки поверхностями сверху и снизу.
+
+    Одной отметкой этого не заменить: дневной рельеф и кровля меняются
+    по площади, а отметка плоская.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class CubeToBlocksAlgorithm(")
+    nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+    seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+    assert "self.TOPSURF" in seg and "self.BOTSURF" in seg
+    assert "keep_between(px, py, pz, ta, tg, ba, bg)" in seg
+    # отсечка идёт до выгрузки, а не после
+    assert seg.index("keep_between(") < seg.index("sink.addFeature")
+
+
+def test_voxels_take_own_edges_and_labels():
+    """2.04 берёт свои границы интервалов и их названия.
+
+    Равные доли годятся не всегда: содержания делят по своим
+    ступеням, и у ступеней есть имена.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class CubeVoxelBodyAlgorithm(")
+    nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+    seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+    assert "self.EDGES" in seg and "self.LABELS" in seg
+    assert "voxel.parse_edges(" in seg and "voxel.parse_labels(" in seg
+    assert '"name"' in seg
+    # свои границы важнее числа интервалов
+    assert seg.index("if own:") < seg.index("elif nclass > 1")
+
+
 def test_kriging_can_flatten_too():
     """Спрямление есть и у кригинга.
 

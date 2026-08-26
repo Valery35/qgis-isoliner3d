@@ -522,6 +522,27 @@ def test_groups_of_one_match_the_pointwise_check():
     assert np.allclose(r1[ok], r2[ok])
 
 
+def test_auto_sectors_off_for_plan_data():
+    """У плановых данных секторов не надо: стволов нет, делить нечего.
+
+    Граница сектора проходит лучом от узла, и на ней набор соседей
+    меняется скачком. На почвенных пробах это даёт звёзды в поле.
+    """
+    assert interp3d.auto_sectors(1) == 1
+    assert interp3d.auto_sectors(2) == 1
+
+
+def test_auto_sectors_on_for_boreholes():
+    """У скважин сектора нужны: иначе все соседи из одного ствола."""
+    assert interp3d.auto_sectors(16) > 1
+    assert interp3d.auto_sectors(64) > 1
+
+
+def test_auto_sectors_without_a_net():
+    """Без замера сети берём безопасное: деление лишним не будет."""
+    assert interp3d.auto_sectors(None) >= 1
+
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

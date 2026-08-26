@@ -659,7 +659,7 @@ def test_elevation_clip_reaches_every_source():
     assert "def _z_kept" in src and "def _z_bounds" in src
     start = src.index("def _clip_tris")
     body = src[start:src.index("\n        def ", start + 20)]
-    assert "self._z_kept(v[:, 2])" in body
+    assert "self._z_kept(v[:, 2], v[:, 0], v[:, 1])" in body
     scene = src[src.index("def _rebuild_scene"):]
     assert "self._z_kept(top)" in scene and "self._z_kept(arr)" in scene
     vox = src[src.index("        def _vox_mesh"):]
@@ -667,7 +667,7 @@ def test_elevation_clip_reaches_every_source():
     assert "z_range_mask(zc, lo_z, hi_z)" in vox
     lines = src[src.index("def _vec_lines"):]
     lines = lines[:lines.index("\n        def ")]
-    assert "self._z_kept([p[2]])" in lines
+    assert "self._z_kept([p[2]], [p[0]], [p[1]])" in lines
 
 
 def test_graduated_style_is_read_by_ranges():
@@ -1043,7 +1043,7 @@ def test_clip_makes_no_holes_inside_the_body():
         def _points_kept(self, xs, ys):
             return np.asarray(xs) < 40.0
 
-        def _z_kept(self, zs):
+        def _z_kept(self, zs, xs=None, ys=None):
             return np.ones(np.asarray(zs).shape, dtype=bool)
 
     _Dlg._clip_tris = clip
@@ -1093,7 +1093,7 @@ def test_voxel_wall_is_not_lost_by_the_corridor():
         def _points_kept(self, xs, ys):
             return np.asarray(xs) <= 10.0
 
-        def _z_kept(self, zs):
+        def _z_kept(self, zs, xs=None, ys=None):
             return np.ones(np.asarray(zs).shape, dtype=bool)
 
     _Dlg._clip_tris = clip
@@ -1292,6 +1292,57 @@ def test_swapped_elevation_bounds_are_named():
     assert "lo > hi" in body or "hi < lo" in body
 
 
+def test_surface_clipping_is_in_scene_properties():
+    """Отсечка поверхностями задаётся в свойствах сцены.
+
+    Одной отметкой её не заменить: кровля и подошва меняются
+    по площади, а отметка плоская.
+    """
+    src = _viewer_src()
+    assert 'f2.addRow(tr("По поверхностям"), srow)' in src
+    assert "srow.addWidget(self.zs_top)" in src
+    assert "srow.addWidget(self.zs_bot)" in src
+    # списки наполняются растрами проекта
+    assert "isinstance(lyr, QgsRasterLayer):\n                    combo" \
+        in src or "combo.addItem(lyr.name(), lyr.id())" in src
+
+
+def test_surface_clipping_reaches_the_filter():
+    """Поверхности идут через тот же отбор, что и границы отметок."""
+    src = _viewer_src()
+    start = src.index("def _z_kept")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "keep_between(xs, ys, zs, ta, tg, ba, bg)" in body
+    assert "if xs is None or ys is None:" in body
+    act = src[src.index("def _z_active"):]
+    act = act[:act.index("\n    def ")]
+    assert "self.zs_top.currentData()" in act
+
+
+def test_surfaces_are_read_once_per_rebuild():
+    """Растр отсечки читается раз на сборку, а не на каждый слой."""
+    src = _viewer_src()
+    start = src.index("def _z_surfaces")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "self._z_surf_now is not None" in body
+    scene = src[src.index("def _rebuild_scene"):]
+    assert "self._z_surf_now = None" in scene
+
+
+def test_clip_controls_live_in_scene_properties():
+    """Полуширина коридора и границы отметок стоят в свойствах сцены.
+
+    На плашке они занимали место у кнопок, которыми пользуются
+    постоянно, а правят их редко.
+    """
+    src = _viewer_src()
+    assert 'f2.addRow(tr("Полуширина коридора, м"), self.clip_width)' \
+        in src
+    assert 'f2.addRow(tr("По отметке"), zrow)' in src
+    assert "tb.addWidget(self.clip_width)" not in src
+    assert "tb.addWidget(self.zlo)" not in src
+
+
 def test_elevation_bounds_can_be_cleared():
     """Обрезку по отметке можно снять одним движением.
 
@@ -1309,7 +1360,7 @@ def test_elevation_bounds_can_be_cleared():
     clear = src[src.index("def _clip_clear_all"):]
     clear = clear[:clear.index("\n        def ")]
     assert "self._z_clear(" in clear
-    assert 'tool("zclear"' in src or "self._z_clear)" in src
+    assert "self._z_clear()" in src
 
 
 def test_elevation_bounds_have_a_no_bound_value():
@@ -2328,6 +2379,123 @@ def test_iso_uses_cube_convention():
     cube = src[src.index("        def _cube_arrays"):]
     cube = cube[:cube.index("\n        def ")]
     assert '"Z0"' in cube and '"DZ"' in cube
+
+
+def test_every_button_kind_has_an_icon():
+    """У каждой кнопки плашки есть свой значок.
+
+    Значок неизвестного вида рисуется пустым, и кнопка выглядит
+    поломанной. Так и вышло с координатным коробом.
+    """
+    import re
+    src = _viewer_src()
+    kinds = set(re.findall(r'tool\(\s*"(\w+)"', src))
+    kinds |= set(re.findall(r"tool\(\s*'(\w+)'", src))
+    start = src.index("def _tool_icon")
+    body = src[start:src.index("\ndef ", start + 20)]
+    known = set(re.findall(r'kind == ["\'](\w+)["\']', body))
+    missing = sorted(kinds - known)
+    assert not missing, "кнопки без значка: %s" % ", ".join(missing)
+
+
+def test_axes_box_is_wired():
+    """Координатный короб доходит от кнопки до сцены.
+
+    Сцена без делений не даёт размера: тело выглядит одинаково
+    и на сто метров, и на двадцать километров.
+    """
+    src = _viewer_src()
+    assert "self.btn_axes = tool(" in src
+    assert "def _add_axes_box" in src
+    scene = src[src.index("def _rebuild_scene"):]
+    assert "self.btn_axes.isChecked()" in scene
+    assert "self._add_axes_box(gl," in scene
+
+
+def test_scene_properties_are_grouped():
+    """Свойства сцены разбиты по смыслу, а не идут одним списком.
+
+    Тринадцать строк подряд читаются как свалка: нужное приходится
+    искать перебором.
+    """
+    src = _viewer_src()
+    for name in ('QGroupBox(tr("Вид"))', 'QGroupBox(tr("Обрезка"))',
+                 'QGroupBox(tr("Координатный короб"))'):
+        assert name in src, name
+    # в каждой части не больше пяти строк
+    import re
+    for form in ("f1", "f2", "f3"):
+        n = len(re.findall(r"(?<![\w])%s\.addRow\(" % form, src))
+        assert n <= 5, (form, n)
+
+
+def test_grid_is_driven_by_scene_properties():
+    """Сетка задаётся свойствами сцены: плоскости и шаг.
+
+    Кнопка на плашке включает короб целиком, а чем его наполнить -
+    решают свойства: править это на плашке негде и незачем.
+    """
+    src = _viewer_src()
+    assert 'f3.addRow(tr("Сетка"), self.grid_planes)' in src
+    assert 'f3.addRow(tr("Шаг сетки, м"), self.grid_step)' in src
+    with open(os.path.join(os.path.dirname(HERE), "viewer_dialog.py"),
+              encoding="utf-8") as fh:
+        d = fh.read()
+    start = d.index("def _add_axes_box")
+    body = d[start:d.index("\n    def ", start + 20)]
+    assert "grid_lines(lo, hi, float(self.grid_step.value())" in body
+    assert "self.grid_planes.currentData()" in body
+
+
+def test_grid_step_zero_means_from_the_span():
+    """Ноль в шаге означает круглый шаг от размаха, а не пустую сетку."""
+    src = _viewer_src()
+    assert 'setSpecialValueText(tr("(от размаха)"))' in src
+
+
+def test_north_arrow_is_drawn_with_the_box():
+    """Стрелка севера идёт вместе с коробом и подписана.
+
+    На повёрнутой сцене стороны света теряются мгновенно,
+    а по одной подписи их не восстановить.
+    """
+    with open(os.path.join(os.path.dirname(HERE), "viewer_dialog.py"),
+              encoding="utf-8") as fh:
+        src = fh.read()
+    start = src.index("def _add_axes_box")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "north_arrow(lo, hi)" in body
+    assert 'text=tr("С")' in body
+
+
+def test_axes_labels_are_capped():
+    """Подписей не больше предела: иначе они забьют сцену."""
+    with open(os.path.join(os.path.dirname(HERE), "viewer_dialog.py"),
+              encoding="utf-8") as fh:
+        src = fh.read()
+    start = src.index("def _add_axes_box")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "cap = " in body and "n >= cap" in body
+    assert "tick_label(val)" in body
+    assert "box_edges(lo, hi)" in body and "tick_marks(lo, hi" in body
+
+
+def test_isosurface_is_cleaned_before_use():
+    """Поверхность чистится: мелочь отбрасывается, ступени садятся.
+
+    Изолинии по уровням с последующей сшивкой дают то же самое,
+    но добавляют неоднозначность: когда на одном уровне одно кольцо,
+    а на следующем два, машина не знает, как их соединить.
+    """
+    src = _viewer_src()
+    start = src.index("def _iso_mesh")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "drop_small(cv, cf, minf)" in body
+    assert "smooth(cv, cf, rounds=rounds" in body
+    # мелочь отбрасывается раньше сглаживания
+    assert body.index("drop_small(") < body.index("smooth(cv")
+    assert 'tr("Сглаживание, проходов")' in src
+    assert 'tr("Отбросить куски мельче, граней")' in src
 
 
 def test_iso_levels_are_coloured_and_layered():
