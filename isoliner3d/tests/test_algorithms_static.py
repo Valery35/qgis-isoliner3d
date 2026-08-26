@@ -460,6 +460,133 @@ def test_kriging_measures_the_variogram_itself():
     assert "assemble(" in seg
 
 
+def test_demo3d_explains_its_fields():
+    """2.01 печатает расшифровку своих полей.
+
+    Слой выходит с шестью полями, и по именам не видно, какое из них
+    содержание, а какое номер скважины. Расшифровка нужна там, где
+    данные только что созданы, а не в руководстве через две главы.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class Demo3DPointsAlgorithm(")
+    nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+    seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+    for field in ("hole", "from_m", "to_m", "grade", "truth", "zone"):
+        assert "%s " % field in seg or "`%s`" % field in seg, field
+    assert "Поля слоя:" in seg
+
+
+def test_value_field_hint_names_the_demo_field():
+    """Подсказка к полю значения называет поле демонстрационных данных.
+
+    Иначе на демо подставляется первое числовое поле, а это номер
+    скважины, и куб выходит по номерам.
+    """
+    import ast as _ast
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    tree = _ast.parse(src)
+    for node in tree.body:
+        name = getattr(getattr(node, "targets", [None])[0], "id", "") \
+            if isinstance(node, _ast.Assign) else ""
+        if name not in ("HINTS_2_02", "HINTS_2_05", "HINTS_2_06"):
+            continue
+        for k, v in zip(node.value.keys, node.value.values):
+            if k.value == "FIELD":
+                assert "grade" in _ast.literal_eval(v), name
+
+
+def test_kriging_can_flatten_too():
+    """Спрямление есть и у кригинга.
+
+    Вариограмма меряется в тех же координатах, в которых потом идёт
+    расчёт: замерив её в абсолютных, а посчитав в спрямлённых,
+    получишь модель не от этих данных.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class Kriging3DAlgorithm(")
+    nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+    seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+    assert '"REF"' in seg and '"REF_FLOOR"' in seg
+    assert seg.count("to_flat(") >= 2
+    # спрямление идёт до замера вариограммы
+    assert seg.index("to_flat(") < seg.index("auto_fit(")
+
+
+def test_interp3d_takes_anisotropy_from_the_variogram():
+    """У 2.02 анизотропию можно замерить, а не задавать на глаз.
+
+    Отношение длин связи в плане и по вертикали и есть анизотропия,
+    и это тот случай, когда гадать не нужно.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class Interp3DAlgorithm(")
+    nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+    seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+    assert 'direction="plan"' in seg and 'direction="vert"' in seg
+    assert "assemble(" in seg
+    assert "0 - от данных" in seg[seg.index('"ANISO"'):
+                                  seg.index('"ANISO"') + 300]
+
+
+def test_interp3d_can_flatten_along_the_bedding():
+    """2.02 умеет считать вертикаль от опорной поверхности.
+
+    В абсолютных отметках интерполяция идёт поперёк напластования:
+    у пласта со складкой соседняя по вертикали проба лежит в другой
+    пачке. Никакой анизотропией это не лечится, она правит масштаб,
+    а не форму.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class Interp3DAlgorithm(")
+    nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+    seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+    assert '"REF"' in seg and '"REF_FLOOR"' in seg
+    assert "to_flat(" in seg
+    # спрямляются и пробы, и узлы сетки: иначе куб ляжет не туда
+    assert seg.count("to_flat(") >= 2
+
+
+def test_flattened_nodes_without_reference_are_gaps():
+    """Узел без опорной поверхности остаётся пропуском.
+
+    Продлить поверхность наружу значило бы считать спрямление
+    от выдумки.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class Interp3DAlgorithm(")
+    nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+    seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+    assert "np.isfinite(fz)" in seg or "isfinite(nodes_f" in seg
+
+
+def test_fields_avoid_the_deprecated_constructor():
+    """Поля слоя заводятся помощником, а не устаревшим вызовом.
+
+    В новых сборках QGIS `QgsField(name, QVariant.Type)` объявлен
+    устаревшим и на каждый запуск сыплет предупреждениями в журнал.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    assert "def _field(name, kind):" in src
+    body = src[src.index("def _advanced("):]
+    left = re.findall(r"(?<![\w.])QgsField\(", body)
+    assert not left, "остались прямые вызовы: %d" % len(left)
+    head = src[:src.index("def _advanced(")]
+    assert "QMetaType" in head
+
+
 if __name__ == "__main__":
     ok = 0
     for nm, fn in sorted(globals().items()):

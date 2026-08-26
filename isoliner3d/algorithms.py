@@ -239,6 +239,26 @@ def _set_output_name(context, path, name):
         pass
 
 
+def _read_surface(lyr, band=1):
+    """Поверхность первым каналом: массив и геопривязка.
+
+    Годится и обычный грид отметок, и кровля пласта
+    из многоканального.
+    """
+    import numpy as np
+    ds = gdal.Open(lyr.source())
+    if ds is None or ds.RasterCount < band:
+        return None, None
+    b = ds.GetRasterBand(band)
+    arr = b.ReadAsArray().astype(float)
+    nd = b.GetNoDataValue()
+    if nd is not None:
+        arr[arr == nd] = np.nan
+    gt = ds.GetGeoTransform()
+    ds = None
+    return arr, gt
+
+
 def _read_samples(alg, parameters, context, feedback):
     """Разбор точечных проб: координаты, отметка, значение.
 
@@ -348,6 +368,26 @@ def _hints(alg, mapping):
             prm.setHelp(alg.tr(text))
         except AttributeError:  # nosec
             return
+
+
+def _field(name, kind):
+    """Поле слоя без устаревшего конструктора.
+
+    В новых сборках QGIS `_field(name, QVariant.Type)` объявлен
+    устаревшим и сыплет предупреждениями в журнал. Новый путь через
+    `QMetaType.Type`, но он есть не везде, поэтому со скатом
+    на прежний.
+    """
+    try:
+        from qgis.PyQt.QtCore import QMetaType
+        conv = {QVariant.Int: QMetaType.Type.Int,
+                QVariant.Double: QMetaType.Type.Double,
+                QVariant.String: QMetaType.Type.QString}
+        if kind in conv:
+            return QgsField(name, conv[kind])
+    except (ImportError, AttributeError):  # nosec
+        pass
+    return QgsField(name, kind)
 
 
 def _advanced(param):
@@ -917,9 +957,9 @@ class BedToBlockModelAlgorithm(IsolinerAlgorithm):
                        ("z_from", QVariant.Double), ("z_to", QVariant.Double),
                        ("thick", QVariant.Double), ("vol", QVariant.Double),
                        ("dens", QVariant.Double), ("ore_t", QVariant.Double)):
-            fields.append(QgsField(nm, tp))
+            fields.append(_field(nm, tp))
         for nm in pnames:
-            fields.append(QgsField(nm, QVariant.Double))
+            fields.append(_field(nm, QVariant.Double))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Type.Point, bed_l.crs())
@@ -1290,9 +1330,9 @@ class ReserveDeltaAlgorithm(IsolinerAlgorithm):
         da = _key_vals(after)
         fields = QgsFields()
         for nm in ("row", "col", "lay"):
-            fields.append(QgsField(nm, QVariant.Int))
+            fields.append(_field(nm, QVariant.Int))
         for nm in ("before", "after", "delta"):
-            fields.append(QgsField(nm, QVariant.Double))
+            fields.append(_field(nm, QVariant.Double))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Type.Point, before.sourceCrs())
@@ -1437,8 +1477,8 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
                 if not lyr.isValid():
                     return False
                 pr = lyr.dataProvider()
-                pr.addAttributes([QgsField("bed", QVariant.Int),
-                                  QgsField("watertight", QVariant.Int)])
+                pr.addAttributes([_field("bed", QVariant.Int),
+                                  _field("watertight", QVariant.Int)])
                 lyr.updateFields()
                 _ne, n_open = poly.edge_audit(bp)
                 ft = QgsFeature(lyr.fields())
@@ -1555,11 +1595,11 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
             o["geom"] = g
 
         fields = QgsFields()
-        fields.append(QgsField("name", QVariant.String))
-        fields.append(QgsField("kind", QVariant.String))
-        fields.append(QgsField("patches", QVariant.Int))
-        fields.append(QgsField("watertight", QVariant.Int))
-        fields.append(QgsField("bed", QVariant.Int))
+        fields.append(_field("name", QVariant.String))
+        fields.append(_field("kind", QVariant.String))
+        fields.append(_field("patches", QVariant.Int))
+        fields.append(_field("watertight", QVariant.Int))
+        fields.append(_field("bed", QVariant.Int))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields, used_wkb, crs)
         if sink is None:
@@ -1610,7 +1650,9 @@ HINTS_2_02 = {
     "INPUT": "Слой проб. Отметка берётся из геометрии, из поля или "
              "считается от поверхности, это задаётся ниже.",
     "FIELD": "Числовое поле, значение которого раскладывается по кубу: "
-             "содержание, концентрация, влажность.",
+             "содержание, концентрация, влажность. У демонстрационных "
+             "данных из 2.01 это grade, а не hole: иначе куб выйдет "
+             "по номерам скважин.",
     "ZSRC": "Плоский слой отдаёт нулевую Z у каждой точки. Если брать "
             "её из геометрии, все пробы лягут в одну плоскость и куб "
             "выйдет бессмысленным.",
@@ -1618,6 +1660,15 @@ HINTS_2_02 = {
               "глубина вниз от поверхности.",
     "ZSURF": "Грид, от которого отсчитывается глубина. Нужен почвенным "
              "и подобным пробам, где записана глубина, а не отметка.",
+    "REF": "Кровля или подошва пласта. С ней вертикаль отсчитывается "
+           "от поверхности, и интерполяция идёт вдоль напластования, "
+           "а не поперёк. У пласта со складкой это меняет не точность "
+           "на проценты, а осмысленность результата.",
+    "REF_FLOOR": "Вторая поверхность. С ней отметка становится долей "
+                 "мощности: ноль на кровле, единица на подошве. Так "
+                 "сопоставляются пачки разной мощности, и раздув "
+                 "не размазывает связь. Анизотропия тогда считается "
+                 "по доле, а не по метрам.",
     "METHOD": "Ближний сосед даёт ступени и годится для проверки "
               "данных. Обратные расстояния дают сглаженное поле.",
     "CELL": "Ноль берёт пятую часть расстояния между точками плана. "
@@ -1628,9 +1679,11 @@ HINTS_2_02 = {
     "MAXPTS": "Ноль берёт на одного больше, чем замеров в одной точке "
               "плана. Больше значит смешать все уровни сразу "
               "и сгладить аномалию по глубине.",
-    "ANISO": "Отношение вертикального масштаба к горизонтальному. "
-             "Большая сглаживает по вертикали, малая сохраняет "
-             "различие по глубине.",
+    "ANISO": "Ноль замеряет вариограмму по данным и берёт отношение "
+             "вертикальной длины связи к плановой. Это тот случай, "
+             "когда гадать не нужно. Своё число задаёт масштаб "
+             "вручную: большое сглаживает по вертикали, малое "
+             "сохраняет различие по глубине.",
     "RADIUS": "Ноль берёт четверть охвата данных. Узел, где точек "
               "в радиусе не набралось, остаётся пропуском.",
     "POWER": "Чем больше степень, тем сильнее ближняя точка "
@@ -1670,8 +1723,11 @@ HINTS_2_04 = {
                "подсчётный блок, лицензионная площадь.",
     "CLASSES": "Ноль строит одно тело. Несколько интервалов дают объект "
                "на каждый, и тело можно раскрасить по содержанию.",
-    "MERGE": "Слияние делает слой в разы легче, но ломает замкнутость: "
-             "для подсчёта объёма флаг надо снять.",
+    "MERGE": "Слияние делает слой в разы легче, но рвёт границу тела "
+             "Т-образными стыками. Такое тело нельзя ни посчитать "
+             "по объёму, ни разрезать в сцене: срез останется "
+             "открытым, крышку поставить не на что. Для подсчёта "
+             "и для разрезов флаг снимайте.",
     "UNPINCH": "Защип это касание двух ячеек одной диагональю. Дырой он "
                "не является, но ребро в нём принадлежит четырём граням, "
                "и проверка замкнутости такое тело отвергает.",
@@ -1949,7 +2005,7 @@ class Demo3DPointsAlgorithm(IsolinerAlgorithm):
         _hints(self, HINTS_2_01)
 
     def _process(self, parameters, context, feedback):
-        from qgis.core import (QgsFields, QgsField, QgsFeature, QgsGeometry,
+        from qgis.core import (QgsFields, QgsFeature, QgsGeometry,
                                QgsPoint, QgsWkbTypes)
         from . import demo3d
 
@@ -1997,12 +2053,12 @@ class Demo3DPointsAlgorithm(IsolinerAlgorithm):
         feedback.setProgress(55)
 
         fields = QgsFields()
-        fields.append(QgsField("hole", QVariant.Int))
-        fields.append(QgsField("from_m", QVariant.Double))
-        fields.append(QgsField("to_m", QVariant.Double))
-        fields.append(QgsField("grade", QVariant.Double))
-        fields.append(QgsField("truth", QVariant.Double))
-        fields.append(QgsField("zone", QVariant.Int))
+        fields.append(_field("hole", QVariant.Int))
+        fields.append(_field("from_m", QVariant.Double))
+        fields.append(_field("to_m", QVariant.Double))
+        fields.append(_field("grade", QVariant.Double))
+        fields.append(_field("truth", QVariant.Double))
+        fields.append(_field("zone", QVariant.Int))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Type.PointZ, context.project().crs())
@@ -2046,6 +2102,16 @@ class Demo3DPointsAlgorithm(IsolinerAlgorithm):
                              float(data["grade"].max()), cut))
         feedback.pushInfo(self.tr("Проб внутри тела: %d из %d.")
                           % (in_zone, total))
+        # Расшифровка полей нужна там, где данные только что созданы:
+        # по именам не видно, какое поле содержание, а какое номер
+        # скважины, и в 2.02 подставляется первое числовое.
+        feedback.pushInfo(self.tr(
+            "Поля слоя: hole номер скважины, from_m и to_m интервал "
+            "пробы от устья вниз, grade содержание с шумом, truth "
+            "содержание по модели без шума, zone единица внутри "
+            "тела.\nДля интерполяции берите grade. Поле truth нужно, "
+            "чтобы отделить ошибку метода от шума опробования, "
+            "а hole - чтобы исключать скважину целиком в 2.05."))
         if total > 2000:
             feedback.pushWarning(self.tr(
                 "Проб много: интерполяция в объёме считает узел по всем "
@@ -2156,9 +2222,9 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
         # Ниже настройка самого метода. К исходным данным она отношения
         # не имеет, и в основном списке только мешает выбирать.
         self.addParameter(_advanced(QgsProcessingParameterNumber(
-            "ANISO", self.tr("Анизотропия (вертикаль к горизонтали)"),
+            "ANISO", self.tr("Анизотропия (0 - от данных)"),
             QgsProcessingParameterNumber.Type.Double, defaultValue=20.0,
-            minValue=1e-6)))
+            minValue=0.0)))
         self.addParameter(_advanced(QgsProcessingParameterNumber(
             "RADIUS", self.tr("Радиус поиска, м (0 - авто)"),
             QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
@@ -2184,6 +2250,8 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
         import numpy as np
         from .interp3d import (interpolate, grid_nodes, sampling_spacing,
                                grid_advice, auto_grid)
+        from .flatten import to_flat, flat_span
+        from .variogram import auto_fit, assemble
 
         src = self.parameterAsSource(parameters, "INPUT", context)
         method = ("nearest", "idw")[
@@ -2253,6 +2321,61 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
                                 net[1] if net else None):
             feedback.pushWarning(self.tr("Сетка: %s.") % note)
 
+        # Спрямление: вертикаль отсчитывается от опорной поверхности.
+        # Пробы и узлы переводятся одинаково, а сетка остаётся
+        # в настоящих отметках, поэтому куб читается всем прочим.
+        ref = self.parameterAsRasterLayer(parameters, "REF", context)
+        ref_fl = self.parameterAsRasterLayer(parameters, "REF_FLOOR",
+                                             context)
+        roof_a = roof_gt = floor_a = None
+        if ref is not None:
+            roof_a, roof_gt = _read_surface(ref)
+            if roof_a is None:
+                raise QgsProcessingException(self.tr(
+                    "Опорная поверхность не открылась."))
+            if ref_fl is not None:
+                floor_a, _gt2 = _read_surface(ref_fl)
+                if floor_a is None or floor_a.shape != roof_a.shape:
+                    raise QgsProcessingException(self.tr(
+                        "Подошва не открылась либо не совпадает "
+                        "с кровлей по сетке."))
+            fz = to_flat(pts[:, 0], pts[:, 1], pts[:, 2], roof_a,
+                         roof_gt, floor=floor_a)
+            keep = np.isfinite(fz)
+            if int(keep.sum()) < 2:
+                raise QgsProcessingException(self.tr(
+                    "Опорная поверхность не покрывает пробы."))
+            if int(keep.sum()) < len(fz):
+                feedback.pushWarning(self.tr(
+                    "Вне опорной поверхности пропущено проб: %d.")
+                    % int((~keep).sum()))
+            span = flat_span(pts[:, 0], pts[:, 1], pts[:, 2], roof_a,
+                             roof_gt, floor=floor_a)
+            if span:
+                feedback.pushInfo(self.tr(
+                    "Спрямление: размах отметки %.2f, был %.2f м, "
+                    "спрямлено проб %d.") % span)
+            pts = np.column_stack([pts[keep, 0], pts[keep, 1],
+                                   fz[keep]])
+            vals = vals[keep]
+
+        if aniso <= 0:
+            # Отношение длин связи в плане и по вертикали и есть
+            # анизотропия. Меряется после спрямления: в тех же
+            # координатах, в которых пойдёт расчёт.
+            plan = auto_fit(pts, vals, nlags=12, direction="plan")
+            vert = auto_fit(pts, vals, nlags=12, direction="vert")
+            vm = assemble(plan, vert, float(np.var(vals)))
+            aniso = vm["anisotropy"]
+            feedback.pushInfo(self.tr(
+                "Вариограмма: длина связи в плане %.0f, по вертикали "
+                "%.1f, анизотропия %.4f.")
+                % (plan["range"], vert["range"], aniso))
+            if not np.isfinite(aniso) or aniso <= 0:
+                aniso = 1.0
+                feedback.pushWarning(self.tr(
+                    "Анизотропию замерить не удалось, взята единица."))
+
         nodes = grid_nodes(x0, y1, z0, nx, ny, nz, cell, cell, cellz)
         vol = np.full(nx * ny * nz, np.nan)
         step = max(nz // 20, 1)
@@ -2261,8 +2384,13 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
             if feedback.isCanceled():
                 break
             a, b = k * per_level, (k + 1) * per_level
+            here = nodes[a:b]
+            if roof_a is not None:
+                nz_f = to_flat(here[:, 0], here[:, 1], here[:, 2],
+                               roof_a, roof_gt, floor=floor_a)
+                here = np.column_stack([here[:, 0], here[:, 1], nz_f])
             vol[a:b] = interpolate(
-                pts, vals, nodes[a:b], method=method,
+                pts, vals, here, method=method,
                 radius=(radius if radius > 0 else None), anisotropy=aniso,
                 power=power, max_points=maxp, min_points=minp,
                 sectors=sectors)
@@ -2424,7 +2552,7 @@ class CubeToBlocksAlgorithm(IsolinerAlgorithm):
         _hints(self, HINTS_2_03)
 
     def _process(self, parameters, context, feedback):
-        from qgis.core import (QgsFields, QgsField, QgsFeature, QgsGeometry,
+        from qgis.core import (QgsFields, QgsFeature, QgsGeometry,
                                QgsPoint, QgsWkbTypes)
         from . import voxel
 
@@ -2482,10 +2610,10 @@ class CubeToBlocksAlgorithm(IsolinerAlgorithm):
                        ("dy", QVariant.Double), ("dz", QVariant.Double),
                        ("vol", QVariant.Double), ("val", QVariant.Double),
                        ("cls", QVariant.Int)):
-            fields.append(QgsField(nm, tp))
+            fields.append(_field(nm, tp))
         if dens > 0:
-            fields.append(QgsField("dens", QVariant.Double))
-            fields.append(QgsField("ore_t", QVariant.Double))
+            fields.append(_field("dens", QVariant.Double))
+            fields.append(_field("ore_t", QVariant.Double))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Type.PointZ, lyr.crs())
@@ -2617,7 +2745,7 @@ class CubeVoxelBodyAlgorithm(IsolinerAlgorithm):
         _hints(self, HINTS_2_04)
 
     def _process(self, parameters, context, feedback):
-        from qgis.core import (QgsFields, QgsField, QgsFeature, QgsGeometry,
+        from qgis.core import (QgsFields, QgsFeature, QgsGeometry,
                                QgsPoint, QgsPolygon, QgsLineString,
                                QgsMultiPolygon, QgsWkbTypes)
         from . import voxel
@@ -2684,7 +2812,7 @@ class CubeVoxelBodyAlgorithm(IsolinerAlgorithm):
         for nm, tp in (("cls", QVariant.Int), ("vmin", QVariant.Double),
                        ("vmax", QVariant.Double), ("faces", QVariant.Int),
                        ("shell", QVariant.Int)):
-            fields.append(QgsField(nm, tp))
+            fields.append(_field(nm, tp))
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
             QgsWkbTypes.Type.MultiPolygonZ, lyr.crs())
@@ -2728,7 +2856,8 @@ HINTS_2_05 = {
     "INPUT": "Тот же слой проб, что подаётся в 2.02. Проверка идёт "
              "по самим пробам, куб для неё не нужен.",
     "FIELD": "Поле значения, по которому строится куб. Именно его "
-             "и проверяем.",
+             "и проверяем. У демонстрационных данных из 2.01 это "
+             "grade.",
     "ZSRC": "Источник отметки должен совпадать с тем, что задан в 2.02: "
             "иначе проверяется не та расстановка точек.",
     "ZFIELD": "Для отметки из поля это сама отметка, для глубины это "
@@ -2898,7 +3027,7 @@ class CrossValidateAlgorithm(IsolinerAlgorithm):
 
     def _process(self, parameters, context, feedback):
         import numpy as np
-        from qgis.core import (QgsFields, QgsField, QgsFeature, QgsGeometry,
+        from qgis.core import (QgsFields, QgsFeature, QgsGeometry,
                                QgsPoint, QgsWkbTypes)
         from .interp3d import (cross_validate, cv_report, sampling_spacing,
                                auto_grid)
@@ -2958,7 +3087,7 @@ class CrossValidateAlgorithm(IsolinerAlgorithm):
 
         fields = QgsFields()
         for nm in ("value", "model", "resid", "aresid"):
-            fields.append(QgsField(nm, QVariant.Double))
+            fields.append(_field(nm, QVariant.Double))
         sink, dest = self.parameterAsSink(
             parameters, "OUTPUT", context, fields,
             QgsWkbTypes.Type.PointZ, src.sourceCrs())
@@ -3140,9 +3269,17 @@ class DemoMapAlgorithm(IsolinerAlgorithm):
 
 
 HINTS_2_06 = {
+    "REF": "Кровля или подошва пласта. С ней вертикаль отсчитывается "
+           "от поверхности, и расчёт идёт вдоль напластования. "
+           "Вариограмма меряется уже в спрямлённых координатах: "
+           "замерив в абсолютных, а посчитав в спрямлённых, получишь "
+           "модель не от этих данных.",
+    "REF_FLOOR": "Вторая поверхность. С ней отметка становится долей "
+                 "мощности: ноль на кровле, единица на подошве.",
     "INPUT": "Тот же слой проб, что подаётся в 2.02. Отметка задаётся "
              "ниже так же, как там.",
-    "FIELD": "Числовое поле, значение которого раскладывается по кубу.",
+    "FIELD": "Числовое поле, значение которого раскладывается по кубу. "
+             "У демонстрационных данных из 2.01 это grade.",
     "ZSRC": "Плоский слой отдаёт нулевую Z у каждой точки. Если брать "
             "её из геометрии, все пробы лягут в одну плоскость и куб "
             "выйдет бессмысленным.",
@@ -3279,6 +3416,12 @@ class Kriging3DAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterRasterLayer(
             "ZSURF", self.tr("Поверхность для отсчёта глубины"),
             optional=True))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            "REF", self.tr("Опорная поверхность (спрямление)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            "REF_FLOOR", self.tr("Подошва для доли мощности"),
+            optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             "CELL", self.tr("Шаг по горизонтали, м (0 - от данных)"),
             QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
@@ -3334,6 +3477,7 @@ class Kriging3DAlgorithm(IsolinerAlgorithm):
                                auto_grid)
         from .variogram import auto_fit, assemble, MODELS
         from .kriging import ordinary
+        from .flatten import to_flat
 
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
@@ -3353,6 +3497,44 @@ class Kriging3DAlgorithm(IsolinerAlgorithm):
                                          feedback)
         pts = np.column_stack([xs, ys, zs])
         vals = np.asarray(vals, dtype=float)
+        feedback.pushInfo(self.tr("Проб: %d.") % len(vals))
+        if len(vals) > 20000:
+            feedback.pushWarning(self.tr(
+                "Проб очень много. Кригинг держит матрицы размером "
+                "с число проб, узлы считаются мелкими порциями, "
+                "и счёт будет долгим. Проредите пробы либо "
+                "укрупните шаг сетки."))
+
+        # Спрямление идёт до замера вариограммы: модель должна быть
+        # снята в тех же координатах, в которых пойдёт расчёт.
+        ref = self.parameterAsRasterLayer(parameters, "REF", context)
+        ref_fl = self.parameterAsRasterLayer(parameters, "REF_FLOOR",
+                                             context)
+        roof_a = roof_gt = floor_a = None
+        if ref is not None:
+            roof_a, roof_gt = _read_surface(ref)
+            if roof_a is None:
+                raise QgsProcessingException(self.tr(
+                    "Опорная поверхность не открылась."))
+            if ref_fl is not None:
+                floor_a, _gt2 = _read_surface(ref_fl)
+                if floor_a is None or floor_a.shape != roof_a.shape:
+                    raise QgsProcessingException(self.tr(
+                        "Подошва не открылась либо не совпадает "
+                        "с кровлей по сетке."))
+            fz = to_flat(pts[:, 0], pts[:, 1], pts[:, 2], roof_a,
+                         roof_gt, floor=floor_a)
+            keep = np.isfinite(fz)
+            if int(keep.sum()) < 2:
+                raise QgsProcessingException(self.tr(
+                    "Опорная поверхность не покрывает пробы."))
+            if int(keep.sum()) < len(fz):
+                feedback.pushWarning(self.tr(
+                    "Вне опорной поверхности пропущено проб: %d.")
+                    % int((~keep).sum()))
+            pts = np.column_stack([pts[keep, 0], pts[keep, 1],
+                                   fz[keep]])
+            vals = vals[keep]
 
         net = sampling_spacing(pts)
         auto = auto_grid(*net) if net else None
@@ -3427,7 +3609,12 @@ class Kriging3DAlgorithm(IsolinerAlgorithm):
             if feedback.isCanceled():
                 break
             a, b = k * per_level, (k + 1) * per_level
-            est, var = ordinary(pts, vals, nodes[a:b], vm,
+            here = nodes[a:b]
+            if roof_a is not None:
+                nz_f = to_flat(here[:, 0], here[:, 1], here[:, 2],
+                               roof_a, roof_gt, floor=floor_a)
+                here = np.column_stack([here[:, 0], here[:, 1], nz_f])
+            est, var = ordinary(pts, vals, here, vm,
                                 radius=(radius if radius > 0 else None),
                                 max_points=maxp, sectors=sectors,
                                 anisotropy=aniso)

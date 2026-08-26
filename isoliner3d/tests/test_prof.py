@@ -107,20 +107,18 @@ def test_memory_estimate_grows_with_scene():
 
 def test_layer_budget_shares_the_scene():
     """Бюджет вершин делится между слоями, но не ниже пола."""
-    import os
-    path = os.path.join(PKG, "viewer3d.py")
-    src = open(path, encoding="utf-8").read()
-    ns = {}
-    start = src.index("MAX_VERTS_SCENE")
-    end = src.index("def _auto_step(")
-    exec(compile(src[start:end], "viewer3d", "exec"), ns)   # nosec
-    budget = ns["_layer_budget"]
+    # Бюджет вынесен в viewer_core и теперь просто импортируется:
+    # раньше здесь вырезался кусок исходника, потому что импорт окна
+    # тянул QGIS.
+    from isoliner3d.viewer_core import (_layer_budget, MIN_VERTS_LAYER,
+                                        MAX_VERTS_SCENE)
+    budget = _layer_budget
     one = budget(1)
     six = budget(6)
     many = budget(100)
     assert one > six > many, (one, six, many)
-    assert many == ns["MIN_VERTS_LAYER"]
-    assert six * 6 <= ns["MAX_VERTS_SCENE"]
+    assert many == MIN_VERTS_LAYER
+    assert six * 6 <= MAX_VERTS_SCENE
 
 
 if __name__ == "__main__":

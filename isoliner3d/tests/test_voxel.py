@@ -249,6 +249,170 @@ def test_culling_beats_the_naive_count():
     assert voxel.visible_faces(occ) * 20 < naive
 
 
+def test_unmerged_body_is_watertight_after_welding():
+    """Тело без слияния замкнуто, если склеить вершины.
+
+    Меш выходит несклеенным: у каждого треугольника свои вершины,
+    и по номерам каждое ребро выглядит краевым. Замкнутость есть,
+    но увидеть её можно только после склейки.
+    """
+    import collections
+    from isoliner3d.iso3d import weld
+    occ = np.zeros((4, 5, 6), dtype=bool)
+    occ[1:3, 1:4, 1:5] = True
+    gt = (0.0, 10.0, 0.0, 50.0, 0.0, -10.0)
+    v, f, _c, _o = voxel.voxel_mesh(occ, gt, 0.0, 5.0, merge=False)
+
+    def border(vv, ff):
+        e = collections.Counter()
+        for tri in ff:
+            for a, b in ((tri[0], tri[1]), (tri[1], tri[2]),
+                         (tri[2], tri[0])):
+                e[(a, b) if a < b else (b, a)] += 1
+        return sum(1 for n in e.values() if n == 1)
+
+    # несклеенный меш: краевых рёбер много, замкнутости не видно
+    assert border(v, f) > len(f), border(v, f)
+    vw, fw = weld(v, f)
+    assert border(vw, fw) == 0, border(vw, fw)
+    assert len(vw) < len(v) / 2
+
+
+def test_merged_body_keeps_t_junctions():
+    """Со слиянием даже склейка не закрывает всё: остаются стыки.
+
+    Длинный прямоугольник упирается в два коротких, общего ребра
+    у них нет. Это и есть та плата за лёгкость, что заложена в 2.04.
+    """
+    import collections
+    from isoliner3d.iso3d import weld
+    rs = np.random.RandomState(0)
+    occ = rs.rand(6, 8, 9) > 0.45
+    gt = (0.0, 10.0, 0.0, 80.0, 0.0, -10.0)
+    v, f, _c, _o = voxel.voxel_mesh(occ, gt, 0.0, 5.0, merge=True)
+    vw, fw = weld(v, f)
+    e = collections.Counter()
+    for tri in fw:
+        for a, b in ((tri[0], tri[1]), (tri[1], tri[2]),
+                     (tri[2], tri[0])):
+            e[(a, b) if a < b else (b, a)] += 1
+    assert sum(1 for n in e.values() if n == 1) > 0
+
+
+def _loops(v, f):
+    """Краевые рёбра и число узлов, где кольцо рвётся."""
+    import collections
+    e = collections.Counter()
+    for tri in f:
+        for a, b in ((tri[0], tri[1]), (tri[1], tri[2]),
+                     (tri[2], tri[0])):
+            e[(a, b) if a < b else (b, a)] += 1
+    border = [k for k, n in e.items() if n == 1]
+    d = collections.Counter()
+    for a, b in border:
+        d[a] += 1
+        d[b] += 1
+    return len(border), sum(1 for x in d.values() if x != 2)
+
+
+def _rough_body(merge):
+    """Изрезанное тело, похожее на настоящее, а не кубик."""
+    from isoliner3d.iso3d import weld
+    rs = np.random.RandomState(4)
+    occ = rs.rand(8, 14, 16) > 0.4
+    gt = (0.0, 10.0, 0.0, 140.0, 0.0, -10.0)
+    v, f, _c, _o = voxel.voxel_mesh(occ, gt, 0.0, 5.0, merge=merge)
+    return weld(v, f)
+
+
+def test_unmerged_body_is_closed_before_the_cut():
+    """Тело без слияния замкнуто: ни одного краевого ребра.
+
+    Это и есть условие, при котором крышку на срезе вообще можно
+    построить.
+    """
+    v, f = _rough_body(False)
+    assert _loops(v, f) == (0, 0)
+
+
+def test_merged_border_is_broken_much_worse():
+    """Слияние рвёт границу на порядок сильнее самой резки.
+
+    У тела без слияния рвутся только углы, где ячейки касаются
+    ребром. У слитого граница разорвана всюду и до всякой резки.
+    """
+    v0, f0 = _rough_body(False)
+    v1, f1 = _rough_body(True)
+    keep0 = v0[:, 0] < 70.0
+    cut0 = f0[keep0[f0].sum(axis=1) == 3]
+    _b0, broken_cut = _loops(v0, cut0)
+    _b1, broken_merge = _loops(v1, f1)
+    assert broken_merge > 5 * broken_cut, (broken_merge, broken_cut)
+
+
+def test_merged_body_cannot_be_capped():
+    """У слитого тела граница разорвана ещё до всякой резки.
+
+    Значит крышку на срезе не построить никаким алгоритмом: чинить
+    надо выше, при сборке тела. Проверка закрепляет это как свойство
+    геометрии, чтобы его не искали как ошибку в резчике.
+    """
+    v, f = _rough_body(True)
+    border, broken = _loops(v, f)
+    assert border > 0, border
+    assert broken > 0, broken
+
+
+def test_each_class_body_is_closed_on_its_own():
+    """Тело каждого интервала замкнуто само по себе.
+
+    Инструмент 2.04 пишет объект на интервал окраски. Если грань
+    между двумя занятыми ячейками отбрасывать независимо от их
+    интервала, на стыке интервалов её нет ни у одного куска: каждое
+    тело выходит дырявым, и срез в сцене нечем закрыть.
+    """
+    import collections
+    from isoliner3d.iso3d import weld
+    rs = np.random.RandomState(3)
+    vol = rs.rand(6, 10, 12) * 10.0
+    occ = voxel.occupancy(vol, 3.0)
+    cls = voxel.quantize(vol, np.linspace(3.0, 10.0, 5))
+    gt = (0.0, 10.0, 0.0, 100.0, 0.0, -10.0)
+    v, f, tri_cls, _o = voxel.voxel_mesh(occ, gt, 0.0, 5.0,
+                                         classes=cls, merge=False)
+
+    def border(vv, ff):
+        e = collections.Counter()
+        for tri in ff:
+            for a, b in ((tri[0], tri[1]), (tri[1], tri[2]),
+                         (tri[2], tri[0])):
+                e[(a, b) if a < b else (b, a)] += 1
+        return sum(1 for n in e.values() if n == 1)
+
+    tri_cls = np.asarray(tri_cls)
+    for c in sorted(set(tri_cls.tolist())):
+        vc, fc = weld(v, f[tri_cls == c])
+        assert border(vc, fc) == 0, (c, border(vc, fc))
+
+
+def test_class_interface_gets_two_faces():
+    """На стыке двух интервалов грань есть у обоих, а не ни у кого.
+
+    Иначе оба тела дырявые, а вместе они выглядят целыми - беда
+    вылезает только при разрезе.
+    """
+    occ = np.ones((1, 1, 2), dtype=bool)
+    cls = np.array([[[1, 2]]])
+    gt = (0.0, 10.0, 0.0, 10.0, 0.0, -10.0)
+    _v, f, tri_cls, _o = voxel.voxel_mesh(occ, gt, 0.0, 5.0,
+                                          classes=cls, merge=False)
+    tri_cls = np.asarray(tri_cls)
+    # у куба две ячейки: по 6 граней у каждой, стык считается дважды
+    assert len(f) == 24, len(f)
+    assert (tri_cls == 1).sum() == 12
+    assert (tri_cls == 2).sum() == 12
+
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

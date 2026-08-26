@@ -154,9 +154,12 @@ def _load_parts_xyz():
     """Достаём разбор геометрии из viewer3d, не поднимая QGIS."""
     path = os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "viewer3d.py")
-    src = open(path, encoding="utf-8").read()
+    src = "\n".join(
+        open(os.path.join(os.path.dirname(path), n),
+             encoding="utf-8").read()
+        for n in ("viewer3d.py", "viewer_core.py"))
     start = src.index("def _parts_xyz(")
-    end = src.index("def _css_rgba(")
+    end = src.index("\ndef ", src.index("def _parts_xyz(") + 20)
     ns = {}
     exec(compile("import numpy as np\n" + src[start:end],   # nosec
                  "viewer3d", "exec"), ns)
@@ -356,16 +359,23 @@ def test_glb_skips_empty_parts():
 
 
 def _load_prism():
+    """Призма из viewer3d вместе с разбором геометрии.
+
+    `_prism` работает с геометрией QGIS и остался в окне, а `_flat_z`
+    вынесен в viewer_core: берём первое куском исходника, второе
+    импортом.
+    """
+    from isoliner3d import viewer_core
     path = os.path.join(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))), "viewer3d.py")
     src = open(path, encoding="utf-8").read()
-    c = src.index("def _parts_xyz(")
-    d = src.index("def _css_rgba(")
-    a = src.index("def _prism(")
-    b = src.index("def _flat_z(")
-    ns = {}
-    exec(compile("import numpy as np\n" + src[c:d] + "\n" + src[a:b],  # nosec
-                 "viewer3d", "exec"), ns)
+    ns = {"_flat_z": viewer_core._flat_z,
+          "_fill_z": viewer_core._fill_z}
+    for name in ("_parts_xyz", "_prism"):
+        a = src.index("def %s(" % name)
+        b = src.index("\ndef ", a + 20)
+        exec(compile("import numpy as np\n" + src[a:b],   # nosec
+                     "viewer3d", "exec"), ns)
     return ns["_prism"]
 
 
@@ -402,18 +412,13 @@ def test_prism_without_cap_is_empty():
 
 
 def _load_flat_z():
-    """Достаём распознавание плоского объекта из viewer3d."""
-    path = os.path.join(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__))), "viewer3d.py")
-    src = open(path, encoding="utf-8").read()
-    a = src.index("def _flat_z(")
-    b = src.index("def _layer_has_z(")
-    c = src.index("def _parts_xyz(")
-    d = src.index("def _css_rgba(")
-    ns = {}
-    exec(compile("import numpy as np\n" + src[c:d] + "\n" + src[a:b],  # nosec
-                 "viewer3d", "exec"), ns)
-    return ns["_flat_z"]
+    """Распознавание плоского объекта: вынесено в viewer_core.
+
+    Раньше здесь вырезался кусок исходника, потому что импорт окна
+    тянул QGIS. Теперь это просто импорт.
+    """
+    from isoliner3d import viewer_core
+    return viewer_core._flat_z
 
 
 def test_flat_polygon_is_recognised():

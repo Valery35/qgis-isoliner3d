@@ -103,6 +103,43 @@ def test_anisotropy_changes_the_answer():
     assert abs(float(e1[0]) - float(e2[0])) > 1e-9
 
 
+def test_block_shrinks_with_the_number_of_samples():
+    """Блок узлов ужимается, когда проб много.
+
+    Отбор соседей держит несколько матриц размером блок на число проб.
+    При сорока тысячах проб постоянный блок в пятьсот узлов давал
+    около гигабайта временных, и в фоновом потоке это кончалось
+    не понятной ошибкой памяти, а падением.
+    """
+    small = kg.block_for(1000, 512)
+    big = kg.block_for(40000, 512)
+    assert small == 512, small
+    assert big < 64, big
+    assert big >= 1
+
+
+def test_block_never_drops_below_one():
+    assert kg.block_for(10 ** 9, 512) >= 1
+
+
+def test_answer_does_not_depend_on_the_block():
+    """Разбиение на блоки не должно менять ответ.
+
+    Блок это только про память. Если ответ от него зависит, значит
+    накопление по блокам где-то сбрасывается.
+    """
+    pts, val = _cloud(n=200)
+    nodes = pts[:120] + 3.0
+    a, va = kg.ordinary(pts, val, nodes, VM, radius=400.0,
+                        max_points=12, block=512)
+    b, vb = kg.ordinary(pts, val, nodes, VM, radius=400.0,
+                        max_points=12, block=7)
+    ok = np.isfinite(a) & np.isfinite(b)
+    assert ok.any()
+    assert np.allclose(a[ok], b[ok], atol=1e-9)
+    assert np.allclose(va[ok], vb[ok], atol=1e-9)
+
+
 def _compare(holes, seed=1):
     """Сравнение методов на честной мерке: скважина исключается целиком."""
     m = demo3d.make_model("bed", 0, 0, 1000, 1000, 0, 200)

@@ -667,10 +667,25 @@ The borehole grid is jittered, the collars follow the relief, the depths
 differ and some holes are stopped short. A regular grid of equal depth
 would give interpolation too easy a task.
 
-Sampling goes by intervals. Fields: `hole` the borehole number, `from_m`
-and `to_m` the sample interval measured down from the collar, `grade` the
-assay with noise, `truth` the grade from the model without noise, `zone`
-one inside the body. The noise is lognormal, so no negative grades appear.
+Sampling goes by intervals. Layer fields:
+
+| field | what it is |
+|---|---|
+| `hole` | the borehole number |
+| `from_m`, `to_m` | the sample interval down from the collar, metres |
+| `grade` | the assay with sampling noise |
+| `truth` | the grade from the model without noise |
+| `zone` | one inside the body, zero outside |
+
+The noise is lognormal, so no negative grades appear.
+
+For interpolation take `grade`. The `truth` field is there to separate
+the error of the method from the sampling noise: compute the cube from
+`grade` and compare it with `truth`. The `hole` field is needed in 2.05,
+to remove a whole borehole.
+
+The same list is printed to the log of 2.01 when it finishes: the
+explanation is needed where the data has just been created.
 
 The boundary of the body is where the grade falls to half the core value
 above background. That is the cutoff, and it is printed to the log
@@ -870,6 +885,54 @@ majority. Vertices are welded, so neighbouring faces share a point. On a
 hundred by hundred by sixty cube five shells take about a second and
 weigh eleven megabytes.
 
+## A wall along a line
+
+The third way to show a cube is the **Wall along a line** mode. A shell
+shows the boundary of a body, voxels show the occupied cells, and a wall
+shows the field of values itself, where it was drawn.
+
+The line comes from the clip list: draw one with the drawing button or
+pick a line layer there. There is no separate way of drawing a line for
+the wall, and none is needed.
+
+The step of the nodes along the line is set by the **Wall step** row.
+Zero takes the grid step: finer than that there is no data anyway. Down
+the vertical the cube levels are used.
+
+Values are sampled trilinearly, so the wall comes out smooth rather than
+stepped. Outside the cube a gap is returned rather than the edge value:
+extending the edge outwards would mean showing data where there is none.
+A triangle with even one node without data is not built at all.
+
+A polyline with a bend is walked with one step along its whole length
+rather than per segment: at the bend the wall does not tear.
+
+The wall is cheap. On a hundred by hundred by sixty cube a three-node
+polyline at a ten metre step gives seven thousand nodes and fourteen
+thousand triangles, a third of a megabyte.
+
+## Cutting a body
+
+A body is cut by a contour, by a corridor along a line and by a range of
+elevations, and the cut is closed with a cap: you see the section rather
+than the inside.
+
+For that the body must be watertight. Build it in 2.04 **with the merging
+of neighbouring faces cleared**: merging makes the layer many times
+lighter but tears the boundary with T-junctions, and such a body cannot
+be capped. The layer comes out twice as heavy — that is the price of
+being watertight.
+
+Vertical faces are cut along the segment they degenerate into in plan: as
+a polygon they cannot be cut at all, their area is zero. Without this a
+wall would stick out past the contour while the neighbouring horizontal
+face was cut back to it, leaving a slit between them.
+
+The log gets the numbers that show what happened: how many faces are
+left, the distance from the line to the data, how many bodies are not
+watertight before the cut, how many boundary edges landed on the cut
+contour and how many cap polygons were built.
+
 ## Voxels
 
 The second way to show a cube is the **Voxels from the cube** mode. A cell
@@ -956,6 +1019,7 @@ All three work independently: installing the whole set is not required.
 | Bodies are shown incomplete | The vertex budget ran out, the status line names the numbers. | Raise the **Vertex limit for the scene** in the scene properties. |
 | Contours are now visible, now sunk into the surface | The geometry coincides and the depth fight begins. | Raise the layer in the map tree or give it a **Vertical offset, m**. |
 | Part of the features vanished with elevation from a surface | The surface has no data there. | That is intended: a gap is not a zero. Check the extent of the elevation grid. |
+| The cube came out in steps by number | The value field is `hole`. | Take `grade`: 2.02 substitutes the first numeric field, and that is the borehole number. |
 | Inverse distances give the same as nearest neighbour | All the neighbours were gathered from one borehole. | Raise the number of search sectors in the advanced parameters of 2.02. |
 | An anomaly with depth smoothed into a flat field | The number of points is larger than the number of samples per place. | Leave zero in the point count field: it will be taken from the data. |
 | The tool refuses, all the points share one elevation | The elevation was taken from the geometry of a flat layer. | Choose the elevation from a field or the depth below a surface. |
@@ -964,6 +1028,9 @@ All three work independently: installing the whole set is not required.
 | Kriging gave values below zero | Kriging weights can be negative. | Take the spherical model instead of the gaussian one, or raise the nugget. |
 | Kriging is no better than inverse distances | The grid step is above half the range. | That is expected. Take kriging for the variance, or make the grid denser. |
 | I do not know where to trust the model | Error numbers say nothing about place. | Look at the variance cube from 2.06 as voxels: where it is large the model is guessing. |
+| The wall is not built and asks for a line | No line is drawn and no layer is picked. | Draw a line with the drawing button or pick a line layer in the clip list. |
+| The wall came out empty | The line is outside the cube. | Check the extent of the cube: beyond its edges there are no values and no wall is built. |
+| Holes in the body after a cut | The body was built with merged faces and is not watertight. | Rebuild it in 2.04 with merging cleared: the log shows the number of bodies that are not watertight. |
 | Voxels are not built and the log names a face count | The model is larger than the responsiveness limit. | Raise the cutoff, reduce the number of colour intervals, or coarsen the cube. |
 | Points are visible but labels are not | No label field is chosen, or the label count is zero. | Set the **Point label field** and **Labels at most**. |
 | A flat marker is hard to see from above | It lies in plan and flattens. | Take the circle: it is on screen and reads from any angle. |

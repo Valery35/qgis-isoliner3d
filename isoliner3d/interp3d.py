@@ -213,6 +213,9 @@ def _sector_take(blk, pts, d2, kmax, sectors):
     ang = np.arctan2(dy, dx)
     sec = np.floor((ang + np.pi) / (2 * np.pi) * sectors).astype(np.int64)
     np.clip(sec, 0, sectors - 1, out=sec)
+    # Составляющие азимута больше не нужны: держать их рядом с копиями
+    # по секторам значило бы удваивать память на пустом месте.
+    del dx, dy, ang
     parts = []
     for k in range(sectors):
         ds = np.where(sec == k, d2, np.inf)

@@ -46,6 +46,8 @@ place in space and a map draped over the relief.
 - The section drawing draped onto the ribbon, several sections at once.
 - Click query: the layer name, the coordinates, all band values, the
 - A cube of values is shown as an isosurface at a cutoff: a closed body fit for volume computation.
+- A body is cut by a contour, a corridor and a range of elevations, and the cut is capped.
+- A cube of values is cut by a wall along a line: a vertical section coloured by value.
 - A cube of values is shown as voxels: a cell as a box, coloured by grade interval. Only visible faces are built and neighbouring faces of one interval merge, so a cube of millions of cells stays light.
 - Colour comes from the layer styling: a raster ramp, categories and graduated classes of a vector. A class unticked in the legend does not reach the scene.
 - Points are shown as a circle, a square, a diamond, a triangle or a cross. The circle is on screen and reads at any distance, the flat shapes lie in plan and are hidden by a surface.

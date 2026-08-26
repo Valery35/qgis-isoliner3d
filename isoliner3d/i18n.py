@@ -81,6 +81,207 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'Тело не замкнуто до резки: тел %d, краевых рёбер %d. '
+    'Крышку на срезе такому телу не построить: кольцо не замыкается. '
+    'Пересоберите тело в 2.04 этой версией со снятым слиянием '
+    'соседних граней.':
+        'The body is not watertight before the cut: %d bodies, %d '
+        'boundary edges. Such a body cannot be capped: the ring '
+        'does not close. Rebuild the body in 2.04 with this version '
+        'and the merging of neighbouring faces cleared.',
+    'Область обрезки была негодной по геометрии и исправлена.':
+        'The clip area was geometrically invalid and was repaired.',
+    'Крышка: вызовов %d, из них с гранями %d.':
+        'Cap: %d calls, %d of them with faces.',
+    'кольца среза не собрались': 'the cut rings did not close',
+    'область обрезки не построилась': 'the clip area was not built',
+    'после резки граней не осталось': 'no faces left after the cut',
+    'у области обрезки нет границы': 'the clip area has no boundary',
+    'краевых рёбер нет: срез не состоялся':
+        'no boundary edges: the cut did not happen',
+    ' Ранний выход: %s.': ' Early exit: %s.',
+    'Крышка: краевых рёбер %d, на контуре среза %d, полигонов '
+    'собрано %d, не разбилось %d.%s':
+        'Cap: %d boundary edges, %d on the cut contour, %d polygons '
+        'built, %d not tessellated.%s',
+    'Границы отметок перепутаны: z\u2265 %.1f и z\u2264 %.1f '
+    'навстречу друг другу. Сцена выйдет пустой.':
+        'The elevation bounds are the wrong way round: z\u2265 %.1f '
+        'and z\u2264 %.1f face each other. The scene will come out '
+        'empty.',
+    'Слияние делает слой в разы легче, но рвёт границу тела '
+    'Т-образными стыками. Такое тело нельзя ни посчитать по объёму, '
+    'ни разрезать в сцене: срез останется открытым, крышку поставить '
+    'не на что. Для подсчёта и для разрезов флаг снимайте.':
+        'Merging makes the layer many times lighter but tears the '
+        'boundary of the body with T-junctions. Such a body can neither '
+        'be measured by volume nor cut in the scene: the cut stays '
+        'open, there is nothing to cap it with. For volumes and cuts '
+        'clear the flag.',
+    'Срез остался открытым у тел: %d, краевых рёбер до резки %d. '
+    'Оболочка разорвана ещё до резки, и крышку не построить никаким '
+    'способом: кольцо среза не замыкается. Соберите тело в 2.04 '
+    'со снятым слиянием соседних граней - тогда оболочка замкнута '
+    'и срез закрывается.':
+        'The cut stayed open on %d bodies, %d boundary edges before '
+        'the cut. The shell is torn before any cutting, and no method '
+        'can cap it: the ring of the cut does not close. Build the body '
+        'in 2.04 with the merging of neighbouring faces cleared - then '
+        'the shell is watertight and the cut closes.',
+    ' До линии: от %.0f до %.0f м.':
+        ' To the line: from %.0f to %.0f m.',
+    ' Линия проведена мимо данных: ближайшая грань дальше '
+    'полуширины.':
+        ' The line runs past the data: the nearest face is beyond '
+        'the half-width.',
+    'Обрезка: осталось %d граней из %d. Источник: %s, режим: %s, '
+    'полуширина %.0f.%s%s':
+        'Clip: %d faces left of %d. Source: %s, mode: %s, half-width '
+        '%.0f.%s%s',
+    ' Отметка: %s .. %s.': ' Elevation: %s .. %s.',
+    'без границы': 'no bound',
+    'нет': 'none',
+    'Анизотропию замерить не удалось, взята единица.':
+        'The anisotropy could not be measured, one was taken.',
+    'Вариограмма: длина связи в плане %.0f, по вертикали %.1f, анизотропия '
+    '%.4f.':
+        'Variogram: range in plan %.0f, vertical %.1f, anisotropy %.4f.',
+    'Вторая поверхность. С ней отметка становится долей мощности: ноль на '
+    'кровле, единица на подошве.':
+        'The second surface. With it the elevation becomes a fraction of the '
+        'thickness: zero at the roof, one at the floor.',
+    'Кровля или подошва пласта. С ней вертикаль отсчитывается от поверхности,'
+    ' и расчёт идёт вдоль напластования. Вариограмма меряется уже в '
+    'спрямлённых координатах: замерив в абсолютных, а посчитав в спрямлённых,'
+    ' получишь модель не от этих данных.':
+        'The roof or the floor of the bed. With it the vertical is counted '
+        'from the surface and the computation runs along the bedding. The '
+        'variogram is measured in the flattened coordinates already: '
+        'measuring it in absolute ones and computing in flattened ones would '
+        'give a model that does not belong to this data.',
+    'Ноль замеряет вариограмму по данным и берёт отношение вертикальной длины'
+    ' связи к плановой. Это тот случай, когда гадать не нужно. Своё число '
+    'задаёт масштаб вручную: большое сглаживает по вертикали, малое сохраняет'
+    ' различие по глубине.':
+        'Zero measures the variogram on the data and takes the ratio of the '
+        'vertical range to the plan one. This is the case where no guessing '
+        'is needed. A value of your own sets the scale by hand: a large one '
+        'smooths along the vertical, a small one keeps the difference with '
+        'depth.',
+    'Вне опорной поверхности пропущено проб: %d.':
+        'Samples skipped outside the reference surface: %d.',
+    'Вторая поверхность. С ней отметка становится долей мощности: ноль на '
+    'кровле, единица на подошве. Так сопоставляются пачки разной мощности, и '
+    'раздув не размазывает связь. Анизотропия тогда считается по доле, а не '
+    'по метрам.':
+        'The second surface. With it the elevation becomes a fraction of the '
+        'thickness: zero at the roof, one at the floor. That is how packs of '
+        'different thickness are matched, and a swell no longer smears the '
+        'connection. Anisotropy is then counted in fractions rather than '
+        'metres.',
+    'Кровля или подошва пласта. С ней вертикаль отсчитывается от поверхности,'
+    ' и интерполяция идёт вдоль напластования, а не поперёк. У пласта со '
+    'складкой это меняет не точность на проценты, а осмысленность результата.':
+        'The roof or the floor of the bed. With it the vertical is counted '
+        'from the surface and the interpolation runs along the bedding rather'
+        ' than across it. On a folded bed that changes not the accuracy by a '
+        'few per cent but whether the result means anything at all.',
+    'Опорная поверхность (спрямление)':
+        'Reference surface (flattening)',
+    'Опорная поверхность не открылась.':
+        'The reference surface did not open.',
+    'Опорная поверхность не покрывает пробы.':
+        'The reference surface does not cover the samples.',
+    'Подошва для доли мощности':
+        'Floor for the thickness fraction',
+    'Подошва не открылась либо не совпадает с кровлей по сетке.':
+        'The floor did not open, or its grid does not match the roof.',
+    'Спрямление: размах отметки %.2f, был %.2f м, спрямлено проб %d.':
+        'Flattening: elevation span %.2f, was %.2f m, %d samples flattened.',
+    'Стиль слоя %s: один символ на слой, %s.':
+        'Layer style %s: one symbol for the layer, %s.',
+    'пусто': 'empty',
+    'Снять обрезку по отметке': 'Clear the elevation clip',
+    'Обрезка по отметке снята.': 'The elevation clip is cleared.',
+    'Обрезка по отметке. Контур и коридор режут только в плане, '
+    'а разрез по пачке пластов задаётся отметками. Снять обрезку '
+    'по отметке можно кнопкой рядом либо общей кнопкой очистки.':
+        'Clipping by elevation. A contour and a corridor cut in plan '
+        'only, while a section across a pile of beds is set by '
+        'elevations. The elevation clip is cleared by the button '
+        'next to these or by the general clear button.',
+    'Проб: %d.': 'Samples: %d.',
+    'Проб очень много. Кригинг держит матрицы размером с число проб, '
+    'узлы считаются мелкими порциями, и счёт будет долгим. '
+    'Проредите пробы либо укрупните шаг сетки.':
+        'There are a great many samples. Kriging holds matrices the '
+        'size of the sample count, nodes are computed in small batches, '
+        'and the run will be slow. Thin the samples or coarsen the '
+        'grid step.',
+    'Поле значения, по которому строится куб. Именно его и проверяем. У '
+    'демонстрационных данных из 2.01 это grade.':
+        'The value field the cube is built from. That is what we check. On '
+        'the demonstration data from 2.01 it is grade.',
+    'Поля слоя: hole номер скважины, from_m и to_m интервал пробы от устья '
+    'вниз, grade содержание с шумом, truth содержание по модели без шума, '
+    'zone единица внутри тела.\nДля интерполяции берите grade. Поле truth '
+    'нужно, чтобы отделить ошибку метода от шума опробования, а hole - чтобы '
+    'исключать скважину целиком в 2.05.':
+        'Layer fields: hole the borehole number, from_m and to_m the sample '
+        'interval measured down from the collar, grade the assay with noise, '
+        'truth the grade from the model without noise, zone one inside the '
+        'body.\nFor interpolation take grade. The truth field is there to '
+        'separate the error of the method from the sampling noise, and hole '
+        'to remove a whole borehole in 2.05.',
+    'Числовое поле, значение которого раскладывается по кубу. У '
+    'демонстрационных данных из 2.01 это grade.':
+        'The numeric field whose value is spread through the cube. On the '
+        'demonstration data from 2.01 it is grade.',
+    'Числовое поле, значение которого раскладывается по кубу: содержание, '
+    'концентрация, влажность. У демонстрационных данных из 2.01 это grade, а '
+    'не hole: иначе куб выйдет по номерам скважин.':
+        'The numeric field whose value is spread through the cube: grade, '
+        'concentration, moisture. On the demonstration data from 2.01 it is '
+        'grade rather than hole: otherwise the cube comes out of borehole '
+        'numbers.',
+    'Объёмная заливка': 'Volume fill',
+    'Плотность заливки': 'Fill density',
+    'В этой сборке нет объёмной заливки.':
+        'This build has no volume fill.',
+    'Заливка %s: ячеек %d, плотность %.2f.':
+        'Fill %s: %d cells, density %.2f.',
+    'Слой %s: заливка не построена. Куб пуст либо крупнее предела.':
+        'Layer %s: the fill was not built. The cube is empty or larger '
+        'than the limit.',
+    'Плотность объёмной заливки. Ниже отсечки заливки нет вовсе, '
+    'выше неё непрозрачность растёт со значением. Заливка не заменяет '
+    'оболочку, а дополняет её: оболочка отвечает, где граница тела, '
+    'заливка - как значение меняется вокруг.':
+        'The density of the volume fill. Below the cutoff there is no '
+        'fill at all, above it the opacity grows with the value. The '
+        'fill does not replace a shell but adds to it: the shell says '
+        'where the boundary of the body is, the fill says how the '
+        'value changes around it.',
+    'Стенка по линии': 'Wall along a line',
+    'Шаг стенки, м (0 - шаг грида)':
+        'Wall step, m (0 means the grid step)',
+    'Стенке нужна линия: нарисуйте её или выберите слой в списке '
+    'обрезки.':
+        'The wall needs a line: draw one or pick a layer in the clip '
+        'list.',
+    'Слой %s: стенка вышла пустой, линия за пределами куба.':
+        'Layer %s: the wall came out empty, the line is outside the '
+        'cube.',
+    'Стенка %s: узлов %d, треугольников %d, значения %.3f .. %.3f.':
+        'Wall %s: %d nodes, %d triangles, values %.3f .. %.3f.',
+    'Шаг узлов стенки вдоль линии, в единицах карты. Ноль берёт шаг '
+    'грида: мельче него данных всё равно нет. Линия берётся '
+    'из списка обрезки, поэтому нарисуйте её или выберите слой '
+    'там же.':
+        'The step of the wall nodes along the line, in map units. Zero '
+        'takes the grid step: finer than that there is no data anyway. '
+        'The line comes from the clip list, so draw one or pick a '
+        'layer there.',
     'Значения: %.3f .. %.3f, в пробах %.3f .. %.3f.':
         'Values: %.3f .. %.3f, in the samples %.3f .. %.3f.',
     'Оценка вышла за размах проб. У кригинга веса бывают '

@@ -202,11 +202,18 @@ def voxel_mesh(mask, gt, z0=0.0, dz=1.0, classes=None, merge=True,
         a = np.moveaxis(mask, axis, 0)
         k = np.moveaxis(key_full, axis, 0)
         pad = np.zeros_like(a[:1])
+        kpad = np.full_like(k[:1], -1)
         if side > 0:
             nb = np.concatenate([a[1:], pad], axis=0)
+            nbk = np.concatenate([k[1:], kpad], axis=0)
         else:
             nb = np.concatenate([pad, a[:-1]], axis=0)
-        vis = a & ~nb
+            nbk = np.concatenate([kpad, k[:-1]], axis=0)
+        # Грань между занятыми ячейками разных интервалов остаётся:
+        # 2.04 пишет объект на интервал, и без неё оба тела выходят
+        # дырявыми на стыке. Вместе они выглядят целыми, а беда
+        # вылезает только при разрезе.
+        vis = a & (~nb | (k != nbk))
         if not vis.any():
             continue
         out_vec = _outward(axis, side, zs, ys, xs)

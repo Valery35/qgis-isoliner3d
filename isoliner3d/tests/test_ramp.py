@@ -20,13 +20,13 @@ VIEWER = os.path.join(PKG, "viewer3d.py")
 
 
 def _load():
-    """Вырезаем чистую функцию: импорт модуля целиком тянет QGIS."""
-    src = open(VIEWER, encoding="utf-8").read()
-    a = src.index("def ramp_colors(")
-    b = src.index("def _ramp_from_renderer(")
-    ns = {}
-    exec(compile(src[a:b], "viewer3d", "exec"), ns)  # nosec
-    return ns["ramp_colors"]
+    """Раньше здесь вырезался кусок исходника: импорт окна тянул QGIS.
+
+    Расчётная часть вынесена в отдельный модуль, и теперь она просто
+    импортируется.
+    """
+    from isoliner3d import viewer_core
+    return viewer_core.ramp_colors
 
 
 BREAKS = [0.0, 50.0, 100.0]

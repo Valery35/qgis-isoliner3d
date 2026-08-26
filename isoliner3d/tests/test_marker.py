@@ -7,22 +7,25 @@
 """
 
 import os
+import sys
 
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PKG = os.path.dirname(HERE)
+sys.path.insert(0, os.path.dirname(PKG))
 VIEWER = os.path.join(PKG, "viewer3d.py")
 
 
 def _load():
-    """Вырезаем функцию: импорт модуля целиком тянет QGIS."""
-    src = open(VIEWER, encoding="utf-8").read()
-    a = src.index("MARKER_SHAPES = (")
-    b = src.index("\ndef _map_order(")
-    ns = {}
-    exec(compile(src[a:b], "viewer3d", "exec"), ns)  # nosec
-    return ns
+    """Раньше здесь вырезался кусок исходника: импорт окна тянул QGIS.
+
+    Расчётная часть вынесена в отдельный модуль, и теперь она просто
+    импортируется.
+    """
+    from isoliner3d import viewer_core
+    return {"flat_marker_mesh": viewer_core.flat_marker_mesh,
+            "MARKER_SHAPES": viewer_core.MARKER_SHAPES}
 
 
 ROWS = [((0.0, 0.0, 5.0), "#fff", 7.0),

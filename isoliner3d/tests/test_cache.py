@@ -24,6 +24,10 @@ sys.path.insert(0, os.path.dirname(PKG))
 
 import numpy as np                       # noqa: E402
 from isoliner3d import viewer3d as v3    # noqa: E402
+# Кэш чтения и триангуляции переехал в viewer_core, и
+# подменять чтение надо там: viewer3d только переэкспортирует
+# имена, а вызов идёт внутри модуля.
+from isoliner3d import viewer_core as vc  # noqa: E402
 
 OPENS = {"n": 0}
 
@@ -65,7 +69,7 @@ def _install(arr, nodata=None, bands=1):
         OPENS["n"] += 1
         return _FakeDS(arr, nodata, bands)
 
-    v3._gdal_open = fake_open
+    vc._gdal_open = fake_open
 
 
 def _tmpfile(name="grid.tif"):
@@ -75,24 +79,24 @@ def _tmpfile(name="grid.tif"):
     return path
 
 
-_ORIG_OPEN = v3._gdal_open
+_ORIG_OPEN = vc._gdal_open
 
 
 def setup():
-    v3.cache_clear()
+    vc.cache_clear()
 
 
 def teardown():
-    v3._gdal_open = _ORIG_OPEN
-    v3.cache_clear()
+    vc._gdal_open = _ORIG_OPEN
+    vc.cache_clear()
 
 
 def test_second_read_comes_from_cache():
     setup()
     _install(np.arange(9.0).reshape(3, 3))
     p = _tmpfile()
-    a1, g1 = v3._read_raster(p, 1)
-    a2, g2 = v3._read_raster(p, 1)
+    a1, g1 = vc._read_raster(p, 1)
+    a2, g2 = vc._read_raster(p, 1)
     assert OPENS["n"] == 1, "второе чтение полезло на диск"
     assert a2 is a1 and g2 == g1
     teardown()
@@ -103,9 +107,9 @@ def test_profiler_counts_hits():
     _install(np.zeros((4, 4)))
     p = _tmpfile()
     prof = v3._Prof()
-    v3._read_raster(p, 1, prof)
-    v3._read_raster(p, 1, prof)
-    v3._read_raster(p, 1, prof)
+    vc._read_raster(p, 1, prof)
+    vc._read_raster(p, 1, prof)
+    vc._read_raster(p, 1, prof)
     assert prof.counts.get("reads") == 1, prof.counts
     assert prof.counts.get("hits") == 2, prof.counts
     teardown()
@@ -115,11 +119,11 @@ def test_changed_file_is_reread():
     setup()
     _install(np.zeros((4, 4)))
     p = _tmpfile()
-    v3._read_raster(p, 1)
+    vc._read_raster(p, 1)
     time.sleep(0.01)
     with open(p, "ab") as fh:      # правка файла меняет отметку
         fh.write(b"y")
-    v3._read_raster(p, 1)
+    vc._read_raster(p, 1)
     assert OPENS["n"] == 2, "правленый грид обязан читаться заново"
     teardown()
 
@@ -128,9 +132,9 @@ def test_bands_are_cached_separately():
     setup()
     _install(np.zeros((4, 4)), bands=2)
     p = _tmpfile()
-    v3._read_raster(p, 1)
-    v3._read_raster(p, 2)
-    v3._read_raster(p, 1)
+    vc._read_raster(p, 1)
+    vc._read_raster(p, 2)
+    vc._read_raster(p, 1)
     assert OPENS["n"] == 2, "каналы обязаны кэшироваться по отдельности"
     teardown()
 
@@ -139,10 +143,10 @@ def test_non_file_source_is_not_cached():
     """У сервиса или подзапроса нет отметки, кэшировать такое нельзя."""
     setup()
     _install(np.zeros((4, 4)))
-    v3._read_raster("WMS:http://example/grid", 1)
-    v3._read_raster("WMS:http://example/grid", 1)
+    vc._read_raster("WMS:http://example/grid", 1)
+    vc._read_raster("WMS:http://example/grid", 1)
     assert OPENS["n"] == 2
-    assert v3.cache_size()[0] == 0
+    assert vc.cache_size()[0] == 0
     teardown()
 
 
@@ -151,27 +155,27 @@ def test_nodata_becomes_nan_and_array_is_reused():
     arr = np.array([[1.0, -9999.0], [3.0, 4.0]])
     _install(arr, nodata=-9999.0)
     p = _tmpfile()
-    a1, _ = v3._read_raster(p, 1)
+    a1, _ = vc._read_raster(p, 1)
     assert np.isnan(a1[0, 1]), "nodata не превратилось в NaN"
-    a2, _ = v3._read_raster(p, 1)
+    a2, _ = vc._read_raster(p, 1)
     assert np.isnan(a2[0, 1]), "в кэше лежит массив без NaN"
     teardown()
 
 
 def test_eviction_keeps_cache_under_limit():
     setup()
-    saved = v3._CACHE_LIMIT
+    saved = vc._CACHE_LIMIT
     try:
-        v3._CACHE_LIMIT = 8 * 1024          # маленький потолок
+        vc._CACHE_LIMIT = 8 * 1024          # маленький потолок
         big = np.zeros((32, 32))            # 8 КБ на массив
         _install(big)
         for k in range(4):
-            v3._read_raster(_tmpfile("g%d.tif" % k), 1)
-        count, nbytes = v3.cache_size()
-        assert nbytes <= v3._CACHE_LIMIT, (count, nbytes)
+            vc._read_raster(_tmpfile("g%d.tif" % k), 1)
+        count, nbytes = vc.cache_size()
+        assert nbytes <= vc._CACHE_LIMIT, (count, nbytes)
         assert count >= 1
     finally:
-        v3._CACHE_LIMIT = saved
+        vc._CACHE_LIMIT = saved
         teardown()
 
 
@@ -190,17 +194,16 @@ def test_band_count_opens_once():
 # ─────────────────────────────────────────────────────────────────────────
 
 def _load_tri():
-    """Кэш триангуляции из viewer3d с подменённой самой триангуляцией."""
-    path = os.path.join(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__))), "viewer3d.py")
-    src = open(path, encoding="utf-8").read()
-    a = src.index("def _tessellate(")
-    b = src.index("def _flat_z(")
-    c = src.index("def _parts_xyz(")
-    d = src.index("def _css_rgba(")
-    ns = {}
-    exec(compile("import numpy as np\n" + src[c:d] + "\n" + src[a:b],  # nosec
-                 "viewer3d", "exec"), ns)
+    """Кэш триангуляции с подменённой самой триангуляцией.
+
+    Кэш вынесен в viewer_core и импортируется. Разбивка живёт в окне
+    и приходит в кэш вызовом, поэтому подменяется прямо в viewer3d:
+    так проверяется, что кэш её и правда не дёргает второй раз.
+    """
+    import numpy as np
+    from isoliner3d import viewer_core as vcore
+    from isoliner3d import viewer3d as vwin
+
     calls = {"n": 0}
 
     def fake(geom, zfix=None):
@@ -213,9 +216,13 @@ def _load_tri():
         spatial["n"] += 1
         return np.zeros((6, 3)), np.zeros((3, 3), dtype=np.int64)
 
-    ns["_tessellate"] = fake
-    ns["_tris_from_geometry"] = fake_spatial
-    ns["tri_cache_clear"]()
+    vwin._tessellate = fake
+    vwin._tris_from_geometry = fake_spatial
+    vcore.tri_cache_clear()
+    ns = {"_tri_cached": vcore._tri_cached,
+          "_tri_key": vcore._tri_key,
+          "tri_cache_clear": vcore.tri_cache_clear,
+          "tri_cache_size": vcore.tri_cache_size}
     return ns, calls, spatial
 
 
