@@ -197,6 +197,45 @@ def test_bounds_are_inclusive():
     assert flatten.keep_between(x, y, z, roof, GT, None, None)[0]
 
 
+def test_cube_cells_above_the_surface_are_dropped():
+    """Ячейки куба выше поверхности гасятся, а не режутся потом.
+
+    Гася их до построения, получаем согласие: оболочка, воксели
+    и объём по блочной модели считаются по одному и тому же телу.
+    """
+    roof = _roof()
+    nz, ny, nx = 6, roof.shape[0], roof.shape[1]
+    vol = np.ones((nz, ny, nx))
+    # кровля лежит между 5 и 95: берём уровни заведомо ниже и выше
+    zs = np.linspace(-100.0, 200.0, nz)
+    got = flatten.mask_cube(vol, GT, zs[0], zs[1] - zs[0],
+                            roof, GT, None, None)
+    assert got.shape == vol.shape
+    # верхний уровень выше всей кровли: там пусто
+    assert np.isnan(got[-1]).all()
+    # нижний ниже всей кровли: там всё на месте
+    assert np.isfinite(got[0]).all()
+
+
+def test_cube_mask_keeps_the_slab():
+    """С двумя поверхностями остаётся то, что между ними."""
+    roof = _roof()
+    floor = roof - 40.0
+    nz = 9
+    vol = np.ones((nz, roof.shape[0], roof.shape[1]))
+    zs = np.linspace(-150.0, 50.0, nz)
+    got = flatten.mask_cube(vol, GT, zs[0], zs[1] - zs[0],
+                            roof, GT, floor, GT)
+    kept = np.isfinite(got).sum()
+    assert 0 < kept < vol.size, kept
+
+
+def test_cube_mask_without_surfaces_changes_nothing():
+    vol = np.ones((3, 4, 4))
+    got = flatten.mask_cube(vol, GT, 0.0, 10.0, None, None, None, None)
+    assert np.isfinite(got).all()
+
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

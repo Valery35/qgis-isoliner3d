@@ -965,6 +965,27 @@ left, the distance from the line to the data, how many bodies are not
 watertight before the cut, how many boundary edges landed on the cut
 contour and how many cap polygons were built.
 
+## Shells in a table
+
+Shells are set in a table: a row per level, columns for the level, the
+colour and the opacity, plus a box for showing it. Two lists tied by
+order slip silently: miss a colour and all the rest land on the wrong
+levels. Within a row there is nothing to slip.
+
+An empty cell takes the automatic value: the colour by the shell number,
+the opacity growing outwards. An empty table means the cutoff and one
+shell. The colour is picked by a double click, a row is removed with the
+right button, and a new one appears by itself once the last is filled.
+
+**Cap where the body meets the cube edge** closes the shell where the
+body runs into the boundary of the cube. Without it the shell is not
+watertight: the body looks cut open and no volume can be computed. Off
+by default.
+
+Inner shells are drawn before the outer ones: whatever is drawn first
+hides what lies behind it, so an outer shell going first would eat all
+the inner ones.
+
 ## Cleaning an isosurface
 
 A marching surface goes in steps of the cube cells, and small scraps on

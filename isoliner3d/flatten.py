@@ -39,6 +39,39 @@ def sample(x, y, surf, gt):
                            np.asarray(y, dtype=float))
 
 
+def mask_cube(vol, gt, z0, dz, top, top_gt, bottom, bottom_gt):
+    """Погасить ячейки куба вне заданных поверхностей.
+
+    Резать построенное поздно: оболочка, воксели и объём по блочной
+    модели считались бы по разным телам и разошлись бы между собой.
+    Гася ячейки до построения, получаем согласие всех трёх.
+
+    Возвращает копию куба, где лишние ячейки стали пропуском.
+    """
+    vol = np.asarray(vol, dtype=float)
+    if top is None and bottom is None:
+        return vol
+    nz, ny, nx = vol.shape
+    xs = gt[0] + (np.arange(nx) + 0.5) * gt[1]
+    ys = gt[3] + (np.arange(ny) + 0.5) * gt[5]
+    gx, gy = np.meshgrid(xs, ys)
+    flat_x, flat_y = gx.ravel(), gy.ravel()
+    zt = sample(flat_x, flat_y, top, top_gt) if top is not None else None
+    zb = (sample(flat_x, flat_y, bottom, bottom_gt)
+          if bottom is not None else None)
+    out = vol.copy()
+    for k in range(nz):
+        zk = float(z0) + k * float(dz)
+        keep = np.ones(flat_x.shape, dtype=bool)
+        if zt is not None:
+            keep &= np.isfinite(zt) & (zk <= zt)
+        if zb is not None:
+            keep &= np.isfinite(zb) & (zk >= zb)
+        layer = out[k]
+        layer[~keep.reshape(ny, nx)] = np.nan
+    return out
+
+
 def keep_between(x, y, z, top, top_gt, bottom, bottom_gt):
     """Отбор по поверхностям: что лежит между кровлей и подошвой.
 

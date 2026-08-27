@@ -525,7 +525,7 @@ def test_export_keeps_the_ramp_colours():
     src = open(os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "viewer_dialog.py"), encoding="utf-8").read()
-    i = src.index("ramp_c = self._style_ramp.get(lid)")
+    i = src.index("self._style_ramp.get(lid)")
     seg = src[i:i + 2200]
     assert seg.count("exp_col = vc") == 2, seg.count("exp_col = vc")
     assert "exp_col = None" in seg

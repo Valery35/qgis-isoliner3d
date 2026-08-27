@@ -55,6 +55,7 @@ from qgis.PyQt.QtWidgets import (    # noqa: E402
     QDialog, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
     QDoubleSpinBox, QPushButton, QLabel, QFormLayout, QSplitter, QWidget,
     QComboBox, QLineEdit, QGroupBox, QSpinBox,
+    QTableWidget, QTableWidgetItem,
     QFrame, QMenu, QCheckBox, QToolButton)
 
 # Qt5/Qt6: enum'ы либо плоские, либо в scoped-подклассах
@@ -257,6 +258,8 @@ class ViewerDialog(QDialog):
         self._draw_dots = None
         self._hover = None       # точка под курсором для резинки
         self._show_sketch = True  # показывать ли контур и линию
+        self._mode_rows = {}     # строки свойств по режимам
+        self._opt_form = None
         self._clip_now = None    # контур обрезки на время сборки
         self._z_surf_now = None  # поверхности отсечки
         self._clip_seen = 0      # граней до обрезки, для отчёта
@@ -499,6 +502,34 @@ class ViewerDialog(QDialog):
         crow.addWidget(self.color_btn, 0)
         of.addRow(tr("Окраска"), crow)
         of.addRow(tr("Канал атрибута"), self.aband)
+        self.iso_table = QTableWidget(0, 3)
+        self.iso_table.setHorizontalHeaderLabels(
+            [tr("Уровень"), tr("Цвет"), tr("Непрозрачность, %")])
+        self.iso_table.verticalHeader().setVisible(False)
+        self.iso_table.setMinimumHeight(120)
+        self.iso_table.setToolTip(tr(
+            "Строка на оболочку. Пустая ячейка берёт автоматическое: "
+            "цвет по номеру оболочки, плотность растёт наружу. "
+            "Снятая галка убирает оболочку, не стирая строку. "
+            "Пустая таблица это отсечка и одна оболочка. "
+            "Непрозрачность в процентах: сто это плотная оболочка. "
+            "По цвету щёлкните дважды - откроется выбор. "
+            "Правая кнопка на строке удаляет её."))
+        self.lyr_opacity = QSpinBox()
+        self.lyr_opacity.setRange(0, 100)
+        self.lyr_opacity.setValue(0)
+        self.lyr_opacity.setSuffix(" %")
+        self.lyr_opacity.setToolTip(tr(
+            "Прозрачность этого слоя поверх общей. Общая правит всю "
+            "сцену разом, а здесь можно приглушить один слой, чтобы "
+            "видеть тело под ним. Работает и на текстуру."))
+        self.iso_cap = QCheckBox(tr("Закрывать выход на край куба"))
+        self.iso_cap.setToolTip(tr(
+            "Маршевая поверхность обрывается на границе куба: тело "
+            "выглядит вскрытым, а объём по нему не посчитать. Крышка "
+            "закрывает этот выход плоским куском на самой грани. "
+            "По умолчанию выключено: крышка нужна не всегда, "
+            "а на просмотр она добавляет граней."))
         self.iso_smooth = QSpinBox()
         self.iso_smooth.setRange(0, 20)
         self.iso_smooth.setValue(0)
@@ -516,15 +547,6 @@ class ViewerDialog(QDialog):
             "на поверхности шумят и мешают читать форму. Если порог "
             "убирает всё, поверхность остаётся как была: пустая сцена "
             "это не чистка, а потеря."))
-        self.iso_count = QSpinBox()
-        self.iso_count.setRange(1, 12)
-        self.iso_count.setValue(1)
-        self.iso_count.setToolTip(tr(
-            "Сколько оболочек строить. Одна берётся по заданной "
-            "отсечке, несколько раскладываются от неё до наибольшего "
-            "значения куба. Цвет каждой берётся из шкалы, "
-            "прозрачность растёт к наружным: внутренние видно "
-            "сквозь них."))
         self.vox_classes = QSpinBox()
         self.vox_classes.setRange(1, 32)
         self.vox_classes.setValue(8)
@@ -560,8 +582,10 @@ class ViewerDialog(QDialog):
             "быть замкнутой: длинный прямоугольник упирается в два "
             "коротких, общего ребра у них нет. Снимите флаг, если "
             "по этой модели считается объём."))
+        of.addRow(tr("Прозрачность слоя"), self.lyr_opacity)
         of.addRow(tr("Отсечка куба"), self.iso_level)
-        of.addRow(tr("Оболочек по отсечке"), self.iso_count)
+        of.addRow(tr("Оболочки"), self.iso_table)
+        of.addRow(self.iso_cap)
         of.addRow(tr("Сглаживание, проходов"), self.iso_smooth)
         of.addRow(tr("Отбросить куски мельче, граней"),
                   self.iso_min_faces)
@@ -569,9 +593,30 @@ class ViewerDialog(QDialog):
         of.addRow(tr("Шаг стенки, м (0 - шаг грида)"), self.wall_step)
         of.addRow(tr("Плотность заливки"), self.fog_density)
         of.addRow("", self.vox_merge)
+        self._opt_form = of
+        # Строка видна только в своём режиме: поле, которое ничего
+        # не делает, человек всё равно правит и потом ищет причину.
+        self._mode_rows.update({
+            "iso_level": (self.iso_level, ("iso", "vox")),
+            "iso_table": (self.iso_table, ("iso",)),
+            "iso_cap": (self.iso_cap, ("iso",)),
+            "iso_smooth": (self.iso_smooth, ("iso",)),
+            "iso_min_faces": (self.iso_min_faces, ("iso",)),
+            "vox_classes": (self.vox_classes, ("vox",)),
+            "vox_merge": (self.vox_merge, ("vox",)),
+            "wall_step": (self.wall_step, ("wall",)),
+            "fog_density": (self.fog_density, ("fog",)),
+        })
         self.iso_level.valueChanged.connect(self._save_opts)
         self.vox_classes.valueChanged.connect(self._save_opts)
-        self.iso_count.valueChanged.connect(self._save_opts)
+        self.lyr_opacity.valueChanged.connect(self._save_opts)
+        self.iso_table.itemChanged.connect(self._iso_table_edited)
+        self.iso_table.cellDoubleClicked.connect(self._iso_cell_clicked)
+        self.iso_table.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self.iso_table.customContextMenuRequested.connect(
+            self._iso_menu)
+        self.iso_cap.toggled.connect(self._save_opts)
         self.iso_smooth.valueChanged.connect(self._save_opts)
         self.iso_min_faces.valueChanged.connect(self._save_opts)
         self.wall_step.valueChanged.connect(self._save_opts)
@@ -579,6 +624,7 @@ class ViewerDialog(QDialog):
         self.vox_merge.toggled.connect(self._save_opts)
         for w in (self.mode_combo, self.zband, self.aband):
             w.currentIndexChanged.connect(self._save_opts)
+        self.mode_combo.currentIndexChanged.connect(self._sync_mode_rows)
         self.color_combo.currentIndexChanged.connect(self._color_changed)
 
         self.layer_list.itemChanged.connect(self._item_toggled)
@@ -1108,6 +1154,13 @@ class ViewerDialog(QDialog):
                 "clip": self.clip_combo.currentData(),
                 "side": self.clip_side.currentData(),
                 "width": float(self.clip_width.value()),
+                "zlo": float(self.zlo.value()),
+                "zhi": float(self.zhi.value()),
+                "zs_top": self.zs_top.currentData(),
+                "zs_bot": self.zs_bot.currentData(),
+                "grid_planes": self.grid_planes.currentData(),
+                "grid_step": float(self.grid_step.value()),
+                "axes_on": bool(self.btn_axes.isChecked()),
                 "ring": self._draw_ring,
                 "path": self._draw_path,
             }
@@ -1140,6 +1193,15 @@ class ViewerDialog(QDialog):
             self.vert_cap.setValue(int(state.get(
                 "vert_cap", MAX_VERTS_SCENE // 1000)))
             self.clip_width.setValue(state.get("width", 250.0))
+            self.zlo.setValue(float(state.get("zlo", -1e7)))
+            self.zhi.setValue(float(state.get("zhi", -1e7)))
+            for combo, key in ((self.zs_top, "zs_top"),
+                               (self.zs_bot, "zs_bot"),
+                               (self.grid_planes, "grid_planes")):
+                k = _find_data(combo, state.get(key))
+                combo.setCurrentIndex(max(k, 0))
+            self.grid_step.setValue(float(state.get("grid_step", 0.0)))
+            self.btn_axes.setChecked(bool(state.get("axes_on", False)))
             i = _find_data(self.clip_combo, state.get("clip"))
             self.clip_combo.setCurrentIndex(max(i, 0))
             j = _find_data(self.clip_side, state.get("side"))
@@ -1937,11 +1999,14 @@ class ViewerDialog(QDialog):
         if not ids:
             return out
         arr = np.asarray(vals, dtype=float)
-        # Границы диапазонов идут подряд: место значения находится
-        # поиском, а не перебором классов.
-        idx = np.searchsorted(lows, arr, side="right") - 1
+        # Ищем по верхним границам: у QGIS интервал «больше нижней,
+        # меньше или равно верхней», и значение ровно на границе идёт
+        # в нижний класс. Поиск по нижним кладёт его в следующий,
+        # а у блочной модели значения квантованы и ложатся на границы
+        # часто - целые классы уезжают.
+        idx = np.searchsorted(ups, arr, side="left")
         safe = np.clip(idx, 0, len(ups) - 1)
-        ok = (idx >= 0) & np.isfinite(arr) & (arr <= ups[safe])
+        ok = (idx < len(ups)) & np.isfinite(arr) & (arr >= lows[safe])
         for k, fid in enumerate(ids):
             out[fid] = cols[int(idx[k])] if ok[k] else None
         return out
@@ -2531,8 +2596,10 @@ class ViewerDialog(QDialog):
         return dict(solid=None, mode="auto", zband=1,
                     cband=3 if n >= 3 else 0,
                     attr_id=None, texture=False, tex_id=None,
-                    aband=1, iso_level=0.0, vox_classes=8,
-                    vox_merge=True)
+                    aband=1, iso_level=0.0, lyr_opacity=0,
+                    iso_shells=[], iso_cap=False, iso_smooth=0,
+                    iso_min_faces=0, wall_step=0.0, fog_density=0.6,
+                    vox_classes=8, vox_merge=True)
 
     def _item_toggled(self, item=None, *_a):
         """Галка видимости: прячем и показываем без пересборки.
@@ -2633,12 +2700,19 @@ class ViewerDialog(QDialog):
                                       self._default_opts(lyr.source()))
             i = _find_data(self.mode_combo, o["mode"])
             self.mode_combo.setCurrentIndex(max(i, 0))
+            self._sync_mode_rows()
             items = _band_items(lyr.source()) or [(1, "1")]
             self._fill_band_combo(self.zband, items, o["zband"])
             self.iso_level.setValue(float(o.get("iso_level", 0.0)))
             self.vox_classes.setValue(
                 int(o.get("vox_classes", 8) or 8))
-            self.iso_count.setValue(int(o.get("iso_count", 1) or 1))
+            self.lyr_opacity.setValue(
+                int(o.get("lyr_opacity", 0) or 0))
+            self._iso_fill(o.get("iso_shells") or [])
+            self.iso_cap.setChecked(bool(o.get("iso_cap", False)))
+            self.iso_smooth.setValue(int(o.get("iso_smooth", 0) or 0))
+            self.iso_min_faces.setValue(
+                int(o.get("iso_min_faces", 0) or 0))
             self.wall_step.setValue(
                 float(o.get("wall_step", 0.0) or 0.0))
             self.fog_density.setValue(
@@ -2759,7 +2833,11 @@ class ViewerDialog(QDialog):
         self._opts[lid] = dict(
             mode=self.mode_combo.currentData() or "auto",
             iso_level=float(self.iso_level.value()),
-            iso_count=int(self.iso_count.value()),
+            lyr_opacity=int(self.lyr_opacity.value()),
+            iso_shells=self._iso_rows(),
+            iso_cap=bool(self.iso_cap.isChecked()),
+            iso_smooth=int(self.iso_smooth.value()),
+            iso_min_faces=int(self.iso_min_faces.value()),
             wall_step=float(self.wall_step.value()),
             fog_density=float(self.fog_density.value()),
             vox_classes=int(self.vox_classes.value()),
@@ -4461,6 +4539,158 @@ class ViewerDialog(QDialog):
         except Exception:  # nosec
             pass
 
+    @staticmethod
+    def _is_number(txt):
+        body = str(txt or "").lstrip("+-")
+        return bool(body) and body.replace(".", "", 1).isdigit()
+
+    def _sync_mode_rows(self, *_a):
+        """Показать только то, что относится к выбранному режиму.
+
+        Таблица оболочек у точечного слоя и шаг стенки у поверхности
+        сбивают с толку: правишь поле, а оно ничего не делает.
+        Отсечка куба нужна и изоповерхности, и вокселям, поэтому
+        она в обоих списках.
+        """
+        rows = self._mode_rows
+        if not rows or self._opt_form is None:
+            return
+        mode = self.mode_combo.currentData() or "auto"
+        for _key, (w, modes) in rows.items():
+            on = mode in modes
+            w.setVisible(on)
+            lab = self._opt_form.labelForField(w)
+            if lab is not None:
+                lab.setVisible(on)
+
+    def _iso_rows(self):
+        """Строки таблицы оболочек как список словарей."""
+        rows = []
+        for r in range(self.iso_table.rowCount()):
+            it = self.iso_table.item(r, 0)
+            txt = (it.text().strip() if it else "").replace(",", ".")
+            # Разбор без исключений: сканер каталога отклоняет голый
+            # continue в обработчике.
+            if not self._is_number(txt):
+                continue
+            lev = float(txt)
+            col_it = self.iso_table.item(r, 1)
+            al_it = self.iso_table.item(r, 2)
+            al = (al_it.text().strip() if al_it else "").replace(",", ".")
+            # В таблице проценты, как и в поле прозрачности сцены:
+            # доли единицы рядом с процентами читаются как ошибка.
+            alpha = float(al) / 100.0 if self._is_number(al) else None
+            on = True
+            if it is not None:
+                try:
+                    on = it.checkState() != Qt.CheckState.Unchecked
+                except AttributeError:  # nosec
+                    on = it.checkState() != 0
+            rows.append({"level": lev,
+                         "color": col_it.text().strip() if col_it else "",
+                         "alpha": alpha, "on": on})
+        return rows
+
+    def _iso_fill(self, rows):
+        """Заполнить таблицу оболочек и оставить пустую строку внизу.
+
+        Таблица растёт сама: заполнили последнюю строку - появилась
+        следующая. Кнопки добавления не нужно.
+        """
+        self.iso_table.blockSignals(True)
+        self.iso_table.setRowCount(0)
+        for row in list(rows) + [{}]:
+            self._iso_add_row(row)
+        self.iso_table.blockSignals(False)
+
+    def _iso_add_row(self, row=None):
+        row = row or {}
+        r = self.iso_table.rowCount()
+        self.iso_table.insertRow(r)
+        lev = row.get("level")
+        it = QTableWidgetItem("" if lev is None else ("%g" % lev))
+        try:
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setCheckState(Qt.CheckState.Checked
+                             if row.get("on", True)
+                             else Qt.CheckState.Unchecked)
+        except AttributeError:  # nosec
+            pass
+        self.iso_table.setItem(r, 0, it)
+        self.iso_table.setItem(
+            r, 1, QTableWidgetItem(str(row.get("color") or "")))
+        al = row.get("alpha")
+        self.iso_table.setItem(
+            r, 2, QTableWidgetItem("" if al is None
+                                   else ("%g" % (float(al) * 100.0))))
+        col = str(row.get("color") or "")
+        if col:
+            self._iso_paint(r, col)
+
+    def _iso_paint(self, r, name):
+        """Закрасить ячейку цвета, чтобы он читался без кода."""
+        from qgis.PyQt.QtGui import QColor, QBrush
+        it = self.iso_table.item(r, 1)
+        if it is None:
+            return
+        c = QColor(name)
+        if c.isValid():
+            it.setBackground(QBrush(c))
+
+    def _iso_pick_color(self, r, _c=None):
+        """Выбор цвета мышью: набирать код никто не обязан."""
+        from qgis.PyQt.QtWidgets import QColorDialog
+        from qgis.PyQt.QtGui import QColor
+        it = self.iso_table.item(r, 1)
+        cur = QColor(it.text().strip()) if it and it.text().strip() \
+            else QColor("#3b7dd8")
+        got = QColorDialog.getColor(cur, self, tr("Цвет оболочки"))
+        if not got.isValid():
+            return
+        self.iso_table.blockSignals(True)
+        if it is None:
+            it = QTableWidgetItem("")
+            self.iso_table.setItem(r, 1, it)
+        it.setText(got.name())
+        self._iso_paint(r, got.name())
+        self.iso_table.blockSignals(False)
+        self._save_opts()
+
+    def _iso_cell_clicked(self, r, c):
+        if c == 1:
+            self._iso_pick_color(r)
+
+    def _iso_menu(self, pos):
+        """Правая кнопка на строке: удалить её.
+
+        Без удаления таблица только растёт, и убрать лишний уровень
+        можно лишь стерев его руками - а строка всё равно остаётся.
+        """
+        r = self.iso_table.rowAt(pos.y())
+        if r < 0 or r >= self.iso_table.rowCount():
+            return
+        menu = QMenu(self)
+        act = menu.addAction(tr("Удалить строку"))
+        if menu.exec(self.iso_table.viewport().mapToGlobal(pos)) is act:
+            self.iso_table.blockSignals(True)
+            self.iso_table.removeRow(r)
+            if self.iso_table.rowCount() == 0:
+                self._iso_add_row()
+            self.iso_table.blockSignals(False)
+            self._save_opts()
+
+    def _iso_table_edited(self, *_a):
+        """Правка таблицы: дорастить пустую строку и сохранить."""
+        if getattr(self, "_loading_opts", False):
+            return
+        last = self.iso_table.rowCount() - 1
+        it = self.iso_table.item(last, 0) if last >= 0 else None
+        if last < 0 or (it is not None and it.text().strip()):
+            self.iso_table.blockSignals(True)
+            self._iso_add_row()
+            self.iso_table.blockSignals(False)
+        self._save_opts()
+
     def _iso_mesh(self, lyr, opts, prof=None):
         """Оболочки по отсечке для слоя-куба.
 
@@ -4472,23 +4702,22 @@ class ViewerDialog(QDialog):
         Возвращает список (вершины, треугольники, цвет, прозрачность).
         """
         import numpy as np
-        from .iso3d import isosurface_levels
+        from .iso3d import (isosurface_levels, shell_alpha,
+                            cap_faces, resolve_shells)
         vol, gt, z0, dz = self._cube_arrays(lyr)
         if vol is None:
             return []
         if prof is not None:
             prof.add("read")
         base = float(opts.get("iso_level", 0.0))
-        n = max(int(opts.get("iso_count", 1) or 1), 1)
-        top = float(np.nanmax(vol)) if np.isfinite(vol).any() else base
-        if n > 1 and top > base:
-            # Уровни расходятся от отсечки к вершине куба. Самый
-            # верхний берём чуть ниже максимума: ровно по максимуму
-            # оболочка вырождается в несколько ячеек.
-            levels = list(np.linspace(base, base + 0.94 * (top - base),
-                                      n))
-        else:
-            levels = [base]
+        # Таблица оболочек: строка на уровень, пустая ячейка берёт
+        # автоматическое. Пустая таблица это отсечка и одна оболочка.
+        shells = resolve_shells(opts.get("iso_shells") or [], vol, base)
+        levels = [sh["level"] for sh in shells]
+        if len(levels) > 1:
+            _log(tr("Оболочки %s: уровни %s.")
+                 % (lyr.name(),
+                    ", ".join("%.3g" % v for v in levels)))
         got = isosurface_levels(vol, levels, gt, z0, dz)
         if prof is not None:
             prof.add("mesh")
@@ -4513,19 +4742,43 @@ class ViewerDialog(QDialog):
             got = cleaned
             if prof is not None:
                 prof.add("clean")
+        # Крышки на выходе тела к краю куба: без них оболочка
+        # незамкнута, объём по ней не посчитать, а на вид тело
+        # выглядит вскрытым.
+        if opts.get("iso_cap"):
+            capped, added = [], 0
+            for lev, cv, cf in got:
+                pv, pf = cap_faces(vol, lev, gt, z0, dz)
+                if len(pf):
+                    cf = np.vstack([cf, pf + len(cv)]) if len(cf) \
+                        else pf
+                    cv = np.vstack([cv, pv])
+                    added += len(pf)
+                capped.append((lev, cv, cf))
+            got = capped
+            if added:
+                _log(tr("Крышки на краю куба: граней %d.") % added)
+
         out = []
         span = max(len(levels) - 1, 1)
         for k, (lev, v, f) in enumerate(got):
             if not len(f):
                 continue
-            col = colormap(np.array([k / float(span)]))[0]
+            col = _css_rgba(shells[k]["color"]) if k < len(shells) \
+                else colormap(np.array([k / float(span)]))[0]
             # Наружная оболочка самая прозрачная: сквозь неё должны
-            # читаться внутренние, ради этого всё и строится.
-            alpha = 1.0 - 0.62 * (1.0 - k / float(span))
+            # читаться внутренние, ради этого всё и строится. Одна
+            # оболочка сквозь себя ничего не показывает и остаётся
+            # плотной.
+            alpha = (shells[k]["alpha"] if k < len(shells)
+                     else shell_alpha(k, len(got)))
             out.append((v, f, col, alpha, lev))
         if not out:
-            self._warn(tr("Слой %s: по отсечке %.3f ничего "
-                          "не построено.") % (lyr.name(), base))
+            self._warn(tr("Слой %s: по уровням %s ничего "
+                          "не построено. Проверьте, что они лежат "
+                          "внутри размаха значений куба.")
+                       % (lyr.name(),
+                          ", ".join("%.3g" % v for v in levels)))
         elif len(out) > 1:
             _log(tr("Оболочки %s: уровни %s, треугольников %d.")
                  % (lyr.name(),
@@ -4559,7 +4812,21 @@ class ViewerDialog(QDialog):
                 arr[arr == nd] = np.nan
             bands.append(arr)
         ds = None
-        return np.stack(bands, axis=0), gt, z0, dz
+        vol = np.stack(bands, axis=0)
+        # Отсечка поверхностями гасит ячейки до построения. Резать
+        # построенное поздно: оболочка, воксели и объём по блочной
+        # модели считались бы по разным телам и разошлись бы.
+        (ta, tg), (ba, bg) = self._z_surfaces()
+        if ta is not None or ba is not None:
+            from .flatten import mask_cube
+            before = int(np.isfinite(vol).sum())
+            vol = mask_cube(vol, gt, z0, dz, ta, tg, ba, bg)
+            after = int(np.isfinite(vol).sum())
+            if after < before:
+                _log(tr("Куб %s: отсечка поверхностями убрала ячеек "
+                        "%d, осталось %d.")
+                     % (lyr.name(), before - after, after))
+        return vol, gt, z0, dz
 
     def _cube_box(self, lyr):
         """Углы куба слоя: восемь точек охвата.
@@ -4899,8 +5166,13 @@ class ViewerDialog(QDialog):
                 # выходит замкнутой и годится для подсчёта объёма.
                 # Кладём её в общий список: центрирование, окраска
                 # и выгрузка дальше работают как для поверхностей.
-                for v_i, f_i, col_i, a_i, _lev in self._iso_mesh(
-                        lyr, o, prof):
+                # Внутренние оболочки кладём раньше наружных.
+                # Глубина пишется, и нарисованная первой закрывает
+                # собой то, что за ней: наружная, идя первой, съедала
+                # все внутренние. Идя последней, она ложится поверх
+                # них своей прозрачностью, как и задумано.
+                for v_i, f_i, col_i, a_i, _lev in reversed(
+                        self._iso_mesh(lyr, o, prof)):
                     if o.get("solid"):
                         col_i = _css_rgba(o["solid"])
                     else:
@@ -4910,6 +5182,7 @@ class ViewerDialog(QDialog):
                     o_i = dict(o)
                     o_i["alpha"] = float(a_i) * float(
                         o.get("alpha", 1.0) or 1.0)
+                    o_i["shell"] = True
                     meshes.append((v_i, f_i, col_i, lyr.id(), False,
                                    lyr.source(), o_i, None, None, 0.0))
                 continue
@@ -5142,7 +5415,11 @@ class ViewerDialog(QDialog):
                 _sa, _gt, _zo) in enumerate(meshes):
             # Оболочка по отсечке несёт свою прозрачность: наружная
             # прозрачнее внутренних, иначе видно только её.
-            alpha = alpha0 * float(o.get("alpha", 1.0) or 1.0)
+            # Прозрачность слоя поверх общей: общая правит всю сцену
+            # разом, а этой приглушают один слой, чтобы видеть тело
+            # под ним. Текстуру она накрывает тоже.
+            own = 1.0 - float(o.get("lyr_opacity", 0) or 0) / 100.0
+            alpha = alpha0 * own * float(o.get("alpha", 1.0) or 1.0)
             gopt = 'opaque' if alpha >= 0.999 else 'translucent'
             v = verts.copy()
             v[:, 0] -= cx
@@ -5182,7 +5459,10 @@ class ViewerDialog(QDialog):
                     lyr_e.name() if lyr_e else "voxels", verts, faces,
                     vox_col)
                 continue
-            ramp_c = self._style_ramp.get(lid)
+            # У оболочки свой цвет из таблицы, и раскраска по каналу
+            # его перебивать не должна: человек назвал цвет,
+            # решать за него нечего.
+            ramp_c = None if o.get("shell") else self._style_ramp.get(lid)
             if ramp_c is not None and len(ramp_c) == len(v):
                 vc = ramp_c.copy()
                 vc[:, 3] = alpha
@@ -5190,7 +5470,8 @@ class ViewerDialog(QDialog):
                 item = gl.GLMeshItem(meshdata=md, smooth=True,
                                      glOptions=gopt)
                 exp_col = vc
-            elif attr is not None and lid in attr[0]:
+            elif (attr is not None and lid in attr[0]
+                    and not o.get("shell")):
                 vals, vmin, vmax, rng = attr
                 vc = colormap((vals[lid] - vmin) / rng)
                 vc[:, 3] = alpha

@@ -81,6 +81,66 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'Прозрачность слоя': 'Layer transparency',
+    'Прозрачность этого слоя поверх общей. Общая правит всю '
+    'сцену разом, а здесь можно приглушить один слой, чтобы видеть '
+    'тело под ним. Работает и на текстуру.':
+        'The transparency of this layer on top of the shared one. '
+        'The shared one governs the whole scene at once, while here '
+        'a single layer can be dimmed to see the body beneath it. '
+        'It works on a texture as well.',
+    'Куб %s: отсечка поверхностями убрала ячеек %d, осталось %d.':
+        'Cube %s: surface clipping removed %d cells, %d left.',
+    'Непрозрачность, %': 'Opacity, %',
+    'Цвет оболочки': 'Shell colour',
+    'Удалить строку': 'Remove the row',
+    'Строка на оболочку. Пустая ячейка берёт автоматическое: цвет '
+    'по номеру оболочки, плотность растёт наружу. Снятая галка '
+    'убирает оболочку, не стирая строку. Пустая таблица это отсечка '
+    'и одна оболочка. Непрозрачность в процентах: сто это плотная '
+    'оболочка. По цвету щёлкните дважды - откроется выбор. Правая '
+    'кнопка на строке удаляет её.':
+        'A row per shell. An empty cell takes the automatic value: the '
+        'colour by the shell number, the opacity growing outwards. '
+        'Clearing the box removes the shell without erasing the row. '
+        'An empty table means the cutoff and one shell. Opacity is in '
+        'percent: a hundred is a solid shell. Double-click the colour '
+        'to pick one. The right button on a row removes it.',
+    'Оболочки': 'Shells',
+    'Уровень': 'Level',
+    'Цвет': 'Colour',
+    'Закрывать выход на край куба':
+        'Cap where the body meets the cube edge',
+    'Крышки на краю куба: граней %d.':
+        'Caps at the cube edge: %d faces.',
+    'Маршевая поверхность обрывается на границе куба: тело '
+    'выглядит вскрытым, а объём по нему не посчитать. Крышка '
+    'закрывает этот выход плоским куском на самой грани. По умолчанию '
+    'выключено: крышка нужна не всегда, а на просмотр она добавляет '
+    'граней.':
+        'A marching surface breaks off at the cube boundary: the '
+        'body looks cut open and no volume can be computed from it. '
+        'A cap closes that opening with a flat piece on the face '
+        'itself. Off by default: a cap is not always needed and it '
+        'adds faces to the view.',
+    'Слой %s: по уровням %s ничего не построено. Проверьте, '
+    'что они лежат внутри размаха значений куба.':
+        'Layer %s: nothing was built at levels %s. Check that they '
+        'lie within the range of the cube values.',
+    'Свои границы интервалов, через пробел':
+        'Own interval bounds, space separated',
+    'Свои границы интервалов через пробел: 0 5 10 15. Задают '
+    'разбивку вместо равных долей. Запятая внутри числа это знак '
+    'дроби: 2,5 3 3,5 читается как два с половиной, три и три '
+    'с половиной. Порядок и повторы не важны. Ячейка выше '
+    'последней границы остаётся в последнем интервале, терять '
+    'её нельзя.':
+        'Own interval bounds, space separated: 0 5 10 15. They set '
+        'the split instead of equal shares. A comma inside a number '
+        'is a decimal mark. Order and repeats do not matter. A cell '
+        'above the last bound stays in the last interval, it must not '
+        'be lost.',
+    'Оболочки %s: уровни %s.': 'Shells %s: levels %s.',
     'есть': 'yes',
     'нету': 'no',
     'Подписи короба': 'Box labels',
@@ -206,8 +266,6 @@ TRANSLATIONS = {
         'split instead of equal shares. Order and repeats do not matter. A '
         'cell above the last bound stays in the last interval, it must not be'
         ' lost.',
-    'Свои границы интервалов, через запятую':
-        'Own interval bounds, comma separated',
     'Свои границы интервалов: %s.':
         'Own interval bounds: %s.',
     'Отсечка сверху (поверхность)': 'Clip above (surface)',
@@ -1178,7 +1236,6 @@ TRANSLATIONS = {
         'Vertical step from the data: %.2f m.',
     'Наибольшее число точек от данных: %d.':
         'Largest number of points from the data: %d.',
-    'Оболочек по отсечке': 'Shells at the cutoff',
     'Оболочки %s: уровни %s, треугольников %d.':
         'Shells %s: levels %s, triangles %d.',
     'Сколько оболочек строить. Одна берётся по заданной отсечке, '
@@ -1944,8 +2001,6 @@ TRANSLATIONS = {
         'The layer %s: all %d features are flat, elevations from %.1f to '
         '%.1f. There is no volume in the geometry, use the prism display for '
         'steps.',
-    'Слой %s: по отсечке %.3f ничего не построено.':
-        'The layer %s: nothing was built at the cutoff %.3f.',
     'Слой %s: у %d объектов нет отметок низа или верха.':
         'The layer %s: %d features have no bottom or top elevation.',
     'Слой меша не загрузился: %s': 'Mesh layer failed to load: %s',

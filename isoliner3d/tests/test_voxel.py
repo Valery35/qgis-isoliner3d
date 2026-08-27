@@ -415,14 +415,25 @@ def test_class_interface_gets_two_faces():
 
 def test_edges_are_parsed_from_text():
     """Границы интервалов читаются строкой, как их пишет человек."""
-    assert voxel.parse_edges("0,5,10,15") == [0.0, 5.0, 10.0, 15.0]
+    assert voxel.parse_edges("0 5 10 15") == [0.0, 5.0, 10.0, 15.0]
     assert voxel.parse_edges(" 0 ; 5 ; 10 ") == [0.0, 5.0, 10.0]
-    assert voxel.parse_edges("0 5 10") == [0.0, 5.0, 10.0]
+    assert voxel.parse_edges("0, 5, 10") == [0.0, 5.0, 10.0]
+
+
+def test_edges_take_the_decimal_comma():
+    """Запятая внутри числа это знак дроби, а не разделитель.
+
+    У нас пишут «2,5 3 3,5», и приняв её за разделитель, получишь
+    из двух с половиной два и пять.
+    """
+    assert voxel.parse_edges("2,5 3 3,5") == [2.5, 3.0, 3.5]
+    assert voxel.parse_edges("0,5 1") == [0.5, 1.0]
+    assert voxel.parse_edges("2.5 3") == [2.5, 3.0]
 
 
 def test_edges_are_sorted_and_deduped():
     """Границы вразнобой и с повторами приводятся к порядку."""
-    assert voxel.parse_edges("10,0,5,5") == [0.0, 5.0, 10.0]
+    assert voxel.parse_edges("10 0 5 5") == [0.0, 5.0, 10.0]
 
 
 def test_bad_edges_are_refused():

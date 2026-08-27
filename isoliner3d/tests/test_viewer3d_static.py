@@ -670,6 +670,29 @@ def test_elevation_clip_reaches_every_source():
     assert "self._z_kept([p[2]], [p[0]], [p[1]])" in lines
 
 
+def test_graduated_lookup_matches_qgis_bounds():
+    """Значение на границе класса относится к нижнему, как в QGIS.
+
+    У QGIS интервал «больше нижней, меньше или равно верхней». Поиск
+    по нижним границам кладёт такое значение в следующий класс,
+    и у блочной модели, где значения квантованы и часто ложатся ровно
+    на границу, целые классы уезжают.
+    """
+    import numpy as np
+    lows = np.array([-1.8, 0.0, 3.2, 5.2, 7.8])
+    ups = np.array([0.0, 3.2, 5.2, 7.8, 14.1])
+    vals = np.array([-1.8, 0.0, 3.2, 5.2, 7.8, 14.1, 1.0])
+    want = [0, 0, 1, 2, 3, 4, 1]
+    got = np.searchsorted(ups, vals, side="left")
+    assert got.tolist() == want, got.tolist()
+    # и то же выражение стоит в коде
+    src = _viewer_src()
+    start = src.index("def _style_by_ranges")
+    body = src[start:src.index("def _layer_colors", start)]
+    assert 'np.searchsorted(ups, arr, side="left")' in body
+    assert "searchsorted(lows" not in body
+
+
 def test_graduated_style_is_read_by_ranges():
     """Градуированный стиль читается диапазонами, а не по объекту.
 
@@ -1654,9 +1677,9 @@ def test_layer_ramp_wins_over_the_shared_scale():
     от карты именно там, где её просили повторить.
     """
     src = _viewer_src()
-    start = src.index("ramp_c = self._style_ramp.get(lid)")
+    start = src.index("self._style_ramp.get(lid)")
     body = src[start:start + 700]
-    assert body.index("ramp_c is not None") < body.index("elif attr")
+    assert body.index("ramp_c is not None") < body.index("attr is not None")
 
 
 def test_ramp_colours_are_reset_every_rebuild():
@@ -2362,7 +2385,7 @@ def test_iso_mode_is_wired():
     start = src.index("def _rebuild_scene")
     body = src[start:]
     assert 'if mode == "iso":' in body
-    assert "self._iso_mesh(\n                            lyr, o, prof)" in body
+    assert "self._iso_mesh(lyr, o, prof)" in body
 
 
 def test_iso_uses_cube_convention():
@@ -2480,6 +2503,226 @@ def test_axes_labels_are_capped():
     assert "box_edges(lo, hi)" in body and "tick_marks(lo, hi" in body
 
 
+def test_every_scene_setting_is_saved_and_restored():
+    """Настройки сцены целиком пишутся в проект и читаются обратно.
+
+    Границы отметок, поверхности отсечки и координатный короб
+    добавлялись позже прочего и в сохранение не попали: проект
+    открывался с прежними значениями.
+    """
+    src = _viewer_src()
+    save = src[src.index('"opts": self._opts,'):]
+    save = save[:save.index("QgsProject.instance().writeEntry")]
+    load = src[src.index("def _state_load"):]
+    load = load[:load.index("\n    def ", 20)]
+    for key in ("vex", "spacing", "opacity", "texside", "vert_cap",
+                "clip", "side", "width", "zlo", "zhi", "zs_top",
+                "zs_bot", "grid_planes", "grid_step", "axes_on"):
+        assert '"%s"' % key in save, "не сохраняется: %s" % key
+        assert '"%s"' % key in load, "не читается: %s" % key
+
+
+def test_every_layer_option_is_saved_and_restored():
+    """Каждая настройка слоя сохраняется и читается обратно.
+
+    Поле, которого нет в сохранении, остаётся украшением: человек
+    его правит, а до сцены значение не доходит. Так вышло со своими
+    уровнями оболочек, сглаживанием и отбросом мелочи.
+    """
+    import re
+    src = _viewer_src()
+    save = src[src.index("self._opts[lid] = dict("):]
+    save = save[:save.index("self._schedule_rebuild()")]
+    start = src.index("def _load_opts") if "def _load_opts" in src \
+        else src.index("self.iso_level.setValue(")
+    load = src[start:start + 3000]
+    for name in ("iso_level", "iso_shells", "iso_cap",
+                 "iso_smooth", "iso_min_faces", "wall_step",
+                 "fog_density", "vox_classes"):
+        assert re.search(r"\b%s=" % name, save), "не сохраняется: %s" % name
+        assert name in load, "не читается: %s" % name
+
+
+def test_cap_option_is_off_by_default():
+    """Закрытие края выключено по умолчанию.
+
+    Крышка нужна не всегда, а граней добавляет: включать её
+    за человека незачем.
+    """
+    src = _viewer_src()
+    assert 'iso_cap=False' in src
+    assert "self.iso_cap.setChecked(" in src
+    start = src.index("def _iso_mesh")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert 'if opts.get("iso_cap"):' in body
+    assert "cap_faces(vol, lev, gt, z0, dz)" in body
+
+
+def test_shell_table_replaces_the_two_fields():
+    """Оболочки задаются таблицей: строка на уровень.
+
+    Два списка, связанные по порядку, съезжают молча: пропустил цвет,
+    и все остальные встали не на свои уровни. В строке съехать нечему.
+    """
+    src = _viewer_src()
+    assert 'of.addRow(tr("Оболочки"), self.iso_table)' in src
+    assert "self.iso_count" not in src
+    assert "self.iso_levels" not in src
+    start = src.index("def _iso_mesh")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert 'resolve_shells(opts.get("iso_shells") or [], vol, base)' \
+        in body
+
+
+def test_inner_shells_are_drawn_first():
+    """Внутренние оболочки кладутся раньше наружных.
+
+    Глубина пишется, и нарисованная первой закрывает собой то, что
+    за ней: наружная, идя первой, съедала все внутренние. Отключать
+    запись глубины нельзя - грани одной оболочки начинают смешиваться
+    вразнобой, и по ней идут светлые полосы.
+    """
+    src = _viewer_src()
+    scene = src[src.index("def _rebuild_scene"):]
+    assert "in reversed(" in scene and "self._iso_mesh(lyr, o, prof)" \
+        in scene
+    assert "glOptions=gopt" in scene
+    assert "glDepthMask" not in src
+
+
+def test_shell_colour_beats_the_band():
+    """Цвет из таблицы не перебивается раскраской по каналу.
+
+    Человек назвал цвет оболочки - решать за него нечего.
+    """
+    src = _viewer_src()
+    scene = src[src.index("def _rebuild_scene"):]
+    assert 'None if o.get("shell")' in scene
+    assert 'and not o.get("shell")' in scene
+
+
+def test_shell_flag_reaches_the_scene():
+    """Признак оболочки кладётся в запись слоя вместе с прозрачностью."""
+    src = _viewer_src()
+    assert 'o_i["shell"] = True' in src
+
+
+def test_shell_row_can_be_removed():
+    """Строку таблицы можно удалить, а не только стереть её текст.
+
+    Без удаления таблица только растёт: убрал уровень, а пустая
+    строка осталась и мешает.
+    """
+    src = _viewer_src()
+    start = src.index("def _iso_menu")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "removeRow(r)" in body
+    assert 'tr("Удалить строку")' in body
+    # опустевшую таблицу дорастим, иначе вводить будет некуда
+    assert "self._iso_add_row()" in body
+    assert "customContextMenuRequested.connect(" in src
+
+
+def test_colour_is_picked_not_typed():
+    """Цвет выбирается мышью: набирать код никто не обязан."""
+    src = _viewer_src()
+    assert "QColorDialog.getColor(" in src
+    assert "cellDoubleClicked.connect(" in src
+    # и выбранный цвет виден прямо в ячейке
+    assert "def _iso_paint" in src
+    assert "setBackground(QBrush(c))" in src
+
+
+def test_opacity_column_is_in_percent():
+    """Непрозрачность в процентах, как и прозрачность сцены рядом.
+
+    Доли единицы рядом с процентами читаются как ошибка ввода.
+    """
+    src = _viewer_src()
+    assert 'tr("Непрозрачность, %")' in src
+    start = src.index("def _iso_rows")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "float(al) / 100.0" in body
+
+
+def test_layer_has_its_own_transparency():
+    """У слоя своя прозрачность поверх общей.
+
+    Общая правит всю сцену разом, а этой приглушают один слой, чтобы
+    видеть тело под ним. Текстуру она накрывает тоже: там значение
+    уходит в шейдер тем же путём.
+    """
+    src = _viewer_src()
+    assert 'of.addRow(tr("Прозрачность слоя"), self.lyr_opacity)' in src
+    assert "lyr_opacity=int(self.lyr_opacity.value())" in src
+    scene = src[src.index("def _rebuild_scene"):]
+    assert 'own = 1.0 - float(o.get("lyr_opacity", 0) or 0) / 100.0' \
+        in scene
+    # та же прозрачность идёт и в текстуру
+    assert "self._textured(gl, md, verts, v, faces,\n" in scene
+
+
+def test_cube_is_clipped_by_surfaces():
+    """Куб отсекается поверхностями при чтении, а не после построения.
+
+    Резать построенное поздно: оболочка, воксели и объём по блочной
+    модели считались бы по разным телам и разошлись бы между собой.
+    """
+    src = _viewer_src()
+    start = src.index("def _cube_arrays")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "mask_cube(vol, gt, z0, dz, ta, tg, ba, bg)" in body
+    assert "self._z_surfaces()" in body
+    # гасим до возврата, чтобы этим пользовались все режимы разом
+    assert body.index("mask_cube(") < body.index("return vol")
+
+
+def test_options_follow_the_mode():
+    """В окне свойств видно только то, что относится к режиму.
+
+    Таблица оболочек у точечного слоя и шаг стенки у поверхности
+    сбивают с толку: человек правит поле, которое ничего не делает.
+    """
+    src = _viewer_src()
+    assert "def _sync_mode_rows" in src
+    start = src.index("def _sync_mode_rows")
+    body = src[start:src.index("\n    def ", start + 20)]
+    for mode in ("iso", "vox", "wall", "fog"):
+        assert '"%s"' % mode in body, mode
+    # строка прячется вместе со своей подписью, иначе останется
+    # висеть пустое название
+    assert "labelForField" in body
+    assert "self.mode_combo.currentIndexChanged.connect(" in src
+
+
+def test_shell_table_grows_by_itself():
+    """Заполнили последнюю строку - появилась следующая.
+
+    Кнопка добавления на таблицу из трёх столбцов это лишний щелчок
+    на каждую оболочку.
+    """
+    src = _viewer_src()
+    start = src.index("def _iso_table_edited")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "self._iso_add_row()" in body
+    assert "self._save_opts()" in body
+
+
+def test_cap_option_is_off_by_default():
+    """Закрытие края выключено по умолчанию.
+
+    Крышка нужна не всегда, а граней добавляет: включать её
+    за человека незачем.
+    """
+    src = _viewer_src()
+    assert 'iso_cap=False' in src
+    assert "self.iso_cap.setChecked(" in src
+    start = src.index("def _iso_mesh")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert 'if opts.get("iso_cap"):' in body
+    assert "cap_faces(vol, lev, gt, z0, dz)" in body
+
+
 def test_isosurface_is_cleaned_before_use():
     """Поверхность чистится: мелочь отбрасывается, ступени садятся.
 
@@ -2504,15 +2747,14 @@ def test_iso_levels_are_coloured_and_layered():
     Иначе внутренних не видно вовсе, а ради них всё и строится.
     """
     src = _viewer_src()
-    assert 'tr("Оболочек по отсечке")' in src
-    assert 'o["iso_count"]' in src or "iso_count=int(" in src
+    assert 'of.addRow(tr("Оболочки"), self.iso_table)' in src
     start = src.index("        def _iso_mesh")
     body = src[start:src.index("\n        def ", start + 20)]
-    assert "np.linspace(base" in body
-    assert "colormap(" in body
-    assert "alpha = 1.0 - 0.62" in body
+    assert "resolve_shells(" in body
+    assert "_css_rgba(shells[k]" in body
+    assert 'shells[k]["alpha"]' in body
     scene = src[src.index("def _rebuild_scene"):]
-    assert 'alpha = alpha0 * float(o.get("alpha", 1.0) or 1.0)' in scene
+    assert 'alpha0 * own * float(o.get("alpha", 1.0) or 1.0)' in scene
 
 
 def test_dialog_lives_in_its_own_module():

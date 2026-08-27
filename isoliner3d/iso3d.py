@@ -122,6 +122,239 @@ def weld(verts, faces, snap=1e-6):
     return verts[first], inv.reshape(-1)[faces]
 
 
+def _numbers(text):
+    """Числа из строки: пробел и точка с запятой разделяют.
+
+    Запятая внутри числа считается знаком дроби, в конце числа
+    отбрасывается. Порядок и повторы не важны.
+    """
+    if not text:
+        return None
+    out = []
+    for part in str(text).replace(";", " ").split():
+        part = part.strip().rstrip(",")
+        body = part.replace(",", ".").lstrip("+-")
+        if body.replace(".", "", 1).isdigit():
+            out.append(float(part.replace(",", ".")))
+    out = sorted(set(out))
+    return out or None
+
+
+def parse_levels(text):
+    """Уровни оболочек из строки, как их пишет человек.
+
+    Разделяют пробел и точка с запятой. Запятая это знак дроби,
+    а не разделитель: у нас пишут «2,5 3 3,5», и приняв её
+    за разделитель, получишь из двух с половиной два и пять.
+    Запятая в конце числа прощается: так пишут по привычке.
+
+    Порядок и повторы не важны: уровни приводятся к возрастанию,
+    повторы убираются. Одного уровня достаточно.
+
+    Возвращает None, если чисел нет: тогда работает отсечка с числом
+    оболочек, и подменять заданное человеком мы не должны.
+    """
+    return _numbers(text)
+
+
+def _clip_tri(pts, vals, level):
+    """Часть треугольника, где значение не ниже уровня.
+
+    Обычная обрезка полуплоскостью: вершины внутри остаются, на рёбрах
+    добавляются точки перехода. Значение считается линейным по ребру,
+    как и в самой изоповерхности, поэтому крышка сходится с оболочкой
+    вершина в вершину.
+    """
+    out = []
+    n = len(pts)
+    for i in range(n):
+        a, b = pts[i], pts[(i + 1) % n]
+        va, vb = vals[i], vals[(i + 1) % n]
+        if va >= level:
+            out.append(a)
+        if (va >= level) != (vb >= level):
+            d = vb - va
+            t = 0.5 if abs(d) < 1e-30 else (level - va) / d
+            out.append(a + (b - a) * float(np.clip(t, 0.0, 1.0)))
+    return out
+
+
+def cap_faces(vol, level, gt, z0=0.0, dz=1.0):
+    """Крышки там, где тело выходит на край куба.
+
+    Маршевая поверхность обрывается на границе куба: тело выглядит
+    вскрытым, а объём по нему не посчитать. Крышка закрывает этот
+    выход плоским куском на самой грани.
+
+    Каждая ячейка грани делится на два треугольника и обрезается
+    по уровню - так же, как режется сама изоповерхность. Поэтому края
+    сходятся, и щели между крышкой и оболочкой не остаётся.
+    """
+    vol = np.asarray(vol, dtype=float)
+    nz, ny, nx = vol.shape
+    if nz < 2 or ny < 2 or nx < 2:
+        return (np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64))
+    xs = gt[0] + (np.arange(nx) + 0.5) * gt[1]
+    ys = gt[3] + (np.arange(ny) + 0.5) * gt[5]
+    zs = float(z0) + np.arange(nz) * float(dz)
+
+    def at(k, j, i):
+        return np.array([xs[i], ys[j], zs[k]], dtype=float)
+
+    verts, faces = [], []
+
+    def add(poly):
+        if len(poly) < 3:
+            return
+        k = len(verts)
+        verts.extend(poly)
+        for t in range(1, len(poly) - 1):
+            faces.append([k, k + t, k + t + 1])
+
+    def wall(idx_a, idx_b, fixed):
+        """Обход одной грани: idx_a и idx_b это её две оси."""
+        na, nb = idx_a[1], idx_b[1]
+        for u in range(na - 1):
+            for w in range(nb - 1):
+                corners = [(u, w), (u + 1, w), (u + 1, w + 1), (u, w + 1)]
+                pts, vals = [], []
+                for cu, cw in corners:
+                    k, j, i = fixed(cu, cw)
+                    pts.append(at(k, j, i))
+                    vals.append(float(vol[k, j, i]))
+                if not np.isfinite(vals).all():
+                    continue
+                for tri in ((0, 1, 2), (0, 2, 3)):
+                    p = [pts[t] for t in tri]
+                    v = [vals[t] for t in tri]
+                    add(_clip_tri(p, v, float(level)))
+
+    # низ и верх: оси X и Y
+    for k_fix in (0, nz - 1):
+        wall(("x", nx), ("y", ny),
+             lambda u, w, k=k_fix: (k, w, u))
+    # стенки по Y: оси X и Z
+    for j_fix in (0, ny - 1):
+        wall(("x", nx), ("z", nz),
+             lambda u, w, j=j_fix: (w, j, u))
+    # стенки по X: оси Y и Z
+    for i_fix in (0, nx - 1):
+        wall(("y", ny), ("z", nz),
+             lambda u, w, i=i_fix: (w, u, i))
+
+    if not faces:
+        return (np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64))
+    return (np.asarray(verts, dtype=float),
+            np.asarray(faces, dtype=np.int64))
+
+
+def resolve_shells(rows, vol, base, count=1):
+    """Оболочки из строк таблицы: уровень, цвет, плотность.
+
+    Строка это словарь с ключами `level`, `color`, `alpha`, `on`.
+    Пустая ячейка берёт автоматическое: цвет по номеру оболочки,
+    плотность растёт наружу. Человеку, которому цвета безразличны,
+    заполнять их руками не нужно.
+
+    Пустая таблица это прежний путь: отсечка и раскладка по долям.
+    Строки без уровня пропускаются, повторы убираются, порядок
+    приводится к возрастанию.
+    """
+    good = []
+    for r in rows or []:
+        if not r.get("on", True):
+            continue
+        lev = r.get("level")
+        if lev is None:
+            continue
+        # Разбор без исключений: сканер каталога отклоняет голый
+        # continue в обработчике.
+        try:
+            lev = float(lev)
+        except (TypeError, ValueError):
+            lev = None
+        if lev is not None:
+            good.append((lev, r))
+    if not good:
+        levels = shell_levels(vol, base, count) if vol is not None \
+            else [float(base)]
+        good = [(lv, {}) for lv in levels]
+
+    seen, uniq = set(), []
+    for lev, r in sorted(good, key=lambda x: x[0]):
+        key = round(lev, 10)
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append((lev, r))
+
+    n = len(uniq)
+    out = []
+    for k, (lev, r) in enumerate(uniq):
+        col = (r.get("color") or "").strip()
+        alpha = r.get("alpha")
+        try:
+            alpha = float(alpha) if alpha is not None else None
+        except (TypeError, ValueError):
+            alpha = None    # не число: берём автоматическое
+        out.append({"level": lev,
+                    "color": col or _auto_color(k, n),
+                    "alpha": shell_alpha(k, n) if alpha is None
+                    else float(np.clip(alpha, 0.0, 1.0))})
+    return out
+
+
+def _auto_color(k, n):
+    """Цвет оболочки по её номеру, из общей шкалы."""
+    from .viewer_core import colormap
+    t = 0.0 if n <= 1 else float(k) / float(n - 1)
+    c = colormap(np.array([t]))[0]
+    return "#%02x%02x%02x" % tuple(int(round(255 * x)) for x in c[:3])
+
+
+def shell_alpha(k, count):
+    """Плотность оболочки номер k из count.
+
+    Разнос прозрачности нужен, когда сквозь наружную оболочку читают
+    внутренние. Одна оболочка сквозь себя ничего не показывает,
+    и делать её прозрачной незачем.
+    """
+    n = max(int(count), 1)
+    if n == 1:
+        return 1.0
+    return 1.0 - 0.62 * (1.0 - float(k) / float(n - 1))
+
+
+def shell_levels(vol, base, count):
+    """Уровни вложенных оболочек от отсечки вверх.
+
+    Раскладывать от отсечки к максимуму нельзя: у содержаний хвост
+    вверх длинный, верхняя оболочка встаёт там, где ячеек почти нет,
+    и в сцене вместо неё пустота. Поэтому уровни берутся по долям
+    того, что выше отсечки: каждая следующая оболочка охватывает
+    вдвое меньше ячеек, чем предыдущая.
+
+    Возвращает список уровней, первый всегда сама отсечка.
+    """
+    base = float(base)
+    n = max(int(count), 1)
+    if n == 1:
+        return [base]
+    vals = np.asarray(vol, dtype=float)
+    above = vals[np.isfinite(vals) & (vals >= base)]
+    if above.size < 8 or float(above.max()) <= base:
+        return [base]
+    out = [base]
+    for k in range(1, n):
+        # доля ячеек, охваченных этой оболочкой: половина, четверть...
+        q = 1.0 - 0.5 ** k
+        lev = float(np.quantile(above, q))
+        if lev <= out[-1]:
+            break
+        out.append(lev)
+    return out
+
+
 def isosurface_levels(vol, levels, gt, z0=0.0, dz=1.0, weld_verts=True):
     """Оболочки сразу по нескольким отсечкам, одним проходом по кубу.
 
