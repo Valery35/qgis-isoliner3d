@@ -18,20 +18,11 @@
 """
 
 import datetime
-import platform
 import traceback
 
 _PATH = None
 _ENABLED = True
 _NAME = "Isoliner3D"
-
-
-def set_path(path, name=None):
-    """Файл журнала и название модуля для заголовка сеанса."""
-    global _PATH, _NAME
-    _PATH = path
-    if name:
-        _NAME = name
 
 
 def path():
@@ -70,33 +61,8 @@ def data(message):
     write("ДАННЫЕ", message)
 
 
-def warn(message):
-    write("ВНИМАНИЕ", message)
-
-
 def fail(message, exc=None):
     write("ОШИБКА", message)
     if exc is not None:
         for line in traceback.format_exc().rstrip().splitlines():
             write("", "    " + line)
-
-
-def session(version="", extra=None):
-    """Заголовок сеанса.
-
-    Здесь же фиксируется версия, которая реально работает.
-    """
-    if not _ENABLED or not _PATH:
-        return
-    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    lines = ["", "=" * 78,
-             "%s   %s, версия %s" % (stamp, _NAME, version or "?"),
-             "-" * 78,
-             "ОС: %s" % platform.platform()]
-    for item in (extra or []):
-        lines.append(item)
-    try:
-        with open(_PATH, "a", encoding="utf-8") as fh:
-            fh.write("\n".join(lines) + "\n")
-    except Exception:  # nosec
-        pass

@@ -1025,6 +1025,23 @@ for calculation and for matching other data, the model as on screen is
 needed for display: a bed kilometres across and tens of metres thick
 would otherwise flatten into a pancake.
 
+The **coordinate box always goes into the file**, whether it is shown on
+screen or not: these are different decisions. On screen the box gets in
+the way of looking, while in the file there is no scale without it.
+
+The edges, ticks and grid are written as lines, the tick labels as
+ribbons. Line width cannot be set in glTF, the viewer chooses it, and it
+is usually one pixel that gets lost on a large model. A ribbon gives a
+real thickness, in metres.
+
+The labels are drawn in a drafting hand: a digit made of strokes. There
+is no text in glTF — there is either the geometry of the letters or a
+picture on a plane, and a flat picture turns edge-on and disappears when
+the model is rotated.
+
+The result of the export is shown in the window: how many bodies, is
+there a box, was the exaggeration applied, the file size.
+
 # The neighbouring plugins
 
 Isoliner3D does not work on its own. Three plugins cover the way from
@@ -1079,6 +1096,7 @@ All three work independently: installing the whole set is not required.
 | The wall is not built and asks for a line | No line is drawn and no layer is picked. | Draw a line with the drawing button or pick a line layer in the clip list. |
 | The wall came out empty | The line is outside the cube. | Check the extent of the cube: beyond its edges there are no values and no wall is built. |
 | Holes in the body after a cut | The body was built with merged faces and is not watertight. | Rebuild it in 2.04 with merging cleared: the log shows the number of bodies that are not watertight. |
+| No box or labels in the export | A build before 0.65.7 is installed. | The build number is in the window title; the export result is printed in the window itself. |
 | Voxels are not built and the log names a face count | The model is larger than the responsiveness limit. | Raise the cutoff, reduce the number of colour intervals, or coarsen the cube. |
 | Points are visible but labels are not | No label field is chosen, or the label count is zero. | Set the **Point label field** and **Labels at most**. |
 | A flat marker is hard to see from above | It lies in plan and flattens. | Take the circle: it is on screen and reads from any angle. |

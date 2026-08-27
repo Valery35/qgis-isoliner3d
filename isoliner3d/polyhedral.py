@@ -70,11 +70,6 @@ def tris_to_patches(verts, faces):
     return out
 
 
-def mesh_to_wkt(verts, faces, kind="POLYHEDRALSURFACE"):
-    """Треугольный меш -> WKT выбранного типа."""
-    return patches_to_wkt(tris_to_patches(verts, faces), kind)
-
-
 # --- разбор WKT обратно в треугольники (для 3D-просмотра) ------------------
 
 def _rings_from_wkt(wkt):

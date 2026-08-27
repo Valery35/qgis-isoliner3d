@@ -997,25 +997,53 @@ class ViewerDialog(QDialog):
             yes = getattr(getattr(QMessageBox, "StandardButton",
                                   QMessageBox), "Yes")
             keep_vex = ans == yes
+            _log(tr("Выгрузка: преувеличение %s.")
+                 % (tr("применено") if keep_vex else tr("не применено")))
         try:
             from .gltf import write_glb
             import numpy as np
             parts = self._export
             if keep_vex:
+                # Середина берётся одна на всю выгрузку. Масштабируя
+                # каждую часть вокруг своей, растянешь только рельеф
+                # внутри неё, а расстояния между частями останутся
+                # прежними, и на глаз преувеличение не применится.
+                zs_all = [np.asarray(pt["verts"], dtype=float)[:, 2]
+                          for pt in self._export
+                          if len(pt["verts"]) and "faces" in pt]
+                zc_all = (float(np.mean(np.concatenate(zs_all)))
+                          if zs_all else 0.0)
                 parts = []
                 for part in self._export:
                     v = np.asarray(part["verts"], dtype=float).copy()
-                    zc = float(np.mean(v[:, 2])) if len(v) else 0.0
-                    v[:, 2] = (v[:, 2] - zc) * vex + zc
+                    v[:, 2] = (v[:, 2] - zc_all) * vex + zc_all
                     parts.append(dict(part, verts=v))
+                _log(tr("Выгрузка с преувеличением %.2f, середина "
+                        "по отметке %.1f.") % (vex, zc_all))
             for part in parts:
-                _log(tr("Часть %s: вершин %d, граней %d")
+                # У короба граней нет, только линии: обращение
+                # к «faces» роняло всю выгрузку целиком.
+                got_f = part.get("faces")
+                got_l = part.get("lines")
+                n_f = 0 if got_f is None else len(got_f)
+                n_l = 0 if got_l is None else len(got_l)
+                _log(tr("Часть %s: вершин %d, граней %d, линий %d")
                      % (part.get("name", "?"), len(part["verts"]),
-                        len(part["faces"])))
+                        n_f, n_l))
             size = write_glb(fn, parts)
+            # Итог показываем в окне, а не только в журнале: иначе
+            # неудачу от удачи не отличить, и человек открывает
+            # прежний файл, гадая, почему ничего не изменилось.
+            n_box = sum(1 for pt in parts
+                        if "lines" in pt
+                        or tr("Подписи короба") == pt.get("name"))
             self.info.setText(
-                tr("Выгружено частей: %d, файл %.1f МБ.")
-                % (len(parts), size / (1024.0 * 1024.0)))
+                tr("Выгружено: тел %d, короб %s, преувеличение %s, "
+                   "файл %.1f МБ.")
+                % (len(parts) - n_box,
+                   tr("есть") if n_box else tr("нету"),
+                   tr("есть") if keep_vex else tr("нету"),
+                   size / (1024.0 * 1024.0)))
         except Exception as err:
             self.info.setText(tr("Выгрузка не удалась: %s") % err)
             _log(tr("Выгрузка не удалась: %s") % err)
@@ -2971,6 +2999,73 @@ class ViewerDialog(QDialog):
             out = out.combine(g2)
         return out
 
+    def _export_box(self, lo, hi, _segs):
+        """Короб в выгрузку линиями.
+
+        Подписи в GLB не уходят: там текст это геометрия букв, и ради
+        чисел её делать незачем. Рёбра, сетка и штрихи масштаб дают
+        и без подписей.
+        """
+        import numpy as np
+        from .axes import box_edges, tick_marks, grid_lines
+        pieces = list(box_edges(lo, hi))
+        pieces += [(a, b) for _ax, _v, a, b in tick_marks(lo, hi,
+                                                          want=5)]
+        planes = tuple(p for p in
+                       (self.grid_planes.currentData() or "").split(",")
+                       if p)
+        if planes:
+            pieces += grid_lines(lo, hi,
+                                 float(self.grid_step.value()), planes)
+        # Подписи делений: в GLB текста не бывает, поэтому цифры
+        # рисуются отрезками, как на чертеже. Плоская картинка при
+        # повороте встаёт ребром и пропадает, а эти поворачиваются
+        # вместе с коробом.
+        from .glyphs import label_3d, label_size, ribbon
+        from .axes import tick_label
+        # Подписи полосками, а не линиями: толщину линий в glTF задать
+        # нельзя, её выбирает просмотрщик, и обычно это один пиксель,
+        # который на большой модели теряется.
+        lab_v, lab_f = [], []
+        base = 0
+        for axis, val, a, b in tick_marks(lo, hi, want=5):
+            txt = tick_label(val)
+            gsz = label_size(lo, hi, axis)
+            # Подпись отодвигается от штриха и не налезает на короб:
+            # по плану уходит наружу, по вертикали влево от штриха.
+            wide = gsz * 0.8 * len(txt)
+            if axis == 2:
+                at = (b[0] - wide - gsz * 0.4, b[1], b[2] - gsz * 0.5)
+                plane = "xz"
+            else:
+                at = (b[0] - wide * 0.5, b[1] - gsz * 1.4, b[2])
+                plane = "xy"
+            segs = label_3d(txt, at, gsz, plane=plane)
+            rv, rf = ribbon(segs, gsz * 0.14, plane=plane)
+            if len(rf):
+                lab_v.append(rv)
+                lab_f.append(rf + base)
+                base += len(rv)
+        if lab_f:
+            lv = np.vstack(lab_v)
+            self._export.append({
+                "name": tr("Подписи короба"), "verts": lv,
+                "faces": np.vstack(lab_f),
+                "colors": np.tile(np.array([0.20, 0.22, 0.30, 1.0]),
+                                  (len(lv), 1))})
+            _log(tr("В выгрузку: подписи, знаков %d.") % len(lab_f))
+        if not pieces:
+            return
+        v = np.array([q for seg in pieces for q in seg], dtype=float)
+        idx = np.arange(len(v), dtype=np.int64).reshape(-1, 2)
+        self._export.append({"name": tr("Координатный короб"),
+                             "verts": v, "lines": idx,
+                             "colors": np.tile(
+                                 np.array([0.35, 0.38, 0.45, 1.0]),
+                                 (len(v), 1))})
+        _log(tr("В выгрузку: короб, линий %d, с подписями.")
+             % len(idx))
+
     def _add_axes_box(self, gl, lo, hi, cx, cy, cz, vex):
         """Координатный короб: рёбра, штрихи и подписи.
 
@@ -2993,6 +3088,10 @@ class ViewerDialog(QDialog):
         segs = [(put(a), put(b)) for a, b in box_edges(lo, hi)]
         if not segs:
             return
+        # Короб идёт и в выгрузку: без него в файле нет масштаба.
+        # Настоящие отметки, как и у прочих частей: преувеличение
+        # накладывается на выгрузке целиком.
+        self._export_box(lo, hi, segs)
         pos = np.array([q for seg in segs for q in seg], dtype=float)
         item = gl.GLLinePlotItem(pos=pos, mode='lines', width=1.0,
                                  antialias=True,
@@ -4963,10 +5062,14 @@ class ViewerDialog(QDialog):
         cy = 0.5 * (min(ys) + max(ys))
         cz = 0.5 * (min(zs_) + max(zs_))
         span_xy = max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
+        box_lo = (min(xs), min(ys), min(zs_))
+        box_hi = (max(xs), max(ys), max(zs_))
         if self.btn_axes.isChecked():
-            self._add_axes_box(gl, (min(xs), min(ys), min(zs_)),
-                               (max(xs), max(ys), max(zs_)),
-                               cx, cy, cz, vex)
+            self._add_axes_box(gl, box_lo, box_hi, cx, cy, cz, vex)
+        else:
+            # Короб кладём в выгрузку и когда его не показывают:
+            # в файле без него нет масштаба, а на экране он мешает.
+            self._export_box(box_lo, box_hi, None)
         # окраска пер-слойно: свой канал cband; если 0 - внешний
         # атрибутный растр слоя; иначе палитра
         prof.skip()
@@ -5086,6 +5189,7 @@ class ViewerDialog(QDialog):
                 md.setVertexColors(vc.astype('float32'))
                 item = gl.GLMeshItem(meshdata=md, smooth=True,
                                      glOptions=gopt)
+                exp_col = vc
             elif attr is not None and lid in attr[0]:
                 vals, vmin, vmax, rng = attr
                 vc = colormap((vals[lid] - vmin) / rng)
@@ -5093,17 +5197,27 @@ class ViewerDialog(QDialog):
                 md.setVertexColors(vc.astype('float32'))
                 item = gl.GLMeshItem(meshdata=md, smooth=True,
                                      glOptions=gopt)
+                exp_col = vc
             else:
                 item = gl.GLMeshItem(meshdata=md, smooth=True,
                                      shader='shaded',
                                      color=color[:3] + (alpha,),
                                      glOptions=gopt)
+                exp_col = None
             self._add_item(item, lid)
             lyr_e = QgsProject.instance().mapLayer(lid)
+            # В выгрузку идёт та же раскраска, что и на экране.
+            # Ровный цвет слоя вместо шкалы делает файл нечитаемым:
+            # все поверхности выходят одинаковыми пятнами.
+            if exp_col is not None:
+                out_col = np.asarray(exp_col, dtype=float).copy()
+                out_col[:, 3] = 1.0
+            else:
+                out_col = np.tile(np.array(color[:3] + (1.0,)),
+                                  (len(verts), 1))
             self._keep_for_export(
                 lyr_e.name() if lyr_e else "surface", verts, faces,
-                np.tile(np.array(color[:3] + (1.0,)),
-                        (len(verts), 1)))
+                out_col)
         # тела (полиэдры/полигоны с Z): плоские грани, окраска палитрой
         # Объекты собираются в один меш на сцену, а цвет каждого
         # хранится в его вершинах. Отдельный элемент на объект стоил

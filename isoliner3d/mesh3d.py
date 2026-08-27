@@ -324,18 +324,6 @@ def thin_labels_xy(points, min_dist):
     return keep
 
 
-def fraction_inside_bbox(points, xmin, xmax, ymin, ymax):
-    """Доля точек внутри прямоугольника [0..1]; пусто - 1.0."""
-    pts = list(points)
-    if not pts:
-        return 1.0
-    n = 0
-    for x, y in pts:
-        if xmin <= x <= xmax and ymin <= y <= ymax:
-            n += 1
-    return n / float(len(pts))
-
-
 def cylinder(p0, p1, radius=1.0, sides=12):
     """Боковая поверхность цилиндра между точками p0 и p1 (без торцов).
 

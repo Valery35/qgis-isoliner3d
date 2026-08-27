@@ -132,6 +132,21 @@ def test_grid_without_planes_is_empty():
     assert axes.grid_lines(lo, hi, step=100.0, planes=()) == []
 
 
+def test_ticks_go_outward_in_plan():
+    """Штрихи плановых осей уходят в плане, а не вниз.
+
+    Выводя штрих «по следующей оси», для Y получаешь Z: штрихи
+    проваливаются под короб на всю длину, и подписи вместе с ними.
+    """
+    lo, hi = (0.0, 0.0, -200.0), (1000.0, 800.0, 0.0)
+    for axis, val, a, b in axes.tick_marks(lo, hi, want=4):
+        if axis in (0, 1):
+            assert abs(b[2] - lo[2]) < 1e-9, (axis, b)
+        else:
+            # вертикальные штрихи уходят в плане, а не по отметке
+            assert abs(b[2] - a[2]) < 1e-9, (axis, a, b)
+
+
 def test_north_arrow_points_north():
     """Стрелка севера смотрит по возрастанию Y.
 

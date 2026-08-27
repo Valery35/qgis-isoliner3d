@@ -46,6 +46,7 @@ place in space and a map draped over the relief.
 - The section drawing draped onto the ribbon, several sections at once.
 - Click query: the layer name, the coordinates, all band values, the
 - A cube of values is shown as an isosurface at a cutoff: a closed body fit for volume computation.
+- Export to GLB with the coordinate box, tick labels and the same colouring as on screen.
 - A coordinate box: labelled ticks, a grid on chosen planes, a north arrow.
 - Clipping by surfaces above and below: in the scene and in the block model.
 - Cleaning an isosurface: smoothing the steps and dropping small parts.

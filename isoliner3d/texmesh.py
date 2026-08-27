@@ -102,15 +102,6 @@ def fit_texture_size(width_m, height_m, side, cap=MAX_TEXTURE):
     return int(max(64, round(side * w / h))), side
 
 
-def _gl_max_texture(GL):
-    """Спросить у драйвера предельную сторону текстуры."""
-    try:
-        n = int(GL.glGetIntegerv(GL.GL_MAX_TEXTURE_SIZE))
-        return n if n >= 64 else MAX_TEXTURE
-    except Exception:
-        return MAX_TEXTURE
-
-
 SHADER_LEGACY_VERT = """
     uniform mat4 u_mvp;
     uniform mat3 u_normal;

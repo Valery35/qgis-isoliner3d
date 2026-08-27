@@ -167,14 +167,19 @@ def tick_marks(lo, hi, want=5, length=None):
     hi = [float(v) for v in hi]
     span = max(hi[k] - lo[k] for k in range(3)) or 1.0
     ln = float(length) if length else span * 0.02
+    # Куда уводить штрих наружу. По следующей оси нельзя: для Y
+    # следующей выходит Z, и штрихи проваливаются под короб на всю
+    # длину, утаскивая за собой подписи. Плановые оси уводим в плане,
+    # вертикальную тоже в плане: отметку она обозначает высотой,
+    # а не длиной штриха.
+    away = {0: 1, 1: 0, 2: 0}
     out = []
     for axis in range(3):
+        other = away[axis]
         for val in nice_ticks(lo[axis], hi[axis], want):
             a = list(lo)
             a[axis] = val
             b = list(a)
-            # уводим штрих наружу по следующей оси
-            other = (axis + 1) % 3
             b[other] = lo[other] - ln
             out.append((axis, val, tuple(a), tuple(b)))
     return out

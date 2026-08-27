@@ -81,6 +81,22 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'есть': 'yes',
+    'нету': 'no',
+    'Подписи короба': 'Box labels',
+    'В выгрузку: подписи, знаков %d.':
+        'To the export: labels, %d glyphs.',
+    'В выгрузку: короб, линий %d, с подписями.':
+        'To the export: the box, %d lines, with labels.',
+    'Выгружено: тел %d, короб %s, преувеличение %s, файл %.1f МБ.':
+        'Exported: %d bodies, box %s, exaggeration %s, %.1f MB.',
+    'Часть %s: вершин %d, граней %d, линий %d':
+        'Part %s: %d vertices, %d faces, %d lines',
+    'Выгрузка: преувеличение %s.': 'Export: exaggeration %s.',
+    'применено': 'applied',
+    'не применено': 'not applied',
+    'Выгрузка с преувеличением %.2f, середина по отметке %.1f.':
+        'Export with exaggeration %.2f, centre at elevation %.1f.',
     'Секторов поиска (0 - от данных)':
         'Search sectors (0 means from the data)',
     'Секторов поиска от данных: %d.':
@@ -1623,8 +1639,6 @@ TRANSLATIONS = {
         'bodies and polyhedra.',
     'Все': 'All',
     'Выгружать нечего: сцена пуста.': 'Nothing to export: the scene is empty.',
-    'Выгружено частей: %d, файл %.1f МБ.':
-        'Exported parts: %d, the file is %.1f MB.',
     'Выгрузить сцену': 'Export the scene',
     'Выгрузить сцену в файл GLB': 'Export the scene to a GLB file',
     'Выгрузка не удалась: %s': 'The export failed: %s',
@@ -2134,7 +2148,6 @@ TRANSLATIONS = {
     'Файл руководства не найден: %s': 'The manual file was not found: %s',
     'Фильтр слоёв…': 'Filter layers…',
     'Цвет': 'Colour',
-    'Часть %s: вершин %d, граней %d': 'Part %s: %d vertices, %d faces',
     'Чертежа для разреза %d в выбранных слоях нет: похоже, чертёж и '
     'определение из разных построений.':
         'There is no drawing for section %d in the chosen layers: the '

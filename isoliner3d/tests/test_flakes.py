@@ -33,6 +33,7 @@ MODULES = ("algorithms.py", "viewer3d.py", "texmesh.py", "plugin.py",
            "variogram.py", "kriging.py",
            "slice3d.py", "volume.py", "flatten.py",
            "cleanup.py", "axes.py",
+           "glyphs.py",
            "viewer_core.py", "viewer_dialog.py",
            "__init__.py")
 

@@ -30,6 +30,7 @@ _UINT = 5125
 _ARRAY_BUFFER = 34962
 _ELEMENT_ARRAY_BUFFER = 34963
 _TRIANGLES = 4
+_LINES = 1
 
 
 def _pad(data, fill=b"\x00"):
@@ -41,9 +42,13 @@ def _pad(data, fill=b"\x00"):
 def build_glb(parts, name="Isoliner3D"):
     """Собрать GLB из набора частей.
 
-    Каждая часть это словарь с ключами `verts` (N, 3), `faces` (M, 3)
-    и необязательным `colors` (N, 3) или (N, 4) в долях единицы,
-    плюс `name`. Возвращает байты файла.
+    Каждая часть это словарь с ключами `verts` (N, 3) и `faces` (M, 3)
+    либо `lines` (M, 2), плюс необязательные `colors` (N, 3) или
+    (N, 4) в долях единицы и `name`.
+
+    Линии нужны координатному коробу: рёбра и штрихи писать
+    треугольниками незачем, а без них в файле нет масштаба.
+    Возвращает байты файла.
     """
     buf = bytearray()
     views, accessors, meshes, nodes = [], [], [], []
@@ -59,7 +64,14 @@ def build_glb(parts, name="Isoliner3D"):
 
     for part in parts:
         v = np.asarray(part["verts"], dtype=np.float32)
-        f = np.asarray(part["faces"], dtype=np.uint32)
+        raw = part.get("faces")
+        mode = _TRIANGLES
+        if raw is None:
+            raw = part.get("lines")
+            mode = _LINES
+        if raw is None:
+            continue
+        f = np.asarray(raw, dtype=np.uint32)
         if not len(v) or not len(f):
             continue
         # glTF смотрит вдоль -Z, вверх у него Y: наши XYZ становятся
@@ -93,7 +105,7 @@ def build_glb(parts, name="Isoliner3D"):
                        "primitives": [{"attributes": attrs,
                                        "indices": i_acc,
                                        "material": 0,
-                                       "mode": _TRIANGLES}]})
+                                       "mode": mode}]})
         nodes.append({"mesh": len(meshes) - 1,
                       "name": part.get("name", "part")})
 

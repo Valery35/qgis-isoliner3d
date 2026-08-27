@@ -485,6 +485,209 @@ def test_texture_cache_eviction_and_clear():
         tm.texture_cache_clear()
 
 
+def test_glb_can_write_lines():
+    """Выгрузка умеет линии, а не только треугольники.
+
+    Координатный короб это рёбра и штрихи: треугольниками их писать
+    незачем, а без них в файле нет масштаба.
+    """
+    import numpy as np
+    from isoliner3d.gltf import build_glb
+    v = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
+                  [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]])
+    seg = np.array([[0, 1], [2, 3]], dtype=np.uint32)
+    data = build_glb([{"name": "box", "verts": v, "lines": seg}])
+    assert data[:4] == b"glTF"
+    assert b'"mode": 1' in data or b'"mode":1' in data
+
+
+def test_glb_lines_and_faces_together():
+    """Линии и треугольники живут в одном файле."""
+    import numpy as np
+    from isoliner3d.gltf import build_glb
+    v = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    parts = [{"name": "mesh", "verts": v,
+              "faces": np.array([[0, 1, 2]], dtype=np.uint32)},
+             {"name": "box", "verts": v,
+              "lines": np.array([[0, 1]], dtype=np.uint32)}]
+    data = build_glb(parts)
+    assert data[:4] == b"glTF"
+    assert data.count(b'"primitives"') == 2
+
+
+def test_export_keeps_the_ramp_colours():
+    """В выгрузку идёт та же раскраска, что и на экране.
+
+    Ровный цвет слоя вместо шкалы делает файл нечитаемым: все
+    поверхности выходят одинаковыми пятнами, и по ним ничего
+    не разобрать.
+    """
+    src = open(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "viewer_dialog.py"), encoding="utf-8").read()
+    i = src.index("ramp_c = self._style_ramp.get(lid)")
+    seg = src[i:i + 2200]
+    assert seg.count("exp_col = vc") == 2, seg.count("exp_col = vc")
+    assert "exp_col = None" in seg
+    assert "out_col[:, 3] = 1.0" in seg
+    # ровный цвет остаётся только там, где шкалы нет
+    assert seg.index("exp_col = None") < seg.index("np.tile(")
+
+
+def test_exported_box_carries_labels():
+    """Подписи делений уходят в файл отрезками.
+
+    В GLB текста не бывает: либо геометрия букв, либо картинка
+    на плоскости. Картинка при повороте встаёт ребром и пропадает,
+    а отрезки поворачиваются вместе с коробом.
+    """
+    src = open(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "viewer_dialog.py"), encoding="utf-8").read()
+    start = src.index("def _export_box")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "from .glyphs import label_3d" in body
+    assert "tick_label(val)" in body
+    assert 'label_size(lo, hi, axis)' in body
+    assert 'plane = "xz"' in body and 'plane = "xy"' in body
+    # подписи полосками: толщину линий в glTF задать нельзя
+    assert "ribbon(segs, gsz * 0.14, plane=plane)" in body
+    assert '"faces": np.vstack(lab_f)' in body
+
+
+def test_labels_add_real_geometry():
+    """Подписи и правда добавляют отрезки, а не пустое место."""
+    import numpy as np
+    from isoliner3d.axes import box_edges, tick_marks, tick_label
+    from isoliner3d.glyphs import label_3d
+    lo, hi = (0.0, 0.0, -200.0), (1000.0, 800.0, 0.0)
+    marks = tick_marks(lo, hi, want=5)
+    base = len(box_edges(lo, hi)) + len(marks)
+    span = max(hi[k] - lo[k] for k in range(3))
+    from isoliner3d.glyphs import label_size
+    extra = 0
+    for axis, val, _a, b in marks:
+        extra += len(label_3d(tick_label(val), b,
+                              label_size(lo, hi, axis),
+                              plane="xy" if axis in (0, 1) else "xz"))
+    assert extra > base, (extra, base)
+    assert np.isfinite(np.array(
+        [q for seg in label_3d("-100", (0, 0, 0), 5.0)
+         for q in seg])).all()
+
+
+def test_box_goes_to_export_even_when_hidden():
+    """Короб уходит в файл и когда его не показывают.
+
+    В файле без него нет масштаба, а на экране он мешает: это разные
+    решения, и связывать их одной кнопкой неверно.
+    """
+    src = open(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "viewer_dialog.py"), encoding="utf-8").read()
+    i = src.index("if self.btn_axes.isChecked():")
+    seg = src[i:i + 500]
+    assert "else:" in seg
+    assert "self._export_box(box_lo, box_hi, None)" in seg
+
+
+def test_no_numpy_array_in_boolean_context():
+    """Массив numpy не проверяется на истинность.
+
+    `arr or ()` бросает исключение: у массива из многих чисел нет
+    однозначной истинности. В отчёте о выгрузке это роняло запись
+    файла целиком, и три версии подряд файл не писался вовсе.
+    """
+    import re
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    bad = []
+    for name in ("viewer_dialog.py", "viewer_core.py", "viewer3d.py",
+                 "gltf.py", "cleanup.py", "axes.py", "slice3d.py",
+                 "volume.py", "flatten.py", "kriging.py"):
+        path = os.path.join(root, name)
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            for n, ln in enumerate(fh, 1):
+                # ищем «что-то из get(...) or» и «faces or»
+                if re.search(r'\.get\("(faces|lines|verts|colors)"[^)]*\)'
+                             r'\s+or\s', ln):
+                    bad.append("%s:%d" % (name, n))
+    assert not bad, "массив в булевом виде: %s" % ", ".join(bad)
+
+
+def test_export_log_survives_a_part_without_faces():
+    """Отчёт о выгрузке не падает на части без граней.
+
+    У короба только линии, и обращение к «faces» роняло всю выгрузку
+    целиком: файл не писался вовсе.
+    """
+    src = open(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "viewer_dialog.py"), encoding="utf-8").read()
+    i = src.index('Часть %s: вершин')
+    seg = src[i - 400:i + 300]
+    assert 'part["faces"]' not in seg, seg
+    assert 'part.get("faces"' in seg
+    assert 'part.get("lines"' in seg
+
+
+def test_box_goes_to_the_export_as_lines():
+    """Короб уходит в выгрузку линиями, без подписей.
+
+    В GLB текст это геометрия букв, и делать её ради чисел незачем.
+    Рёбра, сетка и штрихи масштаб дают и без подписей.
+    """
+    src = open(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "viewer_dialog.py"), encoding="utf-8").read()
+    assert "def _export_box" in src
+    start = src.index("def _export_box")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert '"lines": idx' in body
+    assert "box_edges(lo, hi)" in body and "tick_marks(lo, hi" in body
+    assert "grid_lines(lo, hi" in body
+    # середина для преувеличения считается по телам, а не по коробу
+    i = src.index("zs_all = [")
+    assert '"faces" in pt' in src[i:i + 260]
+
+
+def test_export_vex_uses_one_centre():
+    """Преувеличение в выгрузке считается от общей середины.
+
+    Масштабируя каждую часть вокруг своей середины, растянешь только
+    рельеф внутри неё, а расстояния между частями останутся прежними.
+    На глаз кажется, что преувеличение не применилось вовсе.
+    """
+    import re
+    src = open(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "viewer_dialog.py"), encoding="utf-8").read()
+    i = src.index("if keep_vex:")
+    seg = src[i:i + 700]
+    assert "zc_all" in seg, seg[:400]
+    # середина берётся один раз, до обхода частей
+    assert seg.index("zc_all") < seg.index("for part in self._export")
+
+
+def test_export_vex_scales_the_gap():
+    """Разнос между частями растёт вместе с рельефом."""
+    import numpy as np
+    p1 = np.array([[0.0, 0.0, -100.0], [1.0, 0.0, -98.0],
+                   [0.0, 1.0, -102.0]])
+    p2 = np.array([[0.0, 0.0, -50.0], [1.0, 0.0, -49.0],
+                   [0.0, 1.0, -51.0]])
+    vex = 10.0
+    zc = float(np.mean(np.concatenate([p1[:, 2], p2[:, 2]])))
+    out = []
+    for v in (p1, p2):
+        w = v.copy()
+        w[:, 2] = (w[:, 2] - zc) * vex + zc
+        out.append(w)
+    gap = float(np.mean(out[1][:, 2]) - np.mean(out[0][:, 2]))
+    assert abs(gap - 500.0) < 1e-6, gap
+
+
 if __name__ == "__main__":
     ok = 0
     for nm, fn in sorted(globals().items()):
