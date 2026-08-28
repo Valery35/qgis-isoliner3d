@@ -497,10 +497,14 @@ class ViewerDialog(QDialog):
         of = QFormLayout(self.opt_box)
         of.addRow(tr("Режим"), self.mode_combo)
         of.addRow(tr("Канал высот (Z)"), self.zband)
-        crow = QHBoxLayout()
+        # Обёртка вокруг строки окраски: прятать по режиму можно
+        # только виджет, у раскладки такого нет.
+        self.color_row = QWidget()
+        crow = QHBoxLayout(self.color_row)
+        crow.setContentsMargins(0, 0, 0, 0)
         crow.addWidget(self.color_combo, 1)
         crow.addWidget(self.color_btn, 0)
-        of.addRow(tr("Окраска"), crow)
+        of.addRow(tr("Окраска"), self.color_row)
         of.addRow(tr("Канал атрибута"), self.aband)
         self.iso_table = QTableWidget(0, 3)
         self.iso_table.setHorizontalHeaderLabels(
@@ -597,7 +601,13 @@ class ViewerDialog(QDialog):
         # Строка видна только в своём режиме: поле, которое ничего
         # не делает, человек всё равно правит и потом ищет причину.
         self._mode_rows.update({
-            "iso_level": (self.iso_level, ("iso", "vox")),
+            # Каналы читают только поверхность и тело пласта. Режимы
+            # куба берут отметки из шага между каналами, а цвет
+            # из своей таблицы либо интервалов.
+            "zband": (self.zband, ("auto", "surface", "body")),
+            "cband": (self.color_row, ("auto", "surface", "body")),
+            "aband": (self.aband, ("auto", "surface", "body")),
+            "iso_level": (self.iso_level, ("iso", "vox", "fog")),
             "iso_table": (self.iso_table, ("iso",)),
             "iso_cap": (self.iso_cap, ("iso",)),
             "iso_smooth": (self.iso_smooth, ("iso",)),
@@ -821,6 +831,12 @@ class ViewerDialog(QDialog):
         btn_export = tool(
             "export", tr("Выгрузить сцену в файл GLB"),
             self._export_glb)
+        btn_shells = tool(
+            "shell", tr("Оболочки выбранного слоя в слой проекта"),
+            self._shells_to_layer)
+        btn_cad = tool(
+            "cad", tr("Выгрузить сцену в STL или OBJ для CAD"),
+            self._export_cad)
         btn_copy = tool(
             "copy", tr("Положить кадр сцены в буфер обмена (Ctrl+C)"),
             self._copy_png)
@@ -898,7 +914,8 @@ class ViewerDialog(QDialog):
                   self.btn_undo,
                   self.btn_done, self.btn_line, self.btn_sketch,
                   btn_clip_off,
-                  btn_draw_save, btn_export, btn_copy, btn_png):
+                  btn_draw_save, btn_export, btn_shells,
+                  btn_cad, btn_copy, btn_png):
             b.setParent(self.tools)
             tb.addWidget(b)
         # Полуширина коридора и границы отметок переехали в свойства
@@ -1011,6 +1028,166 @@ class ViewerDialog(QDialog):
         # к этому моменту могут принадлежать прежнему слою, и решать
         # по ним, что показывать, нельзя. Строки подбираются в конце
         # загрузки свойств слоя, когда виджеты уже заполнены.
+
+    def _shells_to_layer(self):
+        """Оболочки выбранного слоя в слой проекта.
+
+        Выгружается то, что настроено и видно: уровни, крышка на краю,
+        сглаживание и отброс мелочи берутся из свойств слоя. Набирать
+        их заново в инструменте человек не обязан.
+
+        Отметки настоящие: вертикальное преувеличение это способ
+        смотреть, а не свойство модели. Объект на уровень, как в 2.04
+        объект на интервал.
+        """
+        from qgis.PyQt.QtCore import QVariant
+        from .algorithms import _field
+        from qgis.core import (QgsVectorLayer, QgsFeature, QgsFields,
+                               QgsGeometry, QgsProject)
+        it = self.layer_list.currentItem()
+        lid = it.data(_USER_ROLE) if it is not None else None
+        lyr = (QgsProject.instance().mapLayer(lid)
+               if lid and lid != _SCENE_KEY else None)
+        if lyr is None:
+            self.info.setText(tr("Выберите в списке слой-куб."))
+            return
+        o = self._opts.get(lid) or self._default_opts(lyr)
+        if o.get("mode") != "iso":
+            self.info.setText(
+                tr("Слой не в режиме изоповерхности."))
+            return
+        got = self._iso_mesh(lyr, o, None)
+        if not got:
+            self.info.setText(tr("Оболочек не построено."))
+            return
+
+        fields = QgsFields()
+        for nm, tp in (("body", QVariant.Int),
+                       ("level", QVariant.Double),
+                       ("color", QVariant.String),
+                       ("faces", QVariant.Int),
+                       ("closed", QVariant.Int),
+                       ("holes", QVariant.Int),
+                       ("pinch", QVariant.Int),
+                       ("volume", QVariant.Double),
+                       ("zmin", QVariant.Double),
+                       ("zmax", QVariant.Double)):
+            fields.append(_field(nm, tp))
+        crs = lyr.crs().authid() or ""
+        mem = QgsVectorLayer(
+            "MultiPolygonZ?crs=%s" % crs,
+            tr("Оболочки: %s") % lyr.name(), "memory")
+        mem.dataProvider().addAttributes(fields)
+        mem.updateFields()
+
+        # Оболочка сразу разбирается на связные тела, и объём
+        # считается тут же: разбирать её потом отдельным инструментом
+        # значит делать в два действия то, что нужно в одно.
+        from .cleanup import (split_bodies, mesh_volume,
+                              shell_defects, close_holes)
+        from .cadmesh import mesh_wkb
+        made, tris, n_open, total = 0, 0, 0, 0.0
+        n_sewn = 0
+        for v, f, col, _a, lev in got:
+            hexc = "#%02x%02x%02x" % tuple(
+                int(round(255 * float(c))) for c in col[:3])
+            for pv, pf, _tag in split_bodies(v, f):
+                # Дыра и защип - разные вещи. У дыры есть рёбра
+                # с одной гранью, и объём по ней бессмыслен. Защип это
+                # касание тела самого себя: дыр нет, объём точен.
+                holes, pinch = shell_defects(pv, pf)
+                if holes:
+                    # Мелкие дыры зашиваем: на оболочке в десятки
+                    # тысяч граней остаётся пара рваных рёбер
+                    # от вырожденной ячейки на стыке крышки
+                    # с поверхностью. Большую прореху не трогаем.
+                    pv, pf, n_fix = close_holes(pv, pf)
+                    if n_fix:
+                        holes, pinch = shell_defects(pv, pf)
+                        n_sewn += n_fix
+                closed = holes == 0
+                # У незамкнутого тела объём не считаем: число вышло бы,
+                # а смысла в нём нет.
+                q = mesh_volume(pv, pf) if closed else None
+                if closed:
+                    total += q
+                else:
+                    n_open += 1
+                # Геометрия собирается двоично, одним куском.
+                # По объекту QGIS на треугольник это триста тысяч
+                # вызовов через границу языка на одно тело.
+                geom = QgsGeometry()
+                geom.fromWkb(mesh_wkb(pv, pf))
+                ft = QgsFeature(mem.fields())
+                ft.setGeometry(geom)
+                made += 1
+                ft.setAttributes([made, float(lev), hexc, int(len(pf)),
+                                  1 if closed else 0,
+                                  int(holes), int(pinch),
+                                  (float(q) if closed else None),
+                                  float(pv[:, 2].min()),
+                                  float(pv[:, 2].max())])
+                mem.dataProvider().addFeature(ft)
+                tris += len(pf)
+        mem.updateExtents()
+        QgsProject.instance().addMapLayer(mem)
+        note = ""
+        if n_sewn:
+            note += tr(" Зашито мелких дыр: %d.") % n_sewn
+        if n_open:
+            note = tr(" Тел с дырами %d, объём у них не посчитан: "
+                      "в поле holes число рваных рёбер, в поле pinch - "
+                      "касаний тела самого себя, они объёму не мешают.")\
+                % n_open
+        self.info.setText(
+            tr("Тел в слой: %d, треугольников %d, объём %.0f м3.%s "
+               "Слой временный, сохраните его в файл.")
+            % (made, tris, total, note))
+
+    def _export_cad(self):
+        """Выгрузить сцену в STL или OBJ.
+
+        GLB несёт цвет и прозрачность и годится для просмотра, а в CAD
+        нужна замкнутая оболочка, из которой делают тело. Формат
+        выбирается расширением: STL двоичный и без частей, OBJ
+        текстовый и с группами.
+
+        Отметки настоящие: преувеличение это способ смотреть,
+        а не свойство модели, и в CAD ему делать нечего. Поэтому
+        и вопроса о нём здесь нет.
+        """
+        from qgis.PyQt.QtWidgets import QFileDialog
+        from .cadmesh import write_cad
+        if not self._export:
+            self.info.setText(tr("Сцена пуста."))
+            return
+        fn, _f = QFileDialog.getSaveFileName(
+            self, tr("Выгрузить для CAD"), "isoliner_3d.stl",
+            tr("STL (*.stl);;OBJ (*.obj)"))
+        if not fn:
+            return
+        # Линии и подписи короба в CAD не идут: там нужны тела,
+        # а не украшение вида.
+        parts = [pt for pt in self._export
+                 if pt.get("faces") is not None and len(pt["faces"])
+                 and tr("Подписи короба") != pt.get("name")]
+        try:
+            size = write_cad(fn, parts)
+        except Exception as e:  # nosec
+            self.info.setText(tr("Выгрузка не удалась: %s") % e)
+            return
+        if size is None:
+            self.info.setText(tr("Выгружать нечего: в сцене нет тел."))
+            return
+        closed = 0
+        for pt in parts:
+            v = np.asarray(pt["verts"], dtype=float)
+            ok, _n = _closed_and_border(*weld(v, np.asarray(pt["faces"])))
+            closed += 1 if ok else 0
+        self.info.setText(
+            tr("Выгружено тел: %d, из них замкнутых %d, файл %.1f МБ. "
+               "Незамкнутое тело CAD покажет, но телом не сделает.")
+            % (len(parts), closed, size / (1024.0 * 1024.0)))
 
     def _export_glb(self):
         """Выгрузить показанное в файл GLB.
@@ -4703,7 +4880,8 @@ class ViewerDialog(QDialog):
         """
         import numpy as np
         from .iso3d import (isosurface_levels, shell_alpha,
-                            cap_faces, resolve_shells)
+                            cap_faces, resolve_shells,
+                            gaps_below)
         vol, gt, z0, dz = self._cube_arrays(lyr)
         if vol is None:
             return []
@@ -4718,9 +4896,32 @@ class ViewerDialog(QDialog):
             _log(tr("Оболочки %s: уровни %s.")
                  % (lyr.name(),
                     ", ".join("%.3g" % v for v in levels)))
+        # Пропуски считаем «ниже отсечки» до построения: оболочка
+        # тогда замыкается по их границе сама. Гася их после,
+        # мы правили только крышку, а сама оболочка оставалась рваной.
+        if opts.get("iso_cap"):
+            vol = gaps_below(vol, base)
         got = isosurface_levels(vol, levels, gt, z0, dz)
         if prof is not None:
             prof.add("mesh")
+        # Крышка ставится до чистки. Сглаживание двигает вершины,
+        # а крышка считается по кубу, по несдвинутым координатам:
+        # поставив её после, получишь разошедшийся шов и незамкнутое
+        # тело.
+        if opts.get("iso_cap"):
+            capped, added = [], 0
+            for lev, cv, cf in got:
+                pv, pf = cap_faces(vol, lev, gt, z0, dz)
+                if len(pf):
+                    cf = np.vstack([cf, pf + len(cv)]) if len(cf) \
+                        else pf
+                    cv = np.vstack([cv, pv])
+                    added += len(pf)
+                capped.append((lev, cv, cf))
+            got = capped
+            if added:
+                _log(tr("Крышки на краю куба: граней %d.") % added)
+
         # Чистка: отброс мелочи до сглаживания, иначе обрывки успевают
         # затянуть к себе соседей.
         rounds = int(opts.get("iso_smooth", 0) or 0)
@@ -4742,23 +4943,6 @@ class ViewerDialog(QDialog):
             got = cleaned
             if prof is not None:
                 prof.add("clean")
-        # Крышки на выходе тела к краю куба: без них оболочка
-        # незамкнута, объём по ней не посчитать, а на вид тело
-        # выглядит вскрытым.
-        if opts.get("iso_cap"):
-            capped, added = [], 0
-            for lev, cv, cf in got:
-                pv, pf = cap_faces(vol, lev, gt, z0, dz)
-                if len(pf):
-                    cf = np.vstack([cf, pf + len(cv)]) if len(cf) \
-                        else pf
-                    cv = np.vstack([cv, pv])
-                    added += len(pf)
-                capped.append((lev, cv, cf))
-            got = capped
-            if added:
-                _log(tr("Крышки на краю куба: граней %d.") % added)
-
         out = []
         span = max(len(levels) - 1, 1)
         for k, (lev, v, f) in enumerate(got):
@@ -5183,6 +5367,20 @@ class ViewerDialog(QDialog):
                     o_i["alpha"] = float(a_i) * float(
                         o.get("alpha", 1.0) or 1.0)
                     o_i["shell"] = True
+                    # Оболочку режем, как тело: поверхности режутся
+                    # маской по растру, а у оболочки растра нет,
+                    # и без этого она оставалась целой.
+                    if clip or clip_lines or self._z_active():
+                        v_i, f_i = self._clip_tris(v_i, f_i)
+                        if not len(f_i):
+                            continue
+                        try:
+                            cv, cf = self._cap_cut(v_i, f_i)
+                        except Exception:  # nosec
+                            cv, cf = None, []
+                        if len(cf):
+                            f_i = np.vstack([f_i, cf + len(v_i)])
+                            v_i = np.vstack([v_i, cv])
                     meshes.append((v_i, f_i, col_i, lyr.id(), False,
                                    lyr.source(), o_i, None, None, 0.0))
                 continue

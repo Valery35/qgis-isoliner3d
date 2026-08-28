@@ -487,6 +487,41 @@ def _tool_icon(kind, size=18):
                    QPointF(0.62 * s, 0.20 * s))
         p.setBrush(QColor("#cfe3f2"))
         p.drawEllipse(QPointF(0.50 * s, 0.55 * s), 0.16 * s, 0.16 * s)
+    elif kind == "shell":         # оболочка в слой: тело и стрелка вниз
+        p.drawEllipse(QPointF(0.40 * s, 0.36 * s), 0.26 * s, 0.20 * s)
+        p.drawLine(QPointF(0.14 * s, 0.36 * s),
+                   QPointF(0.14 * s, 0.56 * s))
+        p.drawLine(QPointF(0.66 * s, 0.36 * s),
+                   QPointF(0.66 * s, 0.56 * s))
+        pen2 = QPen(QColor("#0E7C66"))
+        pen2.setWidthF(1.6)
+        pen2.setCapStyle(cap)
+        p.setPen(pen2)
+        p.drawLine(QPointF(0.40 * s, 0.60 * s),
+                   QPointF(0.40 * s, 0.92 * s))
+        p.drawLine(QPointF(0.40 * s, 0.92 * s),
+                   QPointF(0.26 * s, 0.76 * s))
+        p.drawLine(QPointF(0.40 * s, 0.92 * s),
+                   QPointF(0.54 * s, 0.76 * s))
+    elif kind == "cad":           # выгрузка в CAD: тело и угольник
+        p.drawRect(int(0.12 * s), int(0.30 * s),
+                   int(0.44 * s), int(0.44 * s))
+        p.drawLine(QPointF(0.12 * s, 0.30 * s),
+                   QPointF(0.30 * s, 0.14 * s))
+        p.drawLine(QPointF(0.56 * s, 0.30 * s),
+                   QPointF(0.74 * s, 0.14 * s))
+        p.drawLine(QPointF(0.30 * s, 0.14 * s),
+                   QPointF(0.74 * s, 0.14 * s))
+        p.drawLine(QPointF(0.74 * s, 0.14 * s),
+                   QPointF(0.74 * s, 0.58 * s))
+        pen3 = QPen(QColor("#0E7C66"))
+        pen3.setWidthF(1.6)
+        pen3.setCapStyle(cap)
+        p.setPen(pen3)
+        p.drawLine(QPointF(0.62 * s, 0.90 * s),
+                   QPointF(0.92 * s, 0.90 * s))
+        p.drawLine(QPointF(0.92 * s, 0.90 * s),
+                   QPointF(0.92 * s, 0.62 * s))
     elif kind == "grid":          # короб: рамка, сетка и стрелка севера
         p.drawRect(int(0.14 * s), int(0.28 * s),
                    int(0.56 * s), int(0.56 * s))
@@ -558,14 +593,21 @@ def _tool_icon(kind, size=18):
         pen2.setCapStyle(cap)
         p.setPen(pen2)
         p.drawLine(QPointF(0.20 * s, 0.80 * s), QPointF(0.82 * s, 0.18 * s))
-    elif kind == "line":          # незамкнутая ломаная с концами
-        pts = [(0.16, 0.70), (0.40, 0.34), (0.62, 0.60), (0.86, 0.28)]
-        poly = [QPointF(x * s, y * s) for x, y in pts]
-        for a, b in zip(poly, poly[1:]):
-            p.drawLine(a, b)
-        p.setBrush(QColor("#C2622C"))
-        for q in (poly[0], poly[-1]):
-            p.drawEllipse(q, 1.9, 1.9)
+    elif kind == "line":          # прямая линия разреза с засечками
+        # Ломаная с точками была неотличима от значка контура:
+        # тот же набор фигур, а на восемнадцати пикселях и та же
+        # картинка. Здесь одна прямая и поперечные засечки.
+        p.drawLine(QPointF(0.14 * s, 0.78 * s),
+                   QPointF(0.86 * s, 0.22 * s))
+        pen2 = QPen(QColor("#C2622C"))
+        pen2.setWidthF(1.6)
+        pen2.setCapStyle(cap)
+        p.setPen(pen2)
+        for t in (0.0, 0.5, 1.0):
+            x = 0.14 + (0.86 - 0.14) * t
+            y = 0.78 + (0.22 - 0.78) * t
+            p.drawLine(QPointF((x - 0.06) * s, (y - 0.08) * s),
+                       QPointF((x + 0.06) * s, (y + 0.08) * s))
     elif kind == "undo":          # стрелка назад
         p.drawLine(QPointF(0.24 * s, 0.50 * s), QPointF(0.82 * s, 0.50 * s))
         p.setBrush(QColor("#1d2b28"))

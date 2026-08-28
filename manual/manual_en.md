@@ -986,6 +986,21 @@ Inner shells are drawn before the outer ones: whatever is drawn first
 hides what lies behind it, so an outer shell going first would eat all
 the inner ones.
 
+## Shells into a project layer
+
+A button on the toolbar puts the shells of the selected layer into a
+project layer, with what is already set up and visible. The shell is
+split into **connected bodies** at once and the volume of each is
+computed. Splitting a multipart geometry with the means of QGIS is no
+good for this: it gives separate triangles and computes no
+connectivity.
+
+A body per feature, with the level, the colour, the number of faces,
+watertightness, the volume and the range of elevations. Two more fields
+tell about the quality of the shell: **holes** are torn edges, and with
+a hole the volume is meaningless; **pinch** counts self-touches, where
+there is no hole and the volume is exact.
+
 ## Cleaning an isosurface
 
 A marching surface goes in steps of the cube cells, and small scraps on
@@ -1000,6 +1015,13 @@ boundary edges.
 If the threshold removes everything, the surface stays as it was.
 Smoothing shrinks the body a little, so for volume computation take the
 unsmoothed one.
+
+## Export for CAD
+
+A button on the toolbar writes the scene to STL or OBJ, the format
+chosen by the extension. GLB carries colour and transparency and is
+good for viewing, while CAD needs a watertight shell to make a solid
+from.
 
 ## Voxels
 

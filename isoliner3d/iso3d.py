@@ -179,6 +179,30 @@ def _clip_tri(pts, vals, level):
     return out
 
 
+def gaps_below(vol, level, margin=1.0):
+    """Пропуски куба считать значением ниже отсечки.
+
+    Отсечка куба поверхностью гасит ячейки выше рельефа, и срез идёт
+    внутри куба, а не по его грани. Крышка на гранях такой срез
+    не закрывает, и оболочка остаётся вскрытой.
+
+    Пропуск по смыслу и есть «не тело»: подменив его значением ниже
+    отсечки, получаем замыкание по границе пропусков само собой,
+    той же маршевой поверхностью, без особого случая.
+
+    Возвращает копию: исходный куб нужен дальше как есть.
+    """
+    vol = np.asarray(vol, dtype=float)
+    bad = ~np.isfinite(vol)
+    if not bad.any():
+        return vol
+    good = vol[~bad]
+    lo = float(np.min(good)) if good.size else float(level)
+    out = vol.copy()
+    out[bad] = min(lo, float(level)) - abs(float(margin))
+    return out
+
+
 def cap_faces(vol, level, gt, z0=0.0, dz=1.0):
     """Крышки там, где тело выходит на край куба.
 

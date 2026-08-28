@@ -81,6 +81,205 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    ' Зашито мелких дыр: %d.': ' Small holes stitched: %d.',
+    ' Тел с дырами %d, объём у них не посчитан: в поле holes '
+    'число рваных рёбер, в поле pinch - касаний тела самого себя, '
+    'они объёму не мешают.':
+        ' %d bodies with holes, no volume was computed for them: the '
+        'holes field holds the number of torn edges, the pinch field '
+        'the number of self-touches, which do not affect the volume.',
+    'Тел в слой: %d, треугольников %d, объём %.0f м3.%s Слой '
+    'временный, сохраните его в файл.':
+        'Bodies into the layer: %d, %d triangles, volume %.0f m3.%s '
+        'The layer is temporary, save it to a file.',
+    'Незамкнутых тел: %d, объём у них не посчитан. Чтобы оболочка была '
+    'замкнутой, включите в сцене «Закрывать выход на край куба».':
+        'Open bodies: %d, no volume was computed for them. To make the shell '
+        'watertight, switch on «Cap where the body meets the cube edge» in '
+        'the scene.',
+    'Плотность для подсчёта массы. Ноль означает считать только объём.':
+        'The density for computing mass. Zero means compute the volume only.',
+    'Разбирает слой оболочек на отдельные тела и считает объём '
+    'каждого.\n\nРазбиение составной геометрии средствами QGIS даёт отдельные'
+    ' треугольники: связность там не считается, и тел не выходит. Здесь '
+    'вершины склеиваются, меш разбирается на связные куски, и каждый кусок '
+    'становится своим объектом.\n\nОбъём считается точной формулой по '
+    'замкнутой оболочке. У незамкнутого тела он не считается вовсе: число '
+    'вышло бы, а смысла в нём нет. Чтобы оболочка была замкнутой, включите в '
+    'сцене «Закрывать выход на край куба».':
+        'Splits a layer of shells into separate bodies and computes the '
+        'volume of each.\n\nSplitting a multipart geometry with the means of '
+        'QGIS gives separate triangles: connectivity is not computed there '
+        'and no bodies come out. Here the vertices are welded, the mesh is '
+        'split into connected pieces, and every piece becomes its own '
+        'feature.\n\nThe volume is computed by an exact formula over a '
+        'watertight shell. For an open body it is not computed at all: a '
+        'number would come out but it would mean nothing. To make the shell '
+        'watertight, switch on «Cap where the body meets the cube edge» in '
+        'the scene.',
+    'Слой оболочек: полигоны с Z. Такой пишет кнопка выгрузки оболочек в '
+    'сцене и инструмент 2.04.':
+        'A shell layer: polygons with Z. Such a layer is written by the shell'
+        ' export button in the scene and by tool 2.04.',
+    'Тела':
+        'Bodies',
+    'Тела мельче этого числа граней не выгружаются: обрывки в полсотни граней'
+    ' объёма не несут, а список засоряют.':
+        'Bodies smaller than this number of faces are not written out: scraps'
+        ' of fifty faces carry no volume and only clutter the list.',
+    'Тело на объект: объём, число граней, замкнутость. Геометрия та же, '
+    'полигоны с Z.':
+        'A body per feature: volume, number of faces, watertightness. The '
+        'geometry is the same, polygons with Z.',
+    'Уровень %d, решётка %s: наибольшая невязка %.4g, средняя '
+    'квадратичная %.4g.':
+        'Level %d, lattice %s: largest residual %.4g, root mean square '
+        '%.4g.',
+    'Наименьшее значение (пусто - без края)':
+        'Smallest value (empty means no bound)',
+    'Наибольшее значение (пусто - без края)':
+        'Largest value (empty means no bound)',
+    'Наименьшее значение больше наибольшего.':
+        'The smallest value is greater than the largest.',
+    'Прижато к краям узлов: %d из %d. Много прижатых значит, '
+    'что модель уходит за диапазон, и лучше убавить число '
+    'уровней.':
+        'Clamped to the bounds: %d nodes of %d. Many clamped means '
+        'the model leaves the range, and it is better to reduce '
+        'the number of levels.',
+    'Наименьшее возможное значение: содержание не бывает ниже '
+    'нуля, а метод за диапазон выходит. Что вышло, прижимается '
+    'к краю, и на месте выброса получается плато - форма там '
+    'теряется. Оставьте пустым, если ограничения нет.':
+        'The smallest possible value: a grade is never below zero, '
+        'while the method does leave the range. What leaves is '
+        'pressed to the bound, and a plateau appears where the '
+        'overshoot was - the shape is lost there. Leave it empty '
+        'if there is no bound.',
+    'Наибольшее возможное значение. Число прижатых узлов '
+    'печатается в журнал: по нему видно, годится ли модель.':
+        'The largest possible value. The number of clamped nodes '
+        'goes to the log: it shows whether the model is any good.',
+    '2.07 MBA в объёме':
+        '2.07 MBA in volume',
+    'Куб: %d x %d x %d, узлов %d.':
+        'Cube: %d x %d x %d, %d nodes.',
+    'Метод приближает, а не оценивает: ошибки оценки и весов он не даёт. Для '
+    'оценки берите кригинг в объёме (2.06).':
+        'The method approximates rather than estimates: it gives no '
+        'estimation error and no weights. For estimation take kriging in '
+        'volume (2.06).',
+    'Многоканальный грид: канал это горизонтальный уровень куба. Его читают '
+    '2.03, 2.04 и сцена.':
+        'A multiband grid: a band is a horizontal level of the cube. It is '
+        'read by 2.03, 2.04 and the scene.',
+    'Начальная решётка по вертикали':
+        'Initial lattice down the vertical',
+    'Начальная решётка по вертикали. Разведочные данные вытянуты, и решётка '
+    'не обязана быть кубической: километры в плане и метры по мощности это '
+    'разные вещи. Меньшее число здесь и растягивает влияние вдоль пласта, и '
+    'бережёт память.':
+        'The initial lattice down the vertical. Exploration data is elongated'
+        ' and the lattice need not be cubic: kilometres in plan and metres in'
+        ' thickness are different things. A smaller number here both '
+        'stretches the influence along the bed and saves memory.',
+    'Начальная решётка по плану':
+        'Initial lattice in plan',
+    'Начальная решётка по плану: с неё метод начинает и дальше удваивает её '
+    'на каждом уровне. Мельче начальная - точнее первое приближение, но и '
+    'памяти больше.':
+        'The initial lattice in plan: the method starts from it and doubles '
+        'it at every level. A finer start gives a better first approximation '
+        'but takes more memory.',
+    'Остановка по невязке (0 - все уровни)':
+        'Stop by residual (0 means all levels)',
+    'Остановка по невязке: как только наибольшее отклонение от замеров '
+    'опустится ниже, уровни дальше не строятся. Ноль означает строить все.':
+        'Stopping by residual: once the largest deviation from the measured '
+        'values falls below it, no further levels are built. Zero means build'
+        ' them all.',
+    'Откуда брать отметку пробы: из высоты геометрии, из поля или как глубину'
+    ' от поверхности.':
+        'Where the elevation of a sample comes from: the geometry height, a '
+        'field, or a depth below a surface.',
+    'Поверхность, от которой отсчитывается глубина.':
+        'The surface the depth is measured from.',
+    'Поле отметки либо глубины, если она не в геометрии.':
+        'The field of elevation or depth, when it is not in the geometry.',
+    'Поле со значением, которое раскладывается по объёму.':
+        'The field with the value spread through the volume.',
+    'Решётка %dx%dx%d, уровней %d: последняя %dx%dx%d, память решёток около '
+    '%.0f МБ.':
+        'Lattice %dx%dx%d, %d levels: the last is %dx%dx%d, the lattices take'
+        ' about %.0f MB.',
+    'Решётке нужно больше двух гигабайт. Убавьте число уровней или начальную '
+    'решётку.':
+        'The lattice needs more than two gigabytes. Reduce the number of '
+        'levels or the initial lattice.',
+    'Сколько раз удваивать решётку. Каждый уровень подхватывает то, что не '
+    'смог предыдущий: невязка падает быстро, а память последнего уровня '
+    'растёт кубом.':
+        'How many times to double the lattice. Every level picks up what the '
+        'previous one could not: the residual falls fast, while the memory of'
+        ' the last level grows as a cube.',
+    'Строит куб значений по разбросанным точкам мультисеточными '
+    'B-сплайнами.\n\nГрубая решётка приближает данные, остаток приближается '
+    'решёткой вдвое мельче, и так уровень за уровнем. Система уравнений не '
+    'решается: работа линейна по числу точек, и на сотнях тысяч замеров метод'
+    ' считает там, где кригинг встаёт.\n\nМетод приближает, а не оценивает. '
+    'Точного попадания в замеры нет, ошибки оценки он не даёт. Рядом с '
+    'кригингом он хорош как тренд, который дальше уточняют кригингом '
+    'остатков.\n\nЗа пределами облака точек поверхность уходит куда угодно: у'
+    ' краевых коэффициентов нет данных. Обрезайте результат контуром или '
+    'поверхностями.':
+        'Builds a cube of values from scattered points with multilevel '
+        'B-splines.\n\nA coarse lattice approximates the data, the residual '
+        'is approximated by a lattice twice as fine, and so on level by '
+        'level. No system of equations is solved: the work is linear in the '
+        'number of points, and on hundreds of thousands of measurements the '
+        'method computes where kriging stalls.\n\nThe method approximates '
+        'rather than estimates. It does not hit the measured values exactly '
+        'and gives no estimation error. Next to kriging it is good as a '
+        'trend, which is then refined by kriging the residuals.\n\nBeyond the'
+        ' cloud of points the surface goes anywhere: the edge coefficients '
+        'have no data. Clip the result by a contour or by surfaces.',
+    'Точки замеров: скважинные пробы, интервалы, что угодно с отметкой и '
+    'значением.':
+        'Measured points: borehole samples, intervals, anything with an '
+        'elevation and a value.',
+    'Уровней':
+        'Levels',
+    'Шаг куба по вертикали (0 - от данных)':
+        'Cube step down the vertical (0 means from the data)',
+    'Шаг куба по вертикали. Ноль берёт от сети.':
+        'The cube step down the vertical. Zero takes it from the net.',
+    'Шаг куба по горизонтали (0 - от данных)':
+        'Cube step in plan (0 means from the data)',
+    'Шаг куба по горизонтали. Ноль берёт от сети опробования.':
+        'The cube step in plan. Zero takes it from the sampling net.',
+    'Выгрузить сцену в STL или OBJ для CAD':
+        'Export the scene to STL or OBJ for CAD',
+    'Выгрузить для CAD': 'Export for CAD',
+    'STL (*.stl);;OBJ (*.obj)': 'STL (*.stl);;OBJ (*.obj)',
+    'Сцена пуста.': 'The scene is empty.',
+    'Выгружать нечего: в сцене нет тел.':
+        'Nothing to export: there are no bodies in the scene.',
+    'Выгружено тел: %d, из них замкнутых %d, файл %.1f МБ. '
+    'Незамкнутое тело CAD покажет, но телом не сделает.':
+        'Exported %d bodies, %d of them watertight, %.1f MB. '
+        'CAD will show an open body but will not turn it into a solid.',
+    'Оболочки выбранного слоя в слой проекта':
+        'Shells of the selected layer into a project layer',
+    'Выберите в списке слой-куб.': 'Select a cube layer in the '
+        'list.',
+    'Слой не в режиме изоповерхности.':
+        'The layer is not in isosurface mode.',
+    'Оболочек не построено.': 'No shells were built.',
+    'Оболочки: %s': 'Shells: %s',
+    'Оболочек в слой: %d, треугольников %d. Слой временный, '
+    'сохраните его в файл, если нужен назавтра.':
+        'Shells into the layer: %d, %d triangles. The layer is '
+        'temporary, save it to a file if you need it tomorrow.',
     'Прозрачность слоя': 'Layer transparency',
     'Прозрачность этого слоя поверх общей. Общая правит всю '
     'сцену разом, а здесь можно приглушить один слой, чтобы видеть '

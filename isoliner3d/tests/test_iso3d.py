@@ -346,6 +346,40 @@ def test_cap_area_matches_the_share_above():
     assert abs(area - want) / want < 0.05, (area, want)
 
 
+def test_caps_close_the_cut_by_gaps():
+    """Крышка закрывает и границу с пропусками, не только грани куба.
+
+    Отсечка куба поверхностью гасит ячейки выше рельефа, и срез идёт
+    внутри куба. Закрывая только внешние грани, оболочку оставишь
+    вскрытой ровно по этому срезу.
+    """
+    import collections
+    from isoliner3d.iso3d import isosurface, cap_faces, weld
+    nz, ny, nx = 8, 10, 10
+    vol = np.zeros((nz, ny, nx)) + 10.0
+    gt = (0.0, 10.0, 0.0, 100.0, 0.0, -10.0)
+    # верх куба погашен наклонной кровлей
+    for k in range(nz):
+        for i in range(nx):
+            if k > 2 + i * 0.4:
+                vol[k, :, i] = np.nan
+    from isoliner3d.iso3d import gaps_below
+    cube = gaps_below(vol, 5.0)
+    v, f = isosurface(cube, 5.0, gt, 0.0, 5.0)
+    cv, cf = cap_faces(cube, 5.0, gt, 0.0, 5.0)
+    assert len(f) and len(cf)
+    allv = np.vstack([v, cv])
+    allf = np.vstack([f, cf + len(v)])
+    vw, fw = weld(allv, allf)
+    e = collections.Counter()
+    for tri in fw:
+        for a, b in ((tri[0], tri[1]), (tri[1], tri[2]),
+                     (tri[2], tri[0])):
+            e[(a, b) if a < b else (b, a)] += 1
+    open_edges = sum(1 for n in e.values() if n == 1)
+    assert open_edges == 0, open_edges
+
+
 def test_caps_close_the_shell():
     """С крышками оболочка замкнута: краевых рёбер не остаётся.
 

@@ -2143,6 +2143,41 @@ class Demo3DPointsAlgorithm(IsolinerAlgorithm):
         return {self.OUTPUT: dest}
 
 
+HINTS_2_07 = {
+    "INPUT": "Точки замеров: скважинные пробы, интервалы, что угодно "
+             "с отметкой и значением.",
+    "FIELD": "Поле со значением, которое раскладывается по объёму.",
+    "ZSRC": "Откуда брать отметку пробы: из высоты геометрии, "
+            "из поля или как глубину от поверхности.",
+    "ZFIELD": "Поле отметки либо глубины, если она не в геометрии.",
+    "ZSURF": "Поверхность, от которой отсчитывается глубина.",
+    "OUTPUT": "Многоканальный грид: канал это горизонтальный уровень "
+              "куба. Его читают 2.03, 2.04 и сцена.",
+    "GRID": "Начальная решётка по плану: с неё метод начинает и дальше "
+            "удваивает её на каждом уровне. Мельче начальная - точнее "
+            "первое приближение, но и памяти больше.",
+    "GRIDZ": "Начальная решётка по вертикали. Разведочные данные "
+             "вытянуты, и решётка не обязана быть кубической: "
+             "километры в плане и метры по мощности это разные вещи. "
+             "Меньшее число здесь и растягивает влияние вдоль пласта, "
+             "и бережёт память.",
+    "LEVELS": "Сколько раз удваивать решётку. Каждый уровень "
+              "подхватывает то, что не смог предыдущий: невязка падает "
+              "быстро, а память последнего уровня растёт кубом.",
+    "TOL": "Остановка по невязке: как только наибольшее отклонение "
+           "от замеров опустится ниже, уровни дальше не строятся. "
+           "Ноль означает строить все.",
+    "CELL": "Шаг куба по горизонтали. Ноль берёт от сети опробования.",
+    "CELLZ": "Шаг куба по вертикали. Ноль берёт от сети.",
+    "VMIN": "Наименьшее возможное значение: содержание не бывает ниже "
+            "нуля, а метод за диапазон выходит. Что вышло, прижимается "
+            "к краю, и на месте выброса получается плато - форма там "
+            "теряется. Оставьте пустым, если ограничения нет.",
+    "VMAX": "Наибольшее возможное значение. Число прижатых узлов "
+            "печатается в журнал: по нему видно, годится ли модель.",
+}
+
+
 class Interp3DAlgorithm(IsolinerAlgorithm):
     """Интерполяция точек в объёме: куб значений многоканальным гридом.
 
@@ -2978,6 +3013,207 @@ HINTS_2_05 = {
 }
 
 
+class Mba3DAlgorithm(IsolinerAlgorithm):
+    """MBA в объёме: куб значений мультисеточными B-сплайнами.
+
+    Метод не решает систему уравнений вовсе: коэффициент решётки
+    считается явно, взвешенной суммой по попавшим в него точкам.
+    Поэтому работа линейна по числу замеров, и там, где кригинг встаёт,
+    MBA считает.
+
+    Чего он не даёт: ни ошибки оценки, ни модели ковариации, ни весов.
+    Это приближение, а не оценка, и в журнале это говорится прямо.
+    Рядом с кригингом он хорош как тренд, который дальше уточняют
+    кригингом остатков.
+    """
+
+    def name(self):
+        return "mba3d"
+
+    def displayName(self):
+        return self.tr("2.07 MBA в объёме")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def createInstance(self):
+        return Mba3DAlgorithm()
+
+    def shortHelpString(self):
+        return self.tr(
+            "Строит куб значений по разбросанным точкам "
+            "мультисеточными B-сплайнами.\n\n"
+            "Грубая решётка приближает данные, остаток приближается "
+            "решёткой вдвое мельче, и так уровень за уровнем. Система "
+            "уравнений не решается: работа линейна по числу точек, "
+            "и на сотнях тысяч замеров метод считает там, где кригинг "
+            "встаёт.\n\n"
+            "Метод приближает, а не оценивает. Точного попадания "
+            "в замеры нет, ошибки оценки он не даёт. Рядом с кригингом "
+            "он хорош как тренд, который дальше уточняют кригингом "
+            "остатков.\n\n"
+            "За пределами облака точек поверхность уходит куда угодно: "
+            "у краевых коэффициентов нет данных. Обрезайте результат "
+            "контуром или поверхностями.")
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "INPUT", self.tr("Точки с высотой"),
+            [QgsProcessing.SourceType.TypeVectorPoint]))
+        self.addParameter(QgsProcessingParameterField(
+            "FIELD", self.tr("Поле значения"),
+            parentLayerParameterName="INPUT",
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterEnum(
+            "ZSRC", self.tr("Источник отметки"),
+            options=[self.tr("Высота геометрии (Z)"),
+                     self.tr("Поле отметки"),
+                     self.tr("Глубина от поверхности")],
+            defaultValue=0))
+        self.addParameter(QgsProcessingParameterField(
+            "ZFIELD", self.tr("Поле отметки или глубины"),
+            parentLayerParameterName="INPUT", optional=True,
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterRasterLayer(
+            "ZSURF", self.tr("Поверхность для отсчёта глубины"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            "GRID", self.tr("Начальная решётка по плану"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=8, minValue=1, maxValue=256))
+        self.addParameter(QgsProcessingParameterNumber(
+            "GRIDZ", self.tr("Начальная решётка по вертикали"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=2, minValue=1, maxValue=256))
+        self.addParameter(QgsProcessingParameterNumber(
+            "LEVELS", self.tr("Уровней"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=5, minValue=1, maxValue=12))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "TOL", self.tr("Остановка по невязке (0 - все уровни)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=0.0, minValue=0.0)))
+        self.addParameter(QgsProcessingParameterNumber(
+            "CELL", self.tr("Шаг куба по горизонтали (0 - от данных)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=0.0, minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            "CELLZ", self.tr("Шаг куба по вертикали (0 - от данных)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=0.0, minValue=0.0))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "VMIN", self.tr("Наименьшее значение (пусто - без края)"),
+            QgsProcessingParameterNumber.Type.Double, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "VMAX", self.tr("Наибольшее значение (пусто - без края)"),
+            QgsProcessingParameterNumber.Type.Double, optional=True)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            "OUTPUT", self.tr("Куб значений")))
+        _hints(self, HINTS_2_07)
+
+    def _process(self, parameters, context, feedback):
+        from . import mba
+        from .interp3d import sampling_spacing, auto_grid
+
+        src = self.parameterAsSource(parameters, "INPUT", context)
+        gx = self.parameterAsInt(parameters, "GRID", context)
+        gz = self.parameterAsInt(parameters, "GRIDZ", context)
+        levels = self.parameterAsInt(parameters, "LEVELS", context)
+        tol = self.parameterAsDouble(parameters, "TOL", context)
+        cell = self.parameterAsDouble(parameters, "CELL", context)
+        cellz = self.parameterAsDouble(parameters, "CELLZ", context)
+        out_path = self.parameterAsOutputLayer(parameters, "OUTPUT",
+                                               context)
+        xs, ys, zs, vals = _read_samples(self, parameters, context,
+                                         feedback)
+        net = sampling_spacing(np.column_stack([xs, ys, zs]))
+        auto = auto_grid(*net) if net else None
+        if cell <= 0:
+            cell = auto["cell"] if auto else 25.0
+            feedback.pushInfo(self.tr("Шаг по горизонтали от данных: "
+                                      "%.1f м.") % cell)
+        if cellz <= 0:
+            cellz = auto["cellz"] if auto else 5.0
+            feedback.pushInfo(self.tr("Шаг по вертикали от данных: "
+                                      "%.2f м.") % cellz)
+
+        x0, x1 = float(np.min(xs)), float(np.max(xs))
+        y0, y1 = float(np.min(ys)), float(np.max(ys))
+        z0, z1 = float(np.min(zs)), float(np.max(zs))
+        pad = max(cell, 1e-9)
+        x0, x1 = x0 - pad, x1 + pad
+        y0, y1 = y0 - pad, y1 + pad
+        z0, z1 = z0 - cellz, z1 + cellz
+
+        # Память последнего уровня растёт кубом, и считать её надо
+        # до выделения, а не после отказа.
+        need = mba.volume_memory(gx, gx, gz, levels)
+        feedback.pushInfo(self.tr(
+            "Решётка %dx%dx%d, уровней %d: последняя %dx%dx%d, "
+            "память решёток около %.0f МБ.")
+            % (gx, gx, gz, levels,
+               gx * 2 ** (levels - 1), gx * 2 ** (levels - 1),
+               gz * 2 ** (levels - 1), need / 1048576.0))
+        if need > 2 * 1024 ** 3:
+            raise QgsProcessingException(self.tr(
+                "Решётке нужно больше двух гигабайт. Убавьте число "
+                "уровней или начальную решётку."))
+
+        pts = np.column_stack([xs, ys, zs])
+        lat = mba.fit(pts, vals, lo=[x0, y0, z0], hi=[x1, y1, z1],
+                      grid=(gx, gx, gz), levels=levels,
+                      tol=(tol if tol > 0 else None))
+        # Отчёт по уровням возвращает словари, а не строки: собираем
+        # строку сами. По невязке видно, когда дробить пора прекратить -
+        # если уровень её почти не уменьшил, дальше он ловит шум.
+        for k, rep in enumerate(mba.levels_report(lat, pts, vals)):
+            feedback.pushInfo(self.tr(
+                "Уровень %d, решётка %s: наибольшая невязка %.4g, "
+                "средняя квадратичная %.4g.")
+                % (k + 1, "x".join(str(v) for v in rep["cells"]),
+                   rep["max"], rep["rms"]))
+        feedback.setProgress(60)
+
+        nx = max(int(np.ceil((x1 - x0) / cell)), 1)
+        ny = max(int(np.ceil((y1 - y0) / cell)), 1)
+        nz = max(int(np.ceil((z1 - z0) / cellz)) + 1, 2)
+        gt = (x0, cell, 0.0, y0 + ny * cell, 0.0, -cell)
+        vol = mba.volume_on_grid(lat, gt, nx, ny, nz, z0, cellz)
+        # Края значений: метод приближает и за диапазон выходит,
+        # а содержание не бывает ниже нуля.
+        vmin = self.parameterAsDouble(parameters, "VMIN", context) \
+            if parameters.get("VMIN") is not None else None
+        vmax = self.parameterAsDouble(parameters, "VMAX", context) \
+            if parameters.get("VMAX") is not None else None
+        if vmin is not None or vmax is not None:
+            try:
+                vol, n_cut = mba.clamp_values(vol, vmin, vmax)
+            except ValueError as e:
+                raise QgsProcessingException(str(e))
+            if n_cut:
+                feedback.pushWarning(self.tr(
+                    "Прижато к краям узлов: %d из %d. Много прижатых "
+                    "значит, что модель уходит за диапазон, и лучше "
+                    "убавить число уровней.") % (n_cut, vol.size))
+        feedback.pushInfo(self.tr("Куб: %d x %d x %d, узлов %d.")
+                          % (nx, ny, nz, vol.size))
+        feedback.pushInfo(self.tr(
+            "Метод приближает, а не оценивает: ошибки оценки и весов "
+            "он не даёт. Для оценки берите кригинг в объёме (2.06)."))
+
+        crs = src.sourceCrs()
+        _write_grid_tiff(out_path, [vol[k] for k in range(nz)], gt,
+                         crs.toWkt() if crs is not None else "",
+                         float("nan"), nx, ny,
+                         [self.tr("уровень %d") % (k + 1)
+                          for k in range(nz)],
+                         meta={"Z0": "%.6f" % z0, "DZ": "%.6f" % cellz})
+        return {"OUTPUT": out_path}
+
+
 class CrossValidateAlgorithm(IsolinerAlgorithm):
     """Проверка интерполяции с исключением по одной пробе.
 
@@ -3769,6 +4005,7 @@ ALGORITHMS = [
     ReserveDeltaAlgorithm,
     Demo3DPointsAlgorithm,
     Interp3DAlgorithm,
+    Mba3DAlgorithm,
     CubeToBlocksAlgorithm,
     CubeVoxelBodyAlgorithm,
     CrossValidateAlgorithm,

@@ -46,6 +46,9 @@ place in space and a map draped over the relief.
 - The section drawing draped onto the ribbon, several sections at once.
 - Click query: the layer name, the coordinates, all band values, the
 - A cube of values is shown as an isosurface at a cutoff: a closed body fit for volume computation.
+- Shells into a project layer: split into connected bodies and the volume of each, in one click.
+- Export to STL and OBJ for CAD.
+- 2.07 MBA in volume: a cube from hundreds of thousands of measurements, where kriging stalls.
 - Shells in a table: level, colour and opacity per row, a cap at the cube edge.
 - Cube clipping by surfaces: everything above the terrain or outside the bed is dropped before building.
 - Export to GLB with the coordinate box, tick labels and the same colouring as on screen.

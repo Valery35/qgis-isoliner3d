@@ -35,6 +35,7 @@ EXPECTED = {
     "CrossValidateAlgorithm": ("cross_validate_3d", "2.05"),
     "DemoMapAlgorithm": ("demo_map", "1.08"),
     "Kriging3DAlgorithm": ("kriging_3d", "2.06"),
+    "Mba3DAlgorithm": ("mba3d", "2.07"),
 }
 
 
@@ -319,6 +320,7 @@ def test_every_tool_has_field_hints():
              ("PolyhedralDemoAlgorithm", "HINTS_1_07"),
              ("Demo3DPointsAlgorithm", "HINTS_2_01"),
              ("Interp3DAlgorithm", "HINTS_2_02"),
+             ("Mba3DAlgorithm", "HINTS_2_07"),
              ("CubeToBlocksAlgorithm", "HINTS_2_03"),
              ("CubeVoxelBodyAlgorithm", "HINTS_2_04"),
              ("CrossValidateAlgorithm", "HINTS_2_05"),
@@ -496,6 +498,64 @@ def test_value_field_hint_names_the_demo_field():
         for k, v in zip(node.value.keys, node.value.values):
             if k.value == "FIELD":
                 assert "grade" in _ast.literal_eval(v), name
+
+
+def test_mesh_input_skips_the_validity_check():
+    """У инструментов, читающих меш, проверка годности отключена.
+
+    Набор смежных треугольников не бывает годным мультиполигоном
+    по правилам OGC: у частей не должно быть общих внутренностей,
+    а у оболочки соседние грани касаются рёбрами. Обработка отклоняла
+    такой слой на входе, не начав работу.
+    """
+    import re
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    bad = []
+    for m in re.finditer(r"class (\w+Algorithm)\(", src):
+        i = m.start()
+        nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
+        seg = src[i:i + 10 + nxt.start()] if nxt else src[i:]
+        # признак чтения меша: полигональный вход и разбор колец
+        if "TypeVectorPolygon" in seg and "exteriorRing" in seg:
+            if "GeometryNoCheck" not in seg:
+                bad.append(m.group(1))
+    assert not bad, "проверка не снята: %s" % ", ".join(bad)
+
+
+def test_mba_calls_match_the_core():
+    """Инструмент 2.07 зовёт ядро с теми подписями, что у ядра есть.
+
+    Отчёт по уровням возвращает словари, а не строки, и подстановка
+    их прямо в журнал роняла работу на первом же уровне. Проверка
+    сверяет вызовы с настоящими подписями.
+    """
+    import ast
+    import importlib.util
+    import inspect
+    spec = importlib.util.spec_from_file_location(
+        "mba_core", os.path.join(PKG, "mba.py"))
+    mba = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mba)
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class Mba3DAlgorithm(")
+    nxt = src.index("\nclass ", i + 10)
+    seg = src[i:nxt]
+    tree = ast.parse(seg.strip())
+    called = set()
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and getattr(node.func.value, "id", "") == "mba"):
+            called.add(node.func.attr)
+    assert called, "инструмент не зовёт ядро вовсе"
+    for name in sorted(called):
+        assert hasattr(mba, name), "нет в ядре: %s" % name
+        inspect.signature(getattr(mba, name))
+    # отчёт по уровням разбирается, а не суётся в журнал как есть
+    assert "levels_report" in called
+    assert 'rep["max"]' in seg and 'rep["cells"]' in seg
 
 
 def test_sectors_are_taken_from_the_data():

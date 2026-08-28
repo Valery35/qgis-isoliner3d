@@ -2404,6 +2404,46 @@ def test_iso_uses_cube_convention():
     assert '"Z0"' in cube and '"DZ"' in cube
 
 
+def test_no_two_buttons_share_an_icon():
+    """У каждой кнопки плашки свой значок.
+
+    Две одинаковые иконки рядом читаются как одна и та же кнопка,
+    и человек жмёт не ту.
+    """
+    import re
+    src = _viewer_src()
+    kinds = re.findall(r'tool\(\s*"(\w+)"', src)
+    kinds += re.findall(r"tool\(\s*'(\w+)'", src)
+    dup = sorted({k for k in kinds if kinds.count(k) > 1})
+    assert not dup, "значок на двух кнопках: %s" % ", ".join(dup)
+
+
+def test_icons_are_not_lookalikes():
+    """Два значка не рисуются одними и теми же фигурами по одним точкам.
+
+    Контур и линия разреза были ломаной с точками: набор фигур один,
+    и на восемнадцати пикселях выходила одна и та же картинка. Кнопки
+    при этом делают разное.
+    """
+    import re
+    src = _viewer_src()
+    start = src.index("def _tool_icon")
+    body = src[start:src.index("\ndef ", start + 20)]
+    parts = re.split(r'(?:el)?if kind == ["\'](\w+)["\']:', body)
+    sig = {}
+    for k in range(1, len(parts), 2):
+        seg = parts[k + 1]
+        shapes = tuple(re.findall(r"p\.(draw\w+)", seg))
+        nums = tuple(re.findall(r"0\.\d+", seg))
+        sig[parts[k]] = (shapes, nums)
+    seen = {}
+    for name, v in sig.items():
+        seen.setdefault(v, []).append(name)
+    dup = [v for v in seen.values() if len(v) > 1]
+    assert not dup, "значки-двойники: %s" % dup
+    assert len(sig) >= 14, len(sig)
+
+
 def test_every_button_kind_has_an_icon():
     """У каждой кнопки плашки есть свой значок.
 
@@ -2543,6 +2583,73 @@ def test_every_layer_option_is_saved_and_restored():
         assert name in load, "не читается: %s" % name
 
 
+def test_shells_go_to_a_project_layer():
+    """Оболочки выгружаются в слой проекта тем, что настроено в сцене.
+
+    Набирать уровни, крышку и чистку заново в инструменте человек
+    не обязан: он их уже подобрал глазом и видит результат.
+    """
+    with open(os.path.join(os.path.dirname(HERE), "viewer_dialog.py"),
+              encoding="utf-8") as fh:
+        src = fh.read()
+    assert "def _shells_to_layer" in src
+    start = src.index("def _shells_to_layer")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "self._iso_mesh(lyr, o, None)" in body
+    assert "MultiPolygonZ?crs=" in body
+    # отметки настоящие: преувеличение это способ смотреть
+    assert "vex" not in body
+    # тело на объект: разбор и объём делаются тут же, а не отдельным
+    # инструментом - это одно действие, а не два
+    assert "split_bodies(v, f)" in body
+    assert "mesh_volume(pv, pf) if closed else None" in body
+    for f in ('"body"', '"level"', '"color"', '"faces"', '"closed"',
+              '"holes"', '"pinch"', '"volume"'):
+        assert f in body, f
+    # дыра и защип различаются: по защипу объём считается точно
+    assert "shell_defects(pv, pf)" in body
+    assert "closed = holes == 0" in body
+    # мелкие дыры зашиваются, большие остаются как есть
+    assert "close_holes(pv, pf)" in body
+    # геометрия собирается двоично: по объекту QGIS на треугольник
+    # это триста тысяч вызовов через границу языка на одно тело
+    assert "mesh_wkb(pv, pf)" in body
+    assert "QgsMultiPolygon()" not in body
+    assert body.index("close_holes(") < body.index("closed = holes == 0")
+
+
+def test_shells_export_refuses_a_wrong_layer():
+    """Не куб и не тот режим - говорим прямо, а не молчим."""
+    with open(os.path.join(os.path.dirname(HERE), "viewer_dialog.py"),
+              encoding="utf-8") as fh:
+        src = fh.read()
+    start = src.index("def _shells_to_layer")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert 'tr("Выберите в списке слой-куб.")' in body
+    assert 'tr("Слой не в режиме изоповерхности.")' in body
+
+
+def test_cap_treats_gaps_as_outside():
+    """С крышкой пропуски куба считаются «ниже отсечки».
+
+    Отсечка куба поверхностью гасит ячейки выше рельефа, и срез идёт
+    внутри куба, а не по его грани. Крышка на гранях такой срез
+    не закрывает, и оболочка остаётся вскрытой.
+    """
+    src = _viewer_src()
+    start = src.index("def _iso_mesh")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "gaps_below(vol, base)" in body
+    # Подмена нужна ДО построения оболочки. Гася пропуски только
+    # перед крышкой, правишь крышку, а сама оболочка остаётся рваной
+    # по границе пропусков: замер дал восемьдесят четыре краевых ребра.
+    assert body.index("gaps_below(") < body.index("isosurface_levels(")
+    # крышка ставится до чистки: сглаживание и отброс мелочи работают
+    # уже по цельному телу
+    assert body.index("cap_faces(") < body.index("drop_small(")
+    assert body.index("cap_faces(") < body.index("smooth(")
+
+
 def test_cap_option_is_off_by_default():
     """Закрытие края выключено по умолчанию.
 
@@ -2662,6 +2769,21 @@ def test_layer_has_its_own_transparency():
     assert "self._textured(gl, md, verts, v, faces,\n" in scene
 
 
+def test_shells_are_clipped_like_bodies():
+    """Оболочки режутся контуром и отметкой, как тела.
+
+    Ветка изоповерхности клала их в сцену минуя резку: поверхности
+    режутся маской по растру, тела резчиком граней, а оболочки
+    не попадали ни туда, ни сюда.
+    """
+    src = _viewer_src()
+    scene = src[src.index("def _rebuild_scene"):]
+    i = scene.index("for v_i, f_i, col_i, a_i, _lev in reversed(")
+    body = scene[i:scene.index("meshes.append((v_i", i)]
+    assert "self._clip_tris(v_i, f_i)" in body
+    assert "self._cap_cut(" in body
+
+
 def test_cube_is_clipped_by_surfaces():
     """Куб отсекается поверхностями при чтении, а не после построения.
 
@@ -2687,12 +2809,31 @@ def test_options_follow_the_mode():
     assert "def _sync_mode_rows" in src
     start = src.index("def _sync_mode_rows")
     body = src[start:src.index("\n    def ", start + 20)]
-    for mode in ("iso", "vox", "wall", "fog"):
+    for mode in ("iso", "vox", "wall", "fog", "surface", "body"):
         assert '"%s"' % mode in body, mode
     # строка прячется вместе со своей подписью, иначе останется
     # висеть пустое название
     assert "labelForField" in body
     assert "self.mode_combo.currentIndexChanged.connect(" in src
+
+
+def test_bands_are_hidden_for_cube_modes():
+    """Каналы прячутся там, где их не читают.
+
+    Замер по коду: ни изоповерхность, ни воксели, ни стенка, ни туман
+    не читают каналы высот, окраски и атрибута. Отметки они берут
+    из шага между каналами, цвет - из своей таблицы либо интервалов.
+    """
+    src = _viewer_src()
+    start = src.index("self._mode_rows.update({")
+    body = src[start:src.index("})", start)]
+    for name in ("zband", "cband", "aband"):
+        i = body.index('"%s"' % name)
+        row = body[i:body.index("\n", i)]
+        for mode in ("iso", "vox", "wall", "fog"):
+            assert '"%s"' % mode not in row, (name, mode)
+    # строка окраски обёрнута виджетом: у раскладки прятать нечего
+    assert "self.color_row = QWidget()" in src
 
 
 def test_shell_table_grows_by_itself():
