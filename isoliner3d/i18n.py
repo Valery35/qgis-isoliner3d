@@ -81,6 +81,53 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'О плагине…': 'About the plugin…',
+    'О плагине': 'About the plugin',
+    'Версия, ссылки, история изменений, журнал':
+        'Version, links, changelog, log',
+    'Версия %s': 'Version %s',
+    'Исходный код': 'Source code',
+    'Сообщить об ошибке': 'Report a bug',
+    'История изменений': 'Changelog',
+    'Руководство (PDF)': 'Manual (PDF)',
+    'Журнал': 'Log',
+    'Руководство не найдено.': 'The manual was not found.',
+    'Журнал ещё не заведён.': 'No log has been started yet.',
+    'Выгрузить сцену в файл: GLB, STL или OBJ':
+        'Export the scene to a file: GLB, STL or OBJ',
+    'glTF (*.glb);;STL (*.stl);;OBJ (*.obj)':
+        'glTF (*.glb);;STL (*.stl);;OBJ (*.obj)',
+    'Вращать сцену (ещё раз - остановить)':
+        'Spin the scene (again to stop)',
+    'Снять оборот кадрами PNG': 'Capture a turn as PNG frames',
+    'Куда складывать кадры': 'Where to put the frames',
+    'Снято кадров: %d, по %d градусов. Склейте их в видео любым '
+    'средством: ffmpeg, редактор, что привычнее.':
+        'Frames captured: %d, %d degrees apart. Join them into a '
+        'video with any tool: ffmpeg, an editor, whatever you use.',
+    'Оформление': 'Appearance',
+    'Отмывка': 'Hillshade',
+    'Градиентный фон': 'Gradient background',
+    'Сглаживать края': 'Smooth the edges',
+    'Отмывка по наклону поверхности. Поверхность, раскрашенная '
+    'шкалой, рисуется одним цветом вершин без света вовсе, '
+    'и рельеф внутри одного оттенка пропадает. Ноль - как было.':
+        'Shading by the slope of the surface. A surface coloured '
+        'by a ramp is drawn with vertex colours and no light at all, '
+        'so the relief within one shade is lost. Zero means as before.',
+    'Сглаживание краёв линий и подписей. Действует со следующего '
+    'открытия окна: режим рисования выбирается при его создании.':
+        'Smoothing of the edges of lines and labels. It takes effect '
+        'from the next opening of the window: the drawing mode is '
+        'chosen when the window is created.',
+    'Прозрачность этого слоя. Общая настройка сцены правит '
+    'только поверхности: тело не должно просвечивать оттого, '
+    'что просвечивает поверхность над ним.':
+        'The transparency of this layer. The shared scene setting '
+        'governs the surfaces only: a body should not show through '
+        'just because the surface above it does.',
+    'Цвет слоя %s из поля %s: разобрано %d, не разобрано %d.':
+        'Colour of layer %s from field %s: %d parsed, %d not parsed.',
     ' Зашито мелких дыр: %d.': ' Small holes stitched: %d.',
     ' Тел с дырами %d, объём у них не посчитан: в поле holes '
     'число рваных рёбер, в поле pinch - касаний тела самого себя, '
@@ -257,11 +304,6 @@ TRANSLATIONS = {
         'Cube step in plan (0 means from the data)',
     'Шаг куба по горизонтали. Ноль берёт от сети опробования.':
         'The cube step in plan. Zero takes it from the sampling net.',
-    'Выгрузить сцену в STL или OBJ для CAD':
-        'Export the scene to STL or OBJ for CAD',
-    'Выгрузить для CAD': 'Export for CAD',
-    'STL (*.stl);;OBJ (*.obj)': 'STL (*.stl);;OBJ (*.obj)',
-    'Сцена пуста.': 'The scene is empty.',
     'Выгружать нечего: в сцене нет тел.':
         'Nothing to export: there are no bodies in the scene.',
     'Выгружено тел: %d, из них замкнутых %d, файл %.1f МБ. '
@@ -1896,7 +1938,6 @@ TRANSLATIONS = {
     'Все': 'All',
     'Выгружать нечего: сцена пуста.': 'Nothing to export: the scene is empty.',
     'Выгрузить сцену': 'Export the scene',
-    'Выгрузить сцену в файл GLB': 'Export the scene to a GLB file',
     'Выгрузка не удалась: %s': 'The export failed: %s',
     'Выдать как TIN (триангулировать)': 'Output as TIN (triangulate)',
     'Глубина скважины, м': 'The depth of a hole, m',

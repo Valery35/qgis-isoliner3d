@@ -500,6 +500,35 @@ def test_value_field_hint_names_the_demo_field():
                 assert "grade" in _ast.literal_eval(v), name
 
 
+def test_manual_tables_match_the_tools():
+    """Таблицы полей в руководстве собираются из кода, а не пишутся.
+
+    Руководство, писанное отдельно, расходится с кодом на первой же
+    правке: поле переименовали, а в тексте старое имя. Проверка
+    сверяет подписи полей из кода с тем, что стоит в руководстве.
+    """
+    import importlib.util
+    root = os.path.dirname(PKG)
+    gen = os.path.join(root, "tools", "gen_tool_tables.py")
+    assert os.path.isfile(gen), "нет сборщика таблиц"
+    spec = importlib.util.spec_from_file_location("gen_tables", gen)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    tools = mod.collect()
+    assert len(tools) >= 14, len(tools)
+    man = open(os.path.join(root, "manual", "manual.md"),
+               encoding="utf-8").read()
+    missing = []
+    for t in tools:
+        if t["title"] not in man:
+            missing.append(t["title"])
+            continue
+        for _k, lab, _kind, _hint in t["params"]:
+            if ("**%s**" % lab) not in man:
+                missing.append("%s / %s" % (t["title"], lab))
+    assert not missing, "нет в руководстве: %s" % "; ".join(missing[:6])
+
+
 def test_mesh_input_skips_the_validity_check():
     """У инструментов, читающих меш, проверка годности отключена.
 

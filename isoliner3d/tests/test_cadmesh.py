@@ -97,13 +97,17 @@ def test_button_is_wired_in_the_scene():
     with open(os.path.join(os.path.dirname(here), "viewer_dialog.py"),
               encoding="utf-8") as fh:
         src = fh.read()
-    assert "def _export_cad" in src
-    start = src.index("def _export_cad")
-    body = src[start:src.index("\n    def ", start + 20)]
+    assert "def _write_cad_file" in src
+    start = src.index("def _write_cad_file")
+    body = src[start:src.index("def _write_glb_file", start)]
     assert "write_cad(fn, parts)" in body
-    assert 'tr("STL (*.stl);;OBJ (*.obj)")' in body
+    # формат выбирается расширением в общем диалоге выгрузки
+    i = src.index("def _export_scene")
+    pick = src[i:src.index("def _write_cad_file", i)]
+    assert 'tr("glTF (*.glb);;STL (*.stl);;OBJ (*.obj)")' in pick
+    assert 'low.endswith(".stl") or low.endswith(".obj")' in pick
     assert 'pt.get("faces") is not None' in body
-    assert 'tr("Подписи короба") != pt.get("name")' in body
+    assert 'not pt.get("decor")' in body
     # про преувеличение здесь не спрашиваем: в CAD нужны отметки
     assert "keep_vex" not in body
     # и говорим, сколько тел замкнуто

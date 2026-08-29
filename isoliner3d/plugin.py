@@ -48,6 +48,19 @@ class Isoliner3DPlugin:
             _log("Провайдер Processing не зарегистрирован: %s" % e)
 
     def initGui(self):
+        # Журнал заводится первым: всё, что случится дальше, должно
+        # в него попасть. Без этого путь пуст, записи уходят в никуда,
+        # и кнопка «Журнал» отвечает, что его нет.
+        try:
+            from . import trace
+            got = trace.setup()
+            from .about import read_metadata
+            trace.step("Isoliner3D %s: загрузка"
+                       % read_metadata().get("version", "?"))
+            if not got:
+                _log("Журнал не заведён: некуда писать.")
+        except Exception as e:  # nosec
+            _log("Журнал не заведён: %s" % e)
         self.initProcessing()
         try:
             from qgis.PyQt.QtGui import QIcon
@@ -72,12 +85,25 @@ class Isoliner3DPlugin:
                 self._add(a3d, toolbar=True)
             else:
                 _log("pyqtgraph/PyOpenGL недоступны - пункт 3D не добавлен.")
+            aabout = QAction(icon, tr("О плагине…"), win)
+            aabout.setToolTip(tr(
+                "Версия, ссылки, история изменений, журнал"))
+            aabout.triggered.connect(self._show_about)
+            self._add(aabout, toolbar=True)
             ahelp = QAction(icon, tr("Справка (руководство PDF)…"), win)
             ahelp.setToolTip(tr("Руководство Isoliner3D в формате PDF"))
             ahelp.triggered.connect(self._open_help)
             self._add(ahelp)
         except Exception as e:
             _log("Интерфейс Isoliner3D не создан: %s" % e)
+
+    def _show_about(self):
+        """Окно «О плагине». Ошибка здесь не должна ронять интерфейс."""
+        try:
+            from . import about
+            about.show_about(self.iface.mainWindow())
+        except Exception as e:  # nosec
+            _log("Окно «О плагине» не открылось: %s" % e)
 
     def _open_help(self):
         """Открыть PDF руководства по языку интерфейса.

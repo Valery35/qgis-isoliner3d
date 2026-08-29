@@ -21,17 +21,17 @@ import time
 # Расчётная часть вынесена в viewer_core. Имена продолжают жить
 # и здесь: снаружи модуль виден таким же, как был.
 from .viewer_core import (    # noqa: F401
-    LIBS_DIR, MARKER_SHAPES, MAX_VERTS, MAX_VERTS_SCENE, MIN_VERTS_LAYER,
-    _BANDS, _CACHE, _CACHE_BYTES, _CACHE_LIMIT, _CACHE_ORDER, _CMAP,
-    _MAX_BODIES, _TRI_BYTES, _TRI_CACHE, _TRI_LIMIT, _TRI_ORDER,
-    _all_vertices, _auto_step, _band_count, _band_items, _bary_z,
-    _body_budget, _cache_put, _closed_and_border, _css_rgba, _draw_on_top,
-    _file_stamp, _fill_z, _find_data, _flat_z, _fmt_n, _gdal_open,
-    _import_gl, _is_closed, _layer_budget, _map_order, _ramp_from_renderer,
-    _read_raster, _ring_normal, _tri_cached, _tri_key, _tri_rings,
-    cache_clear, cache_size, clip_wall, colormap, flat_marker_mesh,
-    is_available, ramp_colors, tri_cache_clear, tri_cache_size, walk_rings,
-    z_range_mask)
+    LIBS_DIR, LIGHT_DIR, MARKER_SHAPES, MAX_VERTS, MAX_VERTS_SCENE,
+    MIN_VERTS_LAYER, _BANDS, _CACHE, _CACHE_BYTES, _CACHE_LIMIT,
+    _CACHE_ORDER, _CMAP, _CSS_NAMES, _MAX_BODIES, _TRI_BYTES, _TRI_CACHE,
+    _TRI_LIMIT, _TRI_ORDER, _all_vertices, _auto_step, _band_count,
+    _band_items, _bary_z, _body_budget, _cache_put, _closed_and_border,
+    _css_rgba, _draw_on_top, _file_stamp, _fill_z, _find_data, _flat_z,
+    _fmt_n, _gdal_open, _import_gl, _is_closed, _layer_budget, _map_order,
+    _ramp_from_renderer, _read_raster, _ring_normal, _tri_cached, _tri_key,
+    _tri_rings, cache_clear, cache_size, clip_wall, colormap, draw_depth,
+    field_color, flat_marker_mesh, is_available, layer_lift, ramp_colors,
+    shade_colors, tri_cache_clear, tri_cache_size, walk_rings, z_range_mask)
 
 
 from .i18n import tr
@@ -543,6 +543,23 @@ def _tool_icon(kind, size=18):
                    QPointF(0.74 * s, 0.36 * s))
         p.drawLine(QPointF(0.84 * s, 0.22 * s),
                    QPointF(0.94 * s, 0.36 * s))
+    elif kind == "spin":          # вращение: дуга со стрелкой
+        p.drawArc(int(0.18 * s), int(0.24 * s),
+                  int(0.64 * s), int(0.52 * s), 30 * 16, 260 * 16)
+        pen2 = QPen(QColor("#C2622C"))
+        pen2.setWidthF(1.6)
+        pen2.setCapStyle(cap)
+        p.setPen(pen2)
+        p.drawLine(QPointF(0.74 * s, 0.30 * s),
+                   QPointF(0.84 * s, 0.40 * s))
+        p.drawLine(QPointF(0.84 * s, 0.40 * s),
+                   QPointF(0.70 * s, 0.46 * s))
+    elif kind == "frames":        # съёмка оборота: стопка кадров
+        for k, off in enumerate((0.10, 0.20, 0.30)):
+            p.drawRect(int(off * s), int((0.22 + off * 0.5) * s),
+                       int(0.52 * s), int(0.36 * s))
+        p.setBrush(QColor("#C2622C"))
+        p.drawEllipse(QPointF(0.56 * s, 0.58 * s), 0.07 * s, 0.07 * s)
     elif kind == "top":           # вид сверху: рамка и перекрестие
         p.drawRect(int(0.18 * s), int(0.18 * s),
                    int(0.64 * s), int(0.64 * s))
@@ -728,11 +745,25 @@ def show_viewer(iface):
             parent, tr("3D-просмотр поверхностей"),
             tr("3D-просмотр недоступен в этой установке плагина."))
         return
-    if _DIALOG is None:
+    first = _DIALOG is None
+    if first:
         _DIALOG = _build_dialog(parent)
-    _DIALOG.refresh_layers()
+    # Показываем ДО чтения слоёв. На большом проекте чтение занимает
+    # секунды, и всё это время окно уже создано, но не показано:
+    # человек жмёт кнопку и не видит ничего. К моменту показа окно
+    # оказывалось позади главного, и открыть его удавалось только
+    # свернув QGIS.
     _DIALOG.show()
     _DIALOG.raise_()
+    # Поднять мало: без передачи ввода окно у части оконных
+    # управляющих остаётся за главным.
+    _DIALOG.activateWindow()
+    if first:
+        # Даём окну прорисоваться прежде долгой работы: иначе
+        # оно висит пустым прямоугольником.
+        from qgis.PyQt.QtWidgets import QApplication
+        QApplication.processEvents()
+    _DIALOG.refresh_layers()
 
 
 def _build_dialog(parent):

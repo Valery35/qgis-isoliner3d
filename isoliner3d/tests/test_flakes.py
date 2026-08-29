@@ -33,7 +33,7 @@ MODULES = ("algorithms.py", "viewer3d.py", "texmesh.py", "plugin.py",
            "variogram.py", "kriging.py",
            "slice3d.py", "volume.py", "flatten.py",
            "cleanup.py", "axes.py", "mba.py",
-           "glyphs.py", "cadmesh.py",
+           "glyphs.py", "cadmesh.py", "about.py",
            "viewer_core.py", "viewer_dialog.py",
            "__init__.py")
 
@@ -147,6 +147,25 @@ def test_no_scanner_blockers():
                 bad.append("%s:%d %s" % (name, node.lineno, code))
     assert not bad, ("сканер каталога отклонит загрузку:\n  %s"
                      % "\n  ".join(bad))
+
+
+def test_trace_is_wired_end_to_end():
+    """Журнал заведён, пишет и открывается: путь, запись, кнопка.
+
+    Половина этой цепочки однажды была снята как «код без вызовов»:
+    вызова не было потому, что цепочку не довели, а не потому, что она
+    лишняя. Проверка держит её целиком.
+    """
+    import importlib.util
+    root = os.path.dirname(PKG)
+    for name, must in (
+            ("trace.py", ("def setup", "def write", "def step")),
+            ("plugin.py", ("trace.setup()",)),
+            ("about.py", ("trace.path()", "def open_log"))):
+        src = open(os.path.join(PKG, name), encoding="utf-8").read()
+        for token in must:
+            assert token in src, "%s: нет %s" % (name, token)
+    assert os.path.isdir(root)
 
 
 if __name__ == "__main__":

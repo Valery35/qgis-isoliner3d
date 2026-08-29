@@ -59,6 +59,25 @@ def test_palette_cycles():
         assert len(c) == 4 and all(0 <= x <= 1 for x in c)
 
 
+def test_window_is_shown_before_layers_are_read():
+    """Окно показывается до чтения слоёв, а не после.
+
+    На большом проекте чтение занимает секунды. Всё это время окно
+    создано, но не показано: человек жмёт кнопку и не видит ничего,
+    а к моменту показа окно оказывается позади главного - открыть
+    его удавалось только свернув QGIS.
+    """
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "..", "viewer3d.py"),
+               encoding="utf-8").read()
+    i = src.index("def show_viewer")
+    body = src[i:src.index("\ndef ", i + 20)]
+    assert body.index(".show()") < body.index("refresh_layers()")
+    # поднять мало: без передачи ввода окно остаётся за главным
+    assert ".activateWindow()" in body
+    assert body.index(".raise_()") < body.index(".activateWindow()")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

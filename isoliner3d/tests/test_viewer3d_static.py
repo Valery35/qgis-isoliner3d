@@ -273,7 +273,7 @@ def test_scene_items_know_their_layer():
             continue          # предпросмотр рисуемого контура
         direct.append(num)
     assert not direct, "элементы мимо _add_item в строках %s" % direct
-    assert "def _add_item(self, item, owner=None)" in src
+    assert "def _add_item(self, item, owner=None, gopt=None)" in src
 
 
 def test_toggle_hides_without_rebuild():
@@ -668,6 +668,300 @@ def test_elevation_clip_reaches_every_source():
     lines = src[src.index("def _vec_lines"):]
     lines = lines[:lines.index("\n        def ")]
     assert "self._z_kept([p[2]], [p[0]], [p[1]])" in lines
+
+
+def test_vector_layers_have_a_transparency_field():
+    """У векторного слоя есть своё поле прозрачности.
+
+    Код тел его читал, а задать было негде: настройка, всегда равная
+    нулю. Упрётся это в первом же случае, когда захочется посмотреть
+    тело сквозь тело.
+    """
+    src = _viewer_src()
+    assert 'vf.addRow(tr("Прозрачность слоя"), self.vec_opacity)' in src
+    assert "self.vec_opacity.valueChanged.connect(" in src
+    # сохраняется и читается обратно, как и прочие настройки слоя
+    assert 'o["lyr_opacity"] = int(self.vec_opacity.value())' in src
+    assert 'self.vec_opacity.setValue(' in src
+    # и умолчание заведено там же, где прочие
+    i = src.index('"zoff": 0.0,')
+    assert '"lyr_opacity": 0' in src[i:i + 200]
+
+
+def test_look_settings_are_saved_and_switchable():
+    """Отмывка, фон и сглаживание краёв: со своими выключателями.
+
+    Отмывка нужна по делу: поверхность, раскрашенная шкалой, рисуется
+    одним цветом вершин без света вовсе. Фон и сглаживание -
+    оформление, и заставлять их никто не должен.
+    """
+    src = _viewer_src()
+    for name in ("self.light", "self.bg_grad", "self.smooth_edges"):
+        assert name in src, name
+    save = src[src.index('"opts": self._opts,'):]
+    save = save[:save.index("QgsProject.instance().writeEntry")]
+    load = src[src.index("def _state_load"):]
+    load = load[:load.index("\n    def ", 20)]
+    for key in ("light", "bg_grad", "smooth_edges"):
+        assert '"%s"' % key in save, "не сохраняется: %s" % key
+        assert '"%s"' % key in load, "не читается: %s" % key
+    # ноль отмывки оставляет цвет как был
+    start = src.index("def _shaded")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "if s <= 0.0:" in body and "return colors" in body
+
+
+def test_window_returns_to_front_after_long_work():
+    """Окно возвращается вперёд после долгой работы, если было впереди.
+
+    Ради курсора ожидания мы даём Qt обработать события, и на этом
+    оконный управляющий может переложить окна: наше уходит
+    за главное. Возвращать его без разбора нельзя - если человек
+    нарочно ушёл в другое окно, вырывать у него ввод грубо.
+    """
+    src = _viewer_src()
+    i = src.index("def _busy")
+    body = src[i:i + 1400]
+    assert "self._was_active = self.isActiveWindow()" in body
+    assert "self.activateWindow()" in body
+    assert 'getattr(self, "_was_active", False)' in body
+    # и только когда мы уже не впереди
+    assert "not self.isActiveWindow()" in body
+
+
+def test_one_export_button_for_three_formats():
+    """Выгрузка сцены одной кнопкой, формат по расширению.
+
+    Действие одно, форматов три, и разводить их по кнопкам значит
+    заставлять человека помнить, какая для чего.
+    """
+    src = _viewer_src()
+    assert "def _export_scene" in src
+    assert "def _export_cad" not in src
+    assert "def _export_glb" not in src
+    i = src.index("def _export_scene")
+    body = src[i:src.index("def _write_cad_file", i)]
+    assert "self._write_cad_file(fn)" in body
+    assert "self._write_glb_file(fn)" in body
+    # кнопка стоит после выгрузки оболочек в слой
+    row = src[src.index("btn_draw_save, btn_shells"):]
+    row = row[:row.index(")")]
+    assert row.index("btn_shells") < row.index("btn_export")
+
+
+def test_turntable_only_moves_the_camera():
+    """Вращение двигает камеру, а не пересобирает сцену.
+
+    Пересборка занимает секунду с лишним: анимация из пересборок
+    это слайд-шоу с рывками, а не вращение.
+    """
+    src = _viewer_src()
+    assert "def _spin_step" in src
+    start = src.index("def _spin_step")
+    body = src[start:src.index("def _spin_capture", start)]
+    assert "setCameraPosition" in body or "opts['azimuth']" in body
+    assert "_rebuild" not in body, body
+
+
+def test_turntable_can_be_stopped():
+    """Вращение останавливается той же кнопкой и при закрытии окна.
+
+    Таймер, оставшийся жить после окна, дёргает мёртвый виджет.
+    """
+    src = _viewer_src()
+    assert "self._spin_timer" in src
+    start = src.index("def _spin_toggle")
+    body = src[start:src.index("def _spin_step", start)]
+    assert ".stop()" in body and ".start(" in body
+    i = src.index("def closeEvent")
+    assert "self._spin_timer.stop()" in src[i:i + 500]
+
+
+def test_turn_capture_writes_frames():
+    """Съёмка оборота пишет кадры по кругу и говорит, сколько сняла."""
+    src = _viewer_src()
+    assert "def _spin_capture" in src
+    start = src.index("def _spin_capture")
+    body = src[start:src.index("def _save_png", start)]
+    assert "grabFramebuffer()" in body
+    assert "360" in body
+    # кадры нумеруются с ведущими нулями: иначе склейка перепутает
+    # порядок, десятый кадр встанет между первым и вторым
+    assert "%03d" in body
+
+
+def test_gradient_is_painted_inside_the_view():
+    """Градиент рисуется в самом виде, а не подложкой Qt.
+
+    Область OpenGL закрашивает подложку окна, и прозрачный фон
+    выходит чёрным. Элемент сцены тоже не годится: его пришлось бы
+    держать обращённым к камере. Правильное место там, где вид
+    и так заливает фон одним цветом.
+    """
+    src = _viewer_src()
+    assert "def _paint_gradient" in src
+    start = src.index("def paint(self, *, region")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "self._paint_gradient(GL)" in body
+    assert "drawItemTree" in body
+    # градиент кладётся до содержимого сцены
+    assert body.index("_paint_gradient") < body.index("drawItemTree")
+    # без градиента работает прежняя отрисовка
+    assert "return super().paint(" in body
+    # подложкой Qt больше не пользуемся
+    assert "setStyleSheet(" not in _viewer_src()[
+        src.index("def _bg_apply"):src.index("def _bg_apply") + 900]
+
+
+def test_edge_smoothing_is_set_on_the_widget():
+    """Сглаживание задаётся этому виджету, а не всему приложению.
+
+    Общий формат приложения применяется к уже созданным окнам
+    не сразу: сцена открывалась пустой, пока QGIS не свернут
+    и не развёрнут обратно.
+    """
+    src = _viewer_src()
+    i = src.index("self.view = _PickView()")
+    after = src[i:i + 900]
+    assert "setSamples(4)" in after
+    assert 'self._state_flag("smooth_edges", True)' in after
+    assert "self.view.format()" in after
+    # общий формат приложения не трогаем
+    assert "QSurfaceFormat.setDefaultFormat" not in src
+
+
+def test_bodies_have_their_own_transparency():
+    """Общая прозрачность к телам не относится.
+
+    Настройка зовётся «прозрачностью поверхностей», и разрез не должен
+    просвечивать оттого, что просвечивает поверхность над ним.
+    У тела своя прозрачность, в свойствах его слоя.
+    """
+    src = _viewer_src()
+    scene = src[src.index("def _rebuild_scene"):]
+    i = scene.index("for lid_b, group in by_layer.items():")
+    body = scene[i:i + 1200]
+    assert 'o_b.get("lyr_opacity"' in body
+    assert "alpha0" not in body
+    # и режим рисования у тела свой, по его же прозрачности
+    assert "gopt = 'opaque' if alpha >= 0.999 else 'translucent'" in body
+
+
+def test_translucent_is_drawn_after_opaque():
+    """Полупрозрачное рисуется после непрозрачного.
+
+    Полупрозрачная поверхность пишет в буфер глубины: нарисованная
+    раньше забора, она отбрасывает его ещё до смешивания цветов,
+    и прозрачность ничего не открывает.
+    """
+    src = _viewer_src()
+    start = src.index("def _add_item")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "setDepthValue" in body
+    scene = src[src.index("def _rebuild_scene"):]
+    assert "self._add_item(item, lid, gopt)" in scene \
+        or "gopt=gopt" in scene
+
+
+def test_depth_order_puts_translucent_last():
+    """Порядок рисования: непрозрачное, потом прозрачное."""
+    from isoliner3d.viewer_core import draw_depth
+    assert draw_depth("opaque") < draw_depth("translucent")
+    assert draw_depth("opaque") < draw_depth("additive")
+    # неизвестный режим не ломает порядок
+    assert draw_depth(None) <= draw_depth("translucent")
+
+
+def test_layer_lift_scales_with_elevation_span():
+    """Подъём слоя считается от размаха отметок, а не от охвата в плане.
+
+    Подъём вводился против спора за глубину у совпадающей геометрии.
+    Взятый долей охвата в плане, на площадке в двенадцать километров
+    он даёт до пяти метров - и забор уезжает от растра, по которому
+    построен, на постоянную величину.
+    """
+    src = _viewer_src()
+    start = src.index("def _z_priority")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "span_z" in body, body
+    assert "layer_lift(span_z" in body
+    # и ни один вызов не остался на охвате в плане
+    scene = src[src.index("def _rebuild_scene"):]
+    assert "_z_priority(lid, span_xy)" not in scene
+    assert "span_xy" not in scene
+
+
+def test_lift_is_small_against_the_elevation_span():
+    """Подъём мал против размаха отметок: на глаз не виден."""
+    from isoliner3d.viewer_core import layer_lift
+    for span_z in (1.0, 200.0, 3000.0):
+        for rank in (0, 5, 19):
+            got = layer_lift(span_z, rank, 20)
+            assert 0.0 <= got <= span_z * 0.002, (span_z, rank, got)
+
+
+def test_lift_grows_toward_the_top_of_the_list():
+    from isoliner3d.viewer_core import layer_lift
+    top = layer_lift(200.0, 0, 20)
+    bottom = layer_lift(200.0, 19, 20)
+    assert top > bottom >= 0.0
+
+
+def test_lift_survives_a_flat_scene():
+    """У сцены из одной плоскости размах ноль: делить не на что."""
+    from isoliner3d.viewer_core import layer_lift
+    assert layer_lift(0.0, 0, 1) == 0.0
+    assert layer_lift(10.0, 0, 0) >= 0.0
+
+
+def test_colour_field_wins_over_symbology():
+    """Цвет из поля читается раньше символики слоя.
+
+    Инструменты Isoliner пишут цвет пласта в поле, тем же
+    справочником, что и чертёж. Пересчитывать его символикой значит
+    терять точность и расходиться с планом.
+    """
+    src = _viewer_src()
+    assert "def _colors_from_field" in src
+    start = src.index("def _layer_colors")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "self._colors_from_field(lyr)" in body
+    assert body.index("_colors_from_field") < body.index("lyr.renderer()")
+
+
+def test_colour_field_is_read_without_geometry():
+    """Поле читается без геометрии и без лишних столбцов.
+
+    На полумиллионе объектов чтение геометрии и есть основная цена,
+    а для цвета она не нужна.
+    """
+    src = _viewer_src()
+    start = src.index("def _colors_from_field")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "NoGeometry" in body
+    assert "setSubsetOfAttributes([want]" in body
+    # испорченное значение не красится наугад, а идёт по общему правилу
+    assert "if col is None:" in body
+    assert "continue" in body
+
+
+def test_symbol_render_is_opened_and_closed():
+    """Рендерер открывается до перебора и закрывается после.
+
+    Без открытия категорийный рендерер отдаёт пусто, и слой выходит
+    серым - причём молча.
+    """
+    src = _viewer_src()
+    start = src.index("def _layer_colors")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "rnd.startRender(ctx, lyr.fields())" in body
+    assert "rnd.stopRender(ctx)" in body
+    assert body.index("startRender") < body.index("symbolForFeature")
+    assert body.index("symbolForFeature") < body.index("stopRender")
+    # символ берётся на каждый объект, а не один раз на слой
+    assert "for ft in lyr.getFeatures(req):" in body
+    # пустой символ это «не показывать», а не «цвет не прочитался»
+    assert "out[ft.id()] = None" in body
 
 
 def test_graduated_lookup_matches_qgis_bounds():
@@ -1542,7 +1836,9 @@ def test_upper_layers_are_drawn_over_lower():
     assert "def _z_priority" in src and "def _draw_rank" in src
     start = src.index("def _z_priority")
     body = src[start:start + 800]
-    assert "(n - rank)" in body
+    assert "layer_lift(" in body
+    from isoliner3d.viewer_core import layer_lift
+    assert layer_lift(100.0, 0, 10) > layer_lift(100.0, 9, 10)
     start2 = src.index("def _rebuild_scene")
     scene = src[start2:]
     assert scene.count("self._z_priority(") >= 4

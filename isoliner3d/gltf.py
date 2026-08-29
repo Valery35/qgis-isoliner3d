@@ -39,6 +39,32 @@ def _pad(data, fill=b"\x00"):
     return data if rem == 0 else data + fill * (4 - rem)
 
 
+def _materials(need_blend):
+    """Материалы файла: непрозрачный и, если нужен, смешивающий.
+
+    Второй заводится только при настоящей прозрачности: лишний
+    материал в файле сбивает с толку того, кто его открывает.
+    """
+    base = {
+        "name": "vertex",
+        "pbrMetallicRoughness": {
+            "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+            "metallicFactor": 0.0, "roughnessFactor": 0.9},
+        "doubleSided": True,
+    }
+    if not need_blend:
+        return [base]
+    soft = {
+        "name": "vertex_blend",
+        "pbrMetallicRoughness": {
+            "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+            "metallicFactor": 0.0, "roughnessFactor": 0.9},
+        "doubleSided": True,
+        "alphaMode": "BLEND",
+    }
+    return [base, soft]
+
+
 def build_glb(parts, name="Isoliner3D"):
     """Собрать GLB из набора частей.
 
@@ -52,6 +78,10 @@ def build_glb(parts, name="Isoliner3D"):
     """
     buf = bytearray()
     views, accessors, meshes, nodes = [], [], [], []
+    # Прозрачность в цвете вершин просмотрщик не смотрит, пока
+    # материал объявлен непрозрачным: в glTF за это отвечает
+    # alphaMode. Второй материал заводим только если он нужен.
+    need_blend = False
 
     def add_view(data, target):
         offset = len(buf)
@@ -91,6 +121,7 @@ def build_glb(parts, name="Isoliner3D"):
         i_acc = len(accessors) - 1
 
         attrs = {"POSITION": p_acc}
+        soft = False
         cols = part.get("colors")
         if cols is not None and len(cols):
             c = np.asarray(cols, dtype=np.float32)
@@ -100,11 +131,13 @@ def build_glb(parts, name="Isoliner3D"):
             accessors.append({"bufferView": ci, "componentType": _FLOAT,
                               "count": len(c), "type": "VEC4"})
             attrs["COLOR_0"] = len(accessors) - 1
+            soft = float(c[:, 3].min()) < 0.999
+            need_blend = need_blend or soft
 
         meshes.append({"name": part.get("name", "part"),
                        "primitives": [{"attributes": attrs,
                                        "indices": i_acc,
-                                       "material": 0,
+                                       "material": 1 if soft else 0,
                                        "mode": mode}]})
         nodes.append({"mesh": len(meshes) - 1,
                       "name": part.get("name", "part")})
@@ -118,12 +151,7 @@ def build_glb(parts, name="Isoliner3D"):
         "accessors": accessors,
         "bufferViews": views,
         "buffers": [{"byteLength": len(buf)}],
-        "materials": [{
-            "name": "vertex",
-            "pbrMetallicRoughness": {
-                "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
-                "metallicFactor": 0.0, "roughnessFactor": 0.9},
-            "doubleSided": True}],
+        "materials": _materials(need_blend),
     }
 
     js = _pad(json.dumps(gltf, ensure_ascii=False).encode("utf-8"), b" ")

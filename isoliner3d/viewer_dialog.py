@@ -24,15 +24,17 @@ import os
 from .iso3d import weld
 
 from .viewer3d import (    # noqa: F401
-    MAX_VERTS_SCENE, PALETTE, _DRAWNL_KEY, _DRAWN_KEY, _MAX_LINES,
-    _MAX_POINT_LABELS, _Prof, _SCENE_KEY, _VOX_FACE_LIMIT, _auto_step,
-    _band_count, _band_items, _bary_z, _closed_and_border, _css_rgba,
-    _draw_on_top, _find_data, _flat_z, _halo_text_item, _import_gl,
-    _layer_budget, _layer_has_z, _log, _map_order, _parts_xyz, _prism,
-    _ramp_from_renderer, _read_raster, _tessellate, _tool_icon, _tri_cached,
-    bed_to_mesh_arrays, clip_wall, colormap, cylinder, flat_marker_mesh,
-    grid_to_mesh_arrays, polygon_mask, polyline_dist_side, ramp_colors,
-    sample_bilinear, thin_labels_xy, tr, walk_rings, z_range_mask)
+    LIGHT_DIR, MAX_VERTS_SCENE, PALETTE, _DRAWNL_KEY, _DRAWN_KEY,
+    _MAX_LINES, _MAX_POINT_LABELS, _Prof, _SCENE_KEY, _VOX_FACE_LIMIT,
+    _auto_step, _band_count, _band_items, _bary_z, _closed_and_border,
+    _css_rgba, _draw_on_top, _find_data, _flat_z, _halo_text_item,
+    _import_gl, _layer_budget, _layer_has_z, _log, _map_order, _parts_xyz,
+    _prism, _ramp_from_renderer, _read_raster, _tessellate, _tool_icon,
+    _tri_cached, bed_to_mesh_arrays, clip_wall, colormap, cylinder,
+    draw_depth, field_color, flat_marker_mesh, grid_to_mesh_arrays,
+    layer_lift, polygon_mask, polyline_dist_side, ramp_colors,
+    sample_bilinear, shade_colors, thin_labels_xy, tr, walk_rings,
+    z_range_mask)
 
 import numpy as np                                # noqa: E402
 
@@ -108,6 +110,59 @@ class _PickView(gl.GLViewWidget):
     hover_cb = None
     draw_mode = False
     ortho = False
+
+    bg_top = None      # верхний цвет градиента, доли единицы
+    bg_bottom = None   # нижний
+
+    def paint(self, *, region, viewport, useItemNames=False):
+        """Отрисовка вида с градиентным фоном.
+
+        Фон нельзя нарисовать ни подложкой Qt, ни элементом сцены:
+        область OpenGL закрашивает подложку, а элемент сцены пришлось
+        бы держать обращённым к камере. Правильное место здесь -
+        там, где вид и так заливает фон одним цветом.
+
+        Градиент кладётся полосами по высоте кадра: их немного,
+        и цена такой заливки не отличается от сплошной.
+        """
+        if self.bg_top is None or self.bg_bottom is None:
+            return super().paint(region=region, viewport=viewport,
+                                 useItemNames=useItemNames)
+        from OpenGL import GL
+        self.setProjection(region, viewport)
+        self.setModelview()
+        GL.glClearColor(*self.bg_bottom)
+        GL.glClear(GL.GL_DEPTH_BUFFER_BIT | GL.GL_COLOR_BUFFER_BIT)
+        self._paint_gradient(GL)
+        self.drawItemTree(useItemNames=useItemNames)
+
+    def _paint_gradient(self, GL):
+        """Залить кадр полосами от нижнего цвета к верхнему."""
+        GL.glMatrixMode(GL.GL_PROJECTION)
+        GL.glPushMatrix()
+        GL.glLoadIdentity()
+        GL.glOrtho(0, 1, 0, 1, -1, 1)
+        GL.glMatrixMode(GL.GL_MODELVIEW)
+        GL.glPushMatrix()
+        GL.glLoadIdentity()
+        GL.glDisable(GL.GL_DEPTH_TEST)
+        GL.glDisable(GL.GL_LIGHTING)
+        lo = np.asarray(self.bg_bottom, dtype=float)
+        hi = np.asarray(self.bg_top, dtype=float)
+        n = 24
+        GL.glBegin(GL.GL_QUAD_STRIP)
+        for k in range(n + 1):
+            t = float(k) / n
+            c = lo + (hi - lo) * t
+            GL.glColor4f(*[float(q) for q in c])
+            GL.glVertex2f(0.0, t)
+            GL.glVertex2f(1.0, t)
+        GL.glEnd()
+        GL.glEnable(GL.GL_DEPTH_TEST)
+        GL.glPopMatrix()
+        GL.glMatrixMode(GL.GL_PROJECTION)
+        GL.glPopMatrix()
+        GL.glMatrixMode(GL.GL_MODELVIEW)
 
     def projectionMatrix(self, region=None, viewport=None):
         """Ортогональная проекция вместо перспективной.
@@ -204,6 +259,8 @@ class ViewerDialog(QDialog):
         self.view = None
         self._pick = None
         self._pick_marker = None
+        self._spin_timer = None
+        self._was_active = False
         self._items = []
         self._owners = []
         self._warnings = []
@@ -441,6 +498,32 @@ class ViewerDialog(QDialog):
         srow.addWidget(self.zs_bot)
         f2.addRow(tr("По поверхностям"), srow)
         sv.addWidget(box_clip)
+
+        self.light = QSpinBox()
+        self.light.setRange(0, 100)
+        self.light.setValue(55)
+        self.light.setSuffix(" %")
+        self.light.setToolTip(tr(
+            "Отмывка по наклону поверхности. Поверхность, раскрашенная "
+            "шкалой, рисуется одним цветом вершин без света вовсе, "
+            "и рельеф внутри одного оттенка пропадает. Ноль - как "
+            "было."))
+        self.bg_grad = QCheckBox(tr("Градиентный фон"))
+        self.bg_grad.setChecked(False)
+        self.smooth_edges = QCheckBox(tr("Сглаживать края"))
+        self.smooth_edges.setChecked(True)
+        self.bg_grad.toggled.connect(self._bg_apply)
+        self.light.valueChanged.connect(self._schedule_rebuild)
+        self.smooth_edges.setToolTip(tr(
+            "Сглаживание краёв линий и подписей. Действует "
+            "со следующего открытия окна: режим рисования выбирается "
+            "при его создании."))
+        box_look = QGroupBox(tr("Оформление"))
+        f4 = QFormLayout(box_look)
+        f4.addRow(tr("Отмывка"), self.light)
+        f4.addRow("", self.bg_grad)
+        f4.addRow("", self.smooth_edges)
+        sv.addWidget(box_look)
 
         box_grid = QGroupBox(tr("Координатный короб"))
         f3 = QFormLayout(box_grid)
@@ -733,6 +816,14 @@ class ViewerDialog(QDialog):
                            (tr("Скважины (стволы по отметкам)"),
                             "wells")):
             self.vec_kind.addItem(label, key)
+        self.vec_opacity = QSpinBox()
+        self.vec_opacity.setRange(0, 100)
+        self.vec_opacity.setValue(0)
+        self.vec_opacity.setSuffix(" %")
+        self.vec_opacity.setToolTip(tr(
+            "Прозрачность этого слоя. Общая настройка сцены правит "
+            "только поверхности: тело не должно просвечивать оттого, "
+            "что просвечивает поверхность над ним."))
         self.wells_label = QComboBox()
         self.wells_fields = QListWidget()
         self.wells_fields.setMaximumHeight(150)
@@ -743,6 +834,7 @@ class ViewerDialog(QDialog):
         vf.addRow(tr("Поле отметки"), self.vec_zfield)
         vf.addRow(tr("Поверхность отметки"), self.vec_zsurf)
         vf.addRow(tr("Смещение по вертикали, м"), self.vec_zoff)
+        vf.addRow(tr("Прозрачность слоя"), self.vec_opacity)
         vf.addRow(tr("Размер точки, px (0 - из стиля)"),
                   self.vec_psize)
         vf.addRow(tr("Вид маркера"), self.vec_shape)
@@ -761,6 +853,7 @@ class ViewerDialog(QDialog):
                   self.vec_base, self.vec_htop, self.wells_label):
             w.currentIndexChanged.connect(self._save_vec_opts)
         self.vec_zoff.valueChanged.connect(self._save_vec_opts)
+        self.vec_opacity.valueChanged.connect(self._save_vec_opts)
         self.vec_psize.valueChanged.connect(self._save_vec_opts)
         self.vec_msize.valueChanged.connect(self._save_vec_opts)
         self.vec_nlab.valueChanged.connect(self._save_vec_opts)
@@ -828,15 +921,19 @@ class ViewerDialog(QDialog):
         btn_draw_save = tool(
             "layer", tr("Сохранить нарисованный контур слоем проекта"),
             self._draw_save)
-        btn_export = tool(
-            "export", tr("Выгрузить сцену в файл GLB"),
-            self._export_glb)
         btn_shells = tool(
             "shell", tr("Оболочки выбранного слоя в слой проекта"),
             self._shells_to_layer)
-        btn_cad = tool(
-            "cad", tr("Выгрузить сцену в STL или OBJ для CAD"),
-            self._export_cad)
+        btn_export = tool(
+            "export", tr("Выгрузить сцену в файл: GLB, STL или OBJ"),
+            self._export_scene)
+        self.btn_spin = tool(
+            "spin", tr("Вращать сцену (ещё раз - остановить)"),
+            self._spin_toggle)
+        self.btn_spin.setCheckable(True)
+        btn_turn = tool(
+            "frames", tr("Снять оборот кадрами PNG"),
+            self._spin_capture)
         btn_copy = tool(
             "copy", tr("Положить кадр сцены в буфер обмена (Ctrl+C)"),
             self._copy_png)
@@ -865,7 +962,20 @@ class ViewerDialog(QDialog):
         copy_key.activated.connect(self._copy_png)
 
         self.view = _PickView()
+        # Сглаживание задаётся ЭТОМУ виджету, до его показа. Общий
+        # формат приложения менять нельзя: он применяется к уже
+        # созданным окнам не сразу, и первый кадр не выходит, пока
+        # окно не пересоздадут - сцена открывалась пустой до
+        # сворачивания и разворачивания QGIS.
+        if self._state_flag("smooth_edges", True):
+            setf = getattr(self.view, "setFormat", None)
+            if setf is not None:
+                fmt = self.view.format()
+                if fmt.samples() < 4:
+                    fmt.setSamples(4)
+                    setf(fmt)
         self.view.setBackgroundColor((250, 250, 248))
+        self._bg_apply()
         self.view.pick_cb = self._pick_at
         self.view.dbl_cb = self._draw_close
         self.view.undo_cb = self._draw_undo
@@ -914,8 +1024,9 @@ class ViewerDialog(QDialog):
                   self.btn_undo,
                   self.btn_done, self.btn_line, self.btn_sketch,
                   btn_clip_off,
-                  btn_draw_save, btn_export, btn_shells,
-                  btn_cad, btn_copy, btn_png):
+                  btn_draw_save, btn_shells, btn_export,
+                  self.btn_spin, btn_turn,
+                  btn_copy, btn_png):
             b.setParent(self.tools)
             tb.addWidget(b)
         # Полуширина коридора и границы отметок переехали в свойства
@@ -1144,8 +1255,34 @@ class ViewerDialog(QDialog):
                "Слой временный, сохраните его в файл.")
             % (made, tris, total, note))
 
-    def _export_cad(self):
-        """Выгрузить сцену в STL или OBJ.
+    def _export_scene(self):
+        """Выгрузить показанное в файл. Формат по расширению.
+
+        Действие одно, форматов три, и разводить их по кнопкам значит
+        заставлять человека помнить, какая для чего. GLB несёт цвет
+        и прозрачность и годится для просмотра, STL и OBJ - для CAD,
+        где нужна замкнутая оболочка.
+
+        Выгружается ровно то, что видно: обрезали коридором, уйдёт
+        коридор. Иначе человек получит не ту модель, которую смотрел.
+        """
+        from qgis.PyQt.QtWidgets import QFileDialog
+        if not self._export:
+            self.info.setText(tr("Выгружать нечего: сцена пуста."))
+            return
+        fn, _f = QFileDialog.getSaveFileName(
+            self, tr("Выгрузить сцену"), "isoliner_3d.glb",
+            tr("glTF (*.glb);;STL (*.stl);;OBJ (*.obj)"))
+        if not fn:
+            return
+        low = str(fn).lower()
+        if low.endswith(".stl") or low.endswith(".obj"):
+            self._write_cad_file(fn)
+        else:
+            self._write_glb_file(fn)
+
+    def _write_cad_file(self, fn):
+        """Записать сцену в STL или OBJ.
 
         GLB несёт цвет и прозрачность и годится для просмотра, а в CAD
         нужна замкнутая оболочка, из которой делают тело. Формат
@@ -1156,21 +1293,12 @@ class ViewerDialog(QDialog):
         а не свойство модели, и в CAD ему делать нечего. Поэтому
         и вопроса о нём здесь нет.
         """
-        from qgis.PyQt.QtWidgets import QFileDialog
         from .cadmesh import write_cad
-        if not self._export:
-            self.info.setText(tr("Сцена пуста."))
-            return
-        fn, _f = QFileDialog.getSaveFileName(
-            self, tr("Выгрузить для CAD"), "isoliner_3d.stl",
-            tr("STL (*.stl);;OBJ (*.obj)"))
-        if not fn:
-            return
         # Линии и подписи короба в CAD не идут: там нужны тела,
         # а не украшение вида.
         parts = [pt for pt in self._export
                  if pt.get("faces") is not None and len(pt["faces"])
-                 and tr("Подписи короба") != pt.get("name")]
+                 and not pt.get("decor")]
         try:
             size = write_cad(fn, parts)
         except Exception as e:  # nosec
@@ -1189,21 +1317,12 @@ class ViewerDialog(QDialog):
                "Незамкнутое тело CAD покажет, но телом не сделает.")
             % (len(parts), closed, size / (1024.0 * 1024.0)))
 
-    def _export_glb(self):
-        """Выгрузить показанное в файл GLB.
+    def _write_glb_file(self, fn):
+        """Записать сцену в GLB.
 
-        Выгружается ровно то, что видно: обрезали коридором, уйдёт
-        коридор. Иначе человек получит не ту модель, которую смотрел.
+        Спрашивается вертикальное преувеличение: настоящие высоты
+        верны для расчёта, а модель как на экране нужна для показа.
         """
-        if not self._export:
-            self.info.setText(tr("Выгружать нечего: сцена пуста."))
-            return
-        from qgis.PyQt.QtWidgets import QFileDialog
-        fn, _ = QFileDialog.getSaveFileName(
-            self, tr("Выгрузить сцену"), "isoliner_3d.glb",
-            "glTF (*.glb)")
-        if not fn:
-            return
         # Настоящие высоты верны для расчёта, но пласт в километры
         # по площади и десятки метров по мощности сплющивается
         # в блин. Поэтому спрашиваем, а не решаем за человека.
@@ -1231,9 +1350,15 @@ class ViewerDialog(QDialog):
                 # каждую часть вокруг своей, растянешь только рельеф
                 # внутри неё, а расстояния между частями останутся
                 # прежними, и на глаз преувеличение не применится.
+                # Середина считается по ТЕЛАМ. Короб и его подписи
+                # лежат по краю охвата и тянут её на себя, а тела
+                # разлетаются от неё: подписи это полоски, то есть
+                # тоже грани, и по одному признаку граней их
+                # не отличить.
                 zs_all = [np.asarray(pt["verts"], dtype=float)[:, 2]
                           for pt in self._export
-                          if len(pt["verts"]) and "faces" in pt]
+                          if len(pt["verts"]) and "faces" in pt
+                          and not pt.get("decor")]
                 zc_all = (float(np.mean(np.concatenate(zs_all)))
                           if zs_all else 0.0)
                 parts = []
@@ -1257,9 +1382,7 @@ class ViewerDialog(QDialog):
             # Итог показываем в окне, а не только в журнале: иначе
             # неудачу от удачи не отличить, и человек открывает
             # прежний файл, гадая, почему ничего не изменилось.
-            n_box = sum(1 for pt in parts
-                        if "lines" in pt
-                        or tr("Подписи короба") == pt.get("name"))
+            n_box = sum(1 for pt in parts if pt.get("decor"))
             self.info.setText(
                 tr("Выгружено: тел %d, короб %s, преувеличение %s, "
                    "файл %.1f МБ.")
@@ -1338,6 +1461,9 @@ class ViewerDialog(QDialog):
                 "grid_planes": self.grid_planes.currentData(),
                 "grid_step": float(self.grid_step.value()),
                 "axes_on": bool(self.btn_axes.isChecked()),
+                "light": int(self.light.value()),
+                "bg_grad": bool(self.bg_grad.isChecked()),
+                "smooth_edges": bool(self.smooth_edges.isChecked()),
                 "ring": self._draw_ring,
                 "path": self._draw_path,
             }
@@ -1379,6 +1505,11 @@ class ViewerDialog(QDialog):
                 combo.setCurrentIndex(max(k, 0))
             self.grid_step.setValue(float(state.get("grid_step", 0.0)))
             self.btn_axes.setChecked(bool(state.get("axes_on", False)))
+            self.light.setValue(int(state.get("light", 55)))
+            self.bg_grad.setChecked(bool(state.get("bg_grad", False)))
+            self.smooth_edges.setChecked(
+                bool(state.get("smooth_edges", True)))
+            self._bg_apply()
             i = _find_data(self.clip_combo, state.get("clip"))
             self.clip_combo.setCurrentIndex(max(i, 0))
             j = _find_data(self.clip_side, state.get("side"))
@@ -1428,6 +1559,75 @@ class ViewerDialog(QDialog):
         opts['elevation'] = elevation
         opts['azimuth'] = azimuth
         self.view.update()
+
+    def closeEvent(self, ev):
+        """Остановить вращение при закрытии окна.
+
+        Таймер, оставшийся жить после окна, будет дёргать мёртвый
+        виджет: сцены уже нет, а тик приходит.
+        """
+        if self._spin_timer is not None:
+            self._spin_timer.stop()
+        super().closeEvent(ev)
+
+    def _spin_toggle(self):
+        """Пустить или остановить вращение сцены.
+
+        Крутится камера, сцена не пересобирается: пересборка занимает
+        секунду с лишним, и анимация из пересборок вышла бы
+        слайд-шоу с рывками.
+        """
+        from qgis.PyQt.QtCore import QTimer
+        if self._spin_timer is None:
+            self._spin_timer = QTimer(self)
+            self._spin_timer.timeout.connect(self._spin_step)
+        if self._spin_timer.isActive():
+            self._spin_timer.stop()
+            self.btn_spin.setChecked(False)
+            return
+        self.btn_spin.setChecked(True)
+        self._spin_timer.start(40)
+
+    def _spin_step(self):
+        """Довернуть камеру на шаг."""
+        if self.view is None:
+            return
+        az = float(self.view.opts.get("azimuth", 0.0)) + 1.0
+        self.view.setCameraPosition(azimuth=az % 360.0)
+
+    def _spin_capture(self):
+        """Снять полный оборот кадрами PNG.
+
+        Складывать кадры в видео модуль не берётся: для этого есть
+        готовые средства, а тащить их в плагин ради одной кнопки
+        незачем. Кадры нумеруются с ведущими нулями, иначе склейка
+        поставит десятый между первым и вторым.
+        """
+        from qgis.PyQt.QtWidgets import QFileDialog
+        if self.view is None:
+            return
+        folder = QFileDialog.getExistingDirectory(
+            self, tr("Куда складывать кадры"))
+        if not folder:
+            return
+        if self._spin_timer is not None and self._spin_timer.isActive():
+            self._spin_timer.stop()
+            self.btn_spin.setChecked(False)
+        was = float(self.view.opts.get("azimuth", 0.0))
+        step = 10
+        made = 0
+        for k in range(0, 360, step):
+            self.view.setCameraPosition(azimuth=(was + k) % 360.0)
+            self.view.repaint()
+            img = self.view.grabFramebuffer()
+            if img.save(os.path.join(folder, "frame_%03d.png" % made),
+                        "PNG"):
+                made += 1
+        self.view.setCameraPosition(azimuth=was)
+        self.info.setText(
+            tr("Снято кадров: %d, по %d градусов. Склейте их в видео "
+               "любым средством: ffmpeg, редактор, что привычнее.")
+            % (made, step))
 
     def _save_png(self):
         from qgis.PyQt.QtWidgets import QFileDialog
@@ -1605,7 +1805,8 @@ class ViewerDialog(QDialog):
         has_z = _layer_has_z(lyr)
         return {"kind": "plain", "as_section": False, "draw": None,
                 "zsrc": "geom" if has_z else "field", "zsurf": None,
-                "zoff": 0.0, "psize": 0.0, "label": None,
+                "zoff": 0.0, "lyr_opacity": 0,
+                "psize": 0.0, "label": None,
                 "shape": "circle", "msize": 20.0, "nlab": 400,
                 "poly": "solid" if has_z else "outline",
                 "ztop": None, "base": None, "htop": "field",
@@ -1690,6 +1891,8 @@ class ViewerDialog(QDialog):
             self.vec_zsurf.blockSignals(False)
             self.vec_zoff.blockSignals(True)
             self.vec_zoff.setValue(float(o.get("zoff", 0.0) or 0.0))
+            self.vec_opacity.setValue(
+                int(o.get("lyr_opacity", 0) or 0))
             self.vec_zoff.blockSignals(False)
             self.vec_psize.blockSignals(True)
             self.vec_psize.setValue(float(o.get("psize", 0.0) or 0.0))
@@ -1838,6 +2041,7 @@ class ViewerDialog(QDialog):
         o["zsrc"] = self.vec_zsrc.currentData() or "geom"
         o["zsurf"] = self.vec_zsurf.currentData()
         o["zoff"] = float(self.vec_zoff.value())
+        o["lyr_opacity"] = int(self.vec_opacity.value())
         o["psize"] = float(self.vec_psize.value())
         o["label"] = self.vec_label.currentData()
         o["shape"] = self.vec_shape.currentData() or "circle"
@@ -2188,6 +2392,49 @@ class ViewerDialog(QDialog):
             out[fid] = cols[int(idx[k])] if ok[k] else None
         return out
 
+    def _colors_from_field(self, lyr):
+        """Цвета объектов из поля слоя, если оно есть.
+
+        Возвращает карту fid -> (цвет, размер) либо None, если поля
+        нет или ни одно значение не разобралось - тогда работает
+        символика слоя.
+
+        Объект с испорченным значением остаётся без цвета и берёт
+        его по общему правилу: красить наугад нельзя, чёрное тело
+        выглядит настоящим и молча врёт про пласт.
+        """
+        from qgis.core import QgsFeatureRequest
+        names = [f.name() for f in lyr.fields()]
+        want = None
+        for nm in names:
+            if nm.lower() == "color":
+                want = nm
+                break
+        if want is None:
+            return None
+        req = QgsFeatureRequest()
+        try:
+            req.setFlags(QgsFeatureRequest.Flag.NoGeometry)
+        except AttributeError:  # nosec
+            req.setFlags(QgsFeatureRequest.NoGeometry)
+        try:
+            req.setSubsetOfAttributes([want], lyr.fields())
+        except Exception:  # nosec
+            pass
+        out, good, bad = {}, 0, 0
+        for ft in lyr.getFeatures(req):
+            col = field_color(ft[want])
+            if col is None:
+                bad += 1
+                continue
+            out[ft.id()] = (col, None)
+            good += 1
+        if not good:
+            return None
+        _log(tr("Цвет слоя %s из поля %s: разобрано %d, "
+                "не разобрано %d.") % (lyr.name(), want, good, bad))
+        return out
+
     def _layer_colors(self, lyr):
         """Цвет объектов по стилю слоя: fid -> строка цвета.
 
@@ -2199,6 +2446,14 @@ class ViewerDialog(QDialog):
         if key in self._layer_colors_cache:
             return self._layer_colors_cache[key]
         out = {}
+        # Цвет из поля читается раньше символики: он посчитан
+        # на стороне данных, тем же справочником, что и чертёж.
+        # Пересчитывать его символикой значит терять точность
+        # и расходиться с планом.
+        own = self._colors_from_field(lyr)
+        if own is not None:
+            self._layer_colors_cache[key] = own
+            return own
         try:
             from qgis.core import (QgsRenderContext, QgsFeatureRequest,
                                    QgsSingleSymbolRenderer)
@@ -2372,16 +2627,73 @@ class ViewerDialog(QDialog):
                 return i
         return self.layer_list.count()
 
-    def _z_priority(self, lid, span):
+    def _state_flag(self, key, default):
+        """Настройка из сохранённого состояния до сборки окна.
+
+        Сглаживание краёв нужно знать раньше, чем создан виджет:
+        режим рисования выбирается при его создании и потом
+        не меняется.
+        """
+        from qgis.core import QgsProject
+        raw, ok = QgsProject.instance().readEntry("Isoliner3D", "state")
+        if not ok or not raw:
+            return default
+        import json
+        try:
+            got = json.loads(raw)
+        except ValueError:
+            return default
+        return bool(got.get(key, default))
+
+    def _bg_apply(self):
+        """Фон сцены: сплошной или с градиентом.
+
+        Градиент рисуется средствами Qt под областью показа, а не
+        в самой сцене: элемент сцены пришлось бы держать всегда
+        обращённым к камере, а это возня без пользы.
+        """
+        if self.view is None:
+            return
+        grad = bool(self.bg_grad.isChecked()) \
+            if hasattr(self, "bg_grad") else False
+        if not grad:
+            self.view.bg_top = None
+            self.view.bg_bottom = None
+            self.view.setBackgroundColor((250, 250, 248))
+        else:
+            # Сверху холоднее, снизу светлее: так небо и земля,
+            # и модель на этом фоне читается лучше плоской заливки.
+            self.view.bg_top = (0.78, 0.84, 0.92, 1.0)
+            self.view.bg_bottom = (0.98, 0.98, 0.96, 1.0)
+        self.view.update()
+
+    def _shaded(self, colors, md):
+        """Притемнить цвета вершин по наклону, если отмывка включена.
+
+        Поверхность, раскрашенная шкалой, рисуется одним цветом вершин
+        без света вовсе: рельеф внутри одного оттенка пропадает.
+        Нормали берём у самого меша - он их уже считает для показа.
+        """
+        s = float(self.light.value()) / 100.0
+        if s <= 0.0:
+            return colors
+        try:
+            nrm = md.vertexNormals()
+        except Exception:  # nosec
+            return colors
+        if nrm is None or len(nrm) != len(colors):
+            return colors
+        return shade_colors(colors, nrm, s)
+
+    def _z_priority(self, lid, span_z):
         """Подъём слоя по порядку в списке, в единицах сцены.
 
-        Совпадающая геометрия иначе спорит за глубину: изолинии
-        то показываются, то тонут в поверхности, на которой лежат.
-        Подъём взят малым долей охвата, на глаз он не заметен.
+        Меряется размахом ОТМЕТОК, не охватом в плане: доля от охвата
+        на площадке в двенадцать километров даёт пять метров, и слой
+        уезжает от растра, по которому построен.
         """
-        n = max(self.layer_list.count(), 1)
-        rank = self._draw_rank(lid)
-        return float(span) * 4e-4 * (n - rank) / n
+        return layer_lift(span_z, self._draw_rank(lid),
+                          self.layer_list.count())
 
     def _vert_cap(self):
         """Потолок вершин на всю сцену из свойств сцены."""
@@ -3304,7 +3616,8 @@ class ViewerDialog(QDialog):
         if lab_f:
             lv = np.vstack(lab_v)
             self._export.append({
-                "name": tr("Подписи короба"), "verts": lv,
+                "name": tr("Подписи короба"), "decor": True,
+                "verts": lv,
                 "faces": np.vstack(lab_f),
                 "colors": np.tile(np.array([0.20, 0.22, 0.30, 1.0]),
                                   (len(lv), 1))})
@@ -3314,6 +3627,7 @@ class ViewerDialog(QDialog):
         v = np.array([q for seg in pieces for q in seg], dtype=float)
         idx = np.arange(len(v), dtype=np.int64).reshape(-1, 2)
         self._export.append({"name": tr("Координатный короб"),
+                             "decor": True,
                              "verts": v, "lines": idx,
                              "colors": np.tile(
                                  np.array([0.35, 0.38, 0.45, 1.0]),
@@ -4709,10 +5023,20 @@ class ViewerDialog(QDialog):
             cursor = getattr(getattr(_Qt, "CursorShape", _Qt),
                              "WaitCursor")
             if on:
+                # Запоминаем, были ли мы впереди: обработка событий
+                # ниже даёт оконному управляющему повод переложить
+                # окна, и наше уходит за главное. Возвращать его
+                # без разбора нельзя - если человек нарочно ушёл
+                # в другое окно, вырывать у него ввод грубо.
+                self._was_active = self.isActiveWindow()
                 QApplication.setOverrideCursor(cursor)
             else:
                 QApplication.restoreOverrideCursor()
             QApplication.processEvents()
+            if not on and getattr(self, "_was_active", False) \
+                    and not self.isActiveWindow():
+                self.raise_()
+                self.activateWindow()
         except Exception:  # nosec
             pass
 
@@ -5234,13 +5558,22 @@ class ViewerDialog(QDialog):
         _log(tr("В выгрузку: %s, вершин %d, граней %d")
              % (name, len(v), len(np.asarray(faces))))
 
-    def _add_item(self, item, owner=None):
+    def _add_item(self, item, owner=None, gopt=None):
         """Положить элемент в сцену, запомнив, чьего он слоя.
 
         Хозяин нужен, чтобы галка видимости прятала элемент сразу,
         без пересборки. Если элемент общий для нескольких слоёв,
         хозяин None и такой слой переключается пересборкой.
+
+        Очередь рисования задаётся режимом прозрачности: прозрачное
+        идёт после непрозрачного, иначе оно занимает глубину и
+        отбрасывает то, что за ним, ещё до смешивания цветов.
         """
+        if gopt is not None:
+            try:
+                item.setDepthValue(draw_depth(gopt))
+            except AttributeError:  # nosec
+                pass
         self.view.addItem(item)
         self._items.append(item)
         self._owners.append(owner)
@@ -5532,7 +5865,9 @@ class ViewerDialog(QDialog):
         cx = 0.5 * (min(xs) + max(xs))
         cy = 0.5 * (min(ys) + max(ys))
         cz = 0.5 * (min(zs_) + max(zs_))
-        span_xy = max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
+        # Подъём слоёв меряется размахом отметок: в плане километры,
+        # по высоте метры, и общая мера тут не годится.
+        span_z = max(max(zs_) - min(zs_), 0.0) * float(vex)
         box_lo = (min(xs), min(ys), min(zs_))
         box_hi = (max(xs), max(ys), max(zs_))
         if self.btn_axes.isChecked():
@@ -5601,7 +5936,7 @@ class ViewerDialog(QDialog):
         for lyr_f, o_f, _box in fogs:
             item_f = self._fog_item(lyr_f, o_f, cx, cy, cz, vex, prof)
             if item_f is not None:
-                self._add_item(item_f, lyr_f.id())
+                self._add_item(item_f, lyr_f.id(), 'translucent')
 
         alpha0 = 1.0 - float(self.opacity.value()) / 100.0
         # Тела берут прозрачность и режим отрисовки ниже, а в сцене
@@ -5623,24 +5958,28 @@ class ViewerDialog(QDialog):
             v[:, 0] -= cx
             v[:, 1] -= cy
             v[:, 2] = ((v[:, 2] - cz) * vex
-                       + self._z_priority(lid, span_xy))
+                       + self._z_priority(lid, span_z))
             md = gl.MeshData(vertexes=v.astype('float32'), faces=faces)
             prof.count("tris", len(faces)).count("verts", len(v))
             if o.get("texture"):
                 item = self._textured(gl, md, verts, v, faces,
                                       alpha, prof, o)
                 if item is not None:
-                    self._add_item(item, lid)
+                    self._add_item(item, lid, gopt)
                     # В GLB текстура пока не уходит: для неё нужны
                     # координаты текстуры у каждой вершины и сама
                     # картинка внутри файла. Поверхность выгружается
                     # ровным цветом, чтобы не пропасть вовсе.
                     lyr_e = QgsProject.instance().mapLayer(lid)
+                    # В выгрузку идут НАСТОЯЩИЕ координаты: сцена
+                    # сдвинута к середине и растянута преувеличением,
+                    # и такие вершины лягут не на место и в другом
+                    # масштабе.
                     self._keep_for_export(
                         lyr_e.name() if lyr_e else "surface",
-                        v, faces,
-                        np.tile(np.array(color[:3] + (1.0,)),
-                                (len(v), 1)))
+                        verts, faces,
+                        np.tile(np.array(color[:3] + (alpha,)),
+                                (len(verts), 1)))
                     continue
             vox_col = self._vox_colors.get(lid)
             if vox_col is not None and len(vox_col) == len(v):
@@ -5651,7 +5990,7 @@ class ViewerDialog(QDialog):
                 # сглаживание нормалей скруглило бы рёбра.
                 item = gl.GLMeshItem(meshdata=md, smooth=False,
                                      glOptions=gopt)
-                self._add_item(item, lid)
+                self._add_item(item, lid, gopt)
                 lyr_e = QgsProject.instance().mapLayer(lid)
                 self._keep_for_export(
                     lyr_e.name() if lyr_e else "voxels", verts, faces,
@@ -5664,6 +6003,7 @@ class ViewerDialog(QDialog):
             if ramp_c is not None and len(ramp_c) == len(v):
                 vc = ramp_c.copy()
                 vc[:, 3] = alpha
+                vc = self._shaded(vc, md)
                 md.setVertexColors(vc.astype('float32'))
                 item = gl.GLMeshItem(meshdata=md, smooth=True,
                                      glOptions=gopt)
@@ -5673,6 +6013,7 @@ class ViewerDialog(QDialog):
                 vals, vmin, vmax, rng = attr
                 vc = colormap((vals[lid] - vmin) / rng)
                 vc[:, 3] = alpha
+                vc = self._shaded(vc, md)
                 md.setVertexColors(vc.astype('float32'))
                 item = gl.GLMeshItem(meshdata=md, smooth=True,
                                      glOptions=gopt)
@@ -5683,16 +6024,19 @@ class ViewerDialog(QDialog):
                                      color=color[:3] + (alpha,),
                                      glOptions=gopt)
                 exp_col = None
-            self._add_item(item, lid)
+            self._add_item(item, lid, gopt)
             lyr_e = QgsProject.instance().mapLayer(lid)
             # В выгрузку идёт та же раскраска, что и на экране.
             # Ровный цвет слоя вместо шкалы делает файл нечитаемым:
             # все поверхности выходят одинаковыми пятнами.
+            # Прозрачность уходит в файл такой же, как на экране:
+            # сцену настраивают глазом, и разглядывать выгрузку
+            # человек будет так же.
             if exp_col is not None:
                 out_col = np.asarray(exp_col, dtype=float).copy()
-                out_col[:, 3] = 1.0
+                out_col[:, 3] = alpha
             else:
-                out_col = np.tile(np.array(color[:3] + (1.0,)),
+                out_col = np.tile(np.array(color[:3] + (alpha,)),
                                   (len(verts), 1))
             self._keep_for_export(
                 lyr_e.name() if lyr_e else "surface", verts, faces,
@@ -5711,7 +6055,19 @@ class ViewerDialog(QDialog):
             for bi, rec in enumerate(bodies):
                 by_layer.setdefault(rec[4], []).append((bi, rec))
             for lid_b, group in by_layer.items():
+                # Общая прозрачность зовётся «прозрачностью
+                # поверхностей» и к телам не относится: разрез
+                # не должен просвечивать оттого, что просвечивает
+                # поверхность над ним. У тела своя прозрачность,
+                # в свойствах его слоя.
+                o_b = self._opts.get(lid_b) or {}
+                alpha = 1.0 - float(
+                    o_b.get("lyr_opacity", 0) or 0) / 100.0
+                gopt = 'opaque' if alpha >= 0.999 else 'translucent'
+                # Копим и координаты сцены, и настоящие: сцена нужна
+                # для показа, выгрузке нужны настоящие.
                 allv, allf, allc, base = [], [], [], 0
+                allmap = []
                 for bi, (bverts, bfaces, bname, bcol, _bl) in group:
                     color = PALETTE[(len(meshes) + bi) % len(PALETTE)]
                     if bcol:
@@ -5720,8 +6076,9 @@ class ViewerDialog(QDialog):
                     v[:, 0] -= cx
                     v[:, 1] -= cy
                     v[:, 2] = ((v[:, 2] - cz) * vex
-                               + self._z_priority(lid_b, span_xy))
+                               + self._z_priority(lid_b, span_z))
                     allv.append(v)
+                    allmap.append(np.asarray(bverts, dtype=float))
                     allf.append(np.asarray(bfaces, dtype=np.int64)
                                 + base)
                     allc.append(np.tile(
@@ -5731,7 +6088,7 @@ class ViewerDialog(QDialog):
                 bv = np.vstack(allv).astype('float32')
                 bf = np.vstack(allf)
                 md = gl.MeshData(vertexes=bv, faces=bf)
-                md.setVertexColors(np.vstack(allc))
+                md.setVertexColors(self._shaded(np.vstack(allc), md))
                 prof.count("tris", len(bf)).count("verts", len(bv))
                 # Без затенения: цвет берётся из стиля слоя, и
                 # затенение его умножает, уводя оранжевый в бурый.
@@ -5739,11 +6096,11 @@ class ViewerDialog(QDialog):
                 # а совпадение с картой важнее.
                 item = gl.GLMeshItem(meshdata=md, smooth=False,
                                      shader=None, glOptions=gopt)
-                self._add_item(item, lid_b)
+                self._add_item(item, lid_b, gopt)
                 lyr_e = QgsProject.instance().mapLayer(lid_b)
                 self._keep_for_export(
-                    lyr_e.name() if lyr_e else "body", bv, bf,
-                    np.vstack(allc))
+                    lyr_e.name() if lyr_e else "body",
+                    np.vstack(allmap), bf, np.vstack(allc))
         self._clip_report(prof)
         if attr is not None:
             self._show_legend(attr[1], attr[2])
@@ -6000,7 +6357,7 @@ class ViewerDialog(QDialog):
                 P[:, 0] -= cx
                 P[:, 1] -= cy
                 P[:, 2] = ((P[:, 2] - cz) * vex
-                           + self._z_priority(lid_v, span_xy))
+                           + self._z_priority(lid_v, span_z))
                 for a, b in zip(P[:-1], P[1:]):
                     seg.append(a)
                     seg.append(b)
@@ -6027,7 +6384,7 @@ class ViewerDialog(QDialog):
                     lbl_cap = min(lbl_cap, int(n))
             for x, y, z, c, lid_v, psz, txt in vpoints:
                 p3 = (x - cx, y - cy, (z - cz) * vex
-                      + self._z_priority(lid_v, span_xy))
+                      + self._z_priority(lid_v, span_z))
                 by_layer.setdefault(lid_v, []).append((p3, c, psz))
                 if txt:
                     pt_labels.append((p3, txt))

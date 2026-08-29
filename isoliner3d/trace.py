@@ -18,6 +18,7 @@
 """
 
 import datetime
+import os
 import traceback
 
 _PATH = None
@@ -26,6 +27,41 @@ _NAME = "Isoliner3D"
 
 
 def path():
+    return _PATH
+
+
+def setup(folder=None, name="isoliner3d.log"):
+    """Завести журнал рядом с профилем QGIS.
+
+    Зовётся при загрузке плагина. Без этого путь пуст, и всё, что
+    модуль пишет, уходит в никуда: кнопка «Журнал» отвечает, что его
+    нет, и человеку нечего приложить к письму.
+
+    Папку можно задать снаружи - так проверки пишут в свою.
+    Возвращает путь либо пустую строку, если писать некуда: журнал
+    не должен мешать работе.
+    """
+    global _PATH
+    if folder is None:
+        try:
+            from qgis.core import QgsApplication
+            folder = QgsApplication.qgisSettingsDirPath()
+        except Exception:  # nosec
+            folder = ""
+    if not folder:
+        _PATH = None
+        return ""
+    try:
+        if not os.path.isdir(folder):
+            os.makedirs(folder)
+        _PATH = os.path.join(folder, name)
+        # Пробуем записать сразу: недоступную папку лучше узнать
+        # здесь, чем при первой ошибке, когда журнал и нужен.
+        with open(_PATH, "a", encoding="utf-8"):
+            pass
+    except Exception:  # nosec
+        _PATH = None
+        return ""
     return _PATH
 
 

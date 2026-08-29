@@ -49,6 +49,7 @@ v3.2.0`, домен codeload из контейнера доступен.
 | `plugin.py` | регистрация провайдера, пункт меню и кнопка тулбара, панель `Isoliner3D`. Пункт 3D добавляется только если `viewer3d.is_available()`, провайдер - всегда |
 | `provider.py` | провайдер Processing, id `isoliner3d` |
 | `algorithms.py` | две группы: «Пласт и блочная модель» (1.01-1.08) и «Объёмная интерполяция» (2.01-2.06). Хелперы, базовый класс `IsolinerAlgorithm`, список `ALGORITHMS` |
+| `about.py` | окно «О плагине»: версия, ссылки, история изменений, журнал |
 | `trace.py` | журнал сеанса, нужен базовому классу алгоритмов |
 | `texmesh.py` | текстура на поверхности: свой элемент сцены с шейдером, расчёт текстурных координат, рендер карты проекта |
 | `demo_map.py` | рисование проверочной карты для инструмента 1.08, чистый NumPy |
@@ -73,7 +74,8 @@ v3.2.0`, домен codeload из контейнера доступен.
 | `icon.svg`, `icon_3d.svg` | иконки панели и меню |
 | `libs/` | вложенные pyqtgraph 0.14.0 и PyOpenGL 3.1.10, заморожены |
 | `doc/` | `Isoliner3D.pdf` и `Isoliner3D_en.pdf`, открываются кнопкой Справка и кнопкой справки в диалогах инструментов |
-| `tests/` | двадцать восемь headless-наборов |
+| `tools/gen_tool_tables.py` | таблицы полей инструментов для руководства, разбором algorithms.py |
+| `tests/` | двадцать девять headless-наборов |
 | `LICENSE` | GPL-2.0-or-later |
 
 Вне папки модуля, в корне репозитория: `README.md` и `README.en.md`
@@ -251,7 +253,7 @@ LOW, все до одного B101 (`assert`) и все в `tests/`, котор�
 
 ## Тесты
 
-Двадцать восемь файлов, все headless, QGIS не требуется:
+Двадцать девять файлов, все headless, QGIS не требуется:
 
 ```
 python isoliner3d/tests/test_mesh3d.py
@@ -281,6 +283,7 @@ python isoliner3d/tests/test_cleanup.py
 python isoliner3d/tests/test_axes.py
 python isoliner3d/tests/test_glyphs.py
 python isoliner3d/tests/test_cadmesh.py
+python isoliner3d/tests/test_about.py
 python isoliner3d/tests/test_mba.py
 ```
 

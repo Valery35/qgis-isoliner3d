@@ -529,7 +529,7 @@ def test_export_keeps_the_ramp_colours():
     seg = src[i:i + 2200]
     assert seg.count("exp_col = vc") == 2, seg.count("exp_col = vc")
     assert "exp_col = None" in seg
-    assert "out_col[:, 3] = 1.0" in seg
+    assert "out_col[:, 3] = alpha" in seg
     # ровный цвет остаётся только там, где шкалы нет
     assert seg.index("exp_col = None") < seg.index("np.tile(")
 
@@ -652,6 +652,90 @@ def test_box_goes_to_the_export_as_lines():
     assert '"faces" in pt' in src[i:i + 260]
 
 
+def test_export_carries_the_scene_alpha():
+    """Прозрачность уходит в файл такой же, как на экране.
+
+    Сцену настраивают глазом, и разглядывать выгрузку человек будет
+    так же. Принудительно полная прозрачность превращала подобранный
+    вид в сплошную стену.
+    """
+    src = open(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "viewer_dialog.py"), encoding="utf-8").read()
+    scene = src[src.index("def _rebuild_scene"):]
+    assert "out_col[:, 3] = alpha" in scene
+    assert "out_col[:, 3] = 1.0" not in scene
+
+
+def test_glb_declares_blending_for_translucent():
+    """Полупрозрачная часть получает материал со смешиванием.
+
+    Прозрачность в цвете вершин просмотрщик не смотрит, пока материал
+    объявлен непрозрачным: в glTF за это отвечает alphaMode.
+    """
+    import numpy as np
+    from isoliner3d.gltf import build_glb
+    v = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    f = np.array([[0, 1, 2]], dtype=np.uint32)
+    solid = build_glb([{"name": "a", "verts": v, "faces": f,
+                        "colors": np.tile([1.0, 0, 0, 1.0], (3, 1))}])
+    assert b'"BLEND"' not in solid
+    soft = build_glb([{"name": "a", "verts": v, "faces": f,
+                       "colors": np.tile([1.0, 0, 0, 0.4], (3, 1))}])
+    assert b'"BLEND"' in soft
+
+
+def test_glb_keeps_one_material_when_all_solid():
+    """Лишних материалов не заводим: у непрозрачной сцены он один."""
+    import numpy as np
+    from isoliner3d.gltf import build_glb
+    v = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    f = np.array([[0, 1, 2]], dtype=np.uint32)
+    blob = build_glb([{"name": "a", "verts": v, "faces": f,
+                       "colors": np.tile([1.0, 0, 0, 1.0], (3, 1))}])
+    assert blob.count(b'"pbrMetallicRoughness"') == 1
+
+
+def test_export_keeps_map_coordinates():
+    """В выгрузку идут настоящие координаты, а не координаты сцены.
+
+    Сцена сдвигает вершины к середине и растягивает преувеличением.
+    Отдав такие вершины, получишь часть модели не на месте и в другом
+    масштабе, а преувеличение наложится дважды.
+    """
+    import re
+    src = open(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "viewer_dialog.py"), encoding="utf-8").read()
+    scene = src[src.index("def _rebuild_scene"):]
+    for m in re.finditer(r"self\._keep_for_export\(\s*\n?[^,]*,\s*\n?"
+                         r"\s*([\w]+), ([\w]+),", scene):
+        verts = m.group(1)
+        assert verts not in ("v", "bv"), (
+            "в выгрузку идут координаты сцены: %s" % verts)
+
+
+def test_decor_is_out_of_the_centring():
+    """Короб и подписи не участвуют в подсчёте середины.
+
+    Они лежат по краю охвата и тянут её на себя, а тела разлетаются
+    от неё. Подписи это полоски, то есть тоже грани, и по одному
+    признаку граней их от тел не отличить.
+    """
+    src = open(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "viewer_dialog.py"), encoding="utf-8").read()
+    i = src.index("zs_all = [")
+    seg = src[i:i + 320]
+    assert 'not pt.get("decor")' in seg, seg
+    # и то и другое помечено украшением
+    assert src.count('"decor": True') == 2
+    # в CAD украшение тоже не идёт: там нужны тела
+    j = src.index("def _write_cad_file")
+    body = src[j:src.index("def _write_glb_file", j)]
+    assert 'not pt.get("decor")' in body
+
+
 def test_export_vex_uses_one_centre():
     """Преувеличение в выгрузке считается от общей середины.
 
@@ -663,8 +747,8 @@ def test_export_vex_uses_one_centre():
     src = open(os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "viewer_dialog.py"), encoding="utf-8").read()
-    i = src.index("if keep_vex:")
-    seg = src[i:i + 700]
+    i = src.index("zs_all = [")
+    seg = src[i - 200:i + 900]
     assert "zc_all" in seg, seg[:400]
     # середина берётся один раз, до обхода частей
     assert seg.index("zc_all") < seg.index("for part in self._export")
