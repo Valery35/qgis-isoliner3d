@@ -455,6 +455,45 @@ def _write_grid_tiff(path, array, geotr, crs_wkt, nodata, nx, ny,
     ds = None
 
 
+class _JournalFeedback(object):
+    """Обёртка над feedback: те же строки уходят и в журнал плагина.
+
+    Строки расчёта видит только окно Processing, а журнал плагина знает
+    лишь имя инструмента и время. На удалённой машине это и вышло
+    боком: снимок журнала показывает, что инструмент отработал
+    за полсекунды, и ни одного числа, по которому видно, что он
+    посчитал. Каждый такой круг стоит отдельного визита.
+
+    Всё, кроме сообщений, форвардится в настоящий feedback: прогресс,
+    отмена и прочее остаются его делом.
+    """
+
+    def __init__(self, inner, trace):
+        self._inner = inner
+        self._trace = trace
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def _echo(self, mark, text):
+        try:
+            self._trace.data("%s%s" % (mark, text))
+        except Exception:  # nosec - журнал не должен мешать расчёту
+            pass
+
+    def pushInfo(self, text):
+        self._echo("", text)
+        return self._inner.pushInfo(text)
+
+    def pushWarning(self, text):
+        self._echo("ВНИМАНИЕ: ", text)
+        return self._inner.pushWarning(text)
+
+    def reportError(self, text, fatalError=False):
+        self._echo("ОШИБКА: ", text)
+        return self._inner.reportError(text, fatalError)
+
+
 class IsolinerAlgorithm(QgsProcessingAlgorithm):
     """Базовый класс инструментов Isoliner. Оборачивает расчёт журналом
     (trace): имя инструмента, параметры, время, а при сбое - трейсбек на диск
@@ -467,6 +506,7 @@ class IsolinerAlgorithm(QgsProcessingAlgorithm):
         trace.step("Инструмент: %s" % name)
         trace.data("Параметры: %s" % self._short_params(parameters))
         started = time.time()
+        feedback = _JournalFeedback(feedback, trace)
         try:
             result = self._process(parameters, context, feedback)
             trace.step("Готово за %.1f с" % (time.time() - started))
@@ -2466,7 +2506,8 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
                          float("nan"), nx, ny,
                          [self.tr("уровень %d") % (k + 1)
                           for k in range(nz)],
-                         meta={"Z0": "%.6f" % z0, "DZ": "%.6f" % cellz})
+                         meta={"Z0": "%.6f" % z0,
+                               "DZ": "%.6f" % cellz})
         return {"OUTPUT": out_path}
 
 
@@ -3013,6 +3054,42 @@ HINTS_2_05 = {
 }
 
 
+HINTS_2_08 = {
+    "INPUT": "Слой контуров на разрезах: полигоны с настоящими Z. "
+             "Положение разрезов берётся из самой геометрии, "
+             "по вершинам контура, и нигде не спрашивается. Плоский "
+             "чертёжный разрез не годится: у него X и Y это "
+             "координаты на листе, а отметок нет вовсе. Тип геометрии "
+             "должен быть PolygonZ или MultiPolygonZ.",
+    "FIELD": "Поле номера пласта. Каждый пласт даёт в гриде два "
+             "канала: кровлю и подошву.",
+    "ONLY": "Номер пласта, если нужен один. Пусто - все.",
+    "CELL": "Шаг грида по площади. Ноль берёт двухсотую долю охвата.",
+    "LEVELS": "Уровней в мультисеточном приближении. Мало уровней - "
+              "гладкая поверхность, много - она ближе к отметкам "
+              "на разрезах.",
+    "CONTACT": "Допуск, в пределах которого подошва верхнего пласта "
+               "и кровля нижнего считаются одной поверхностью и строятся "
+               "один раз. Две независимо построенные поверхности между "
+               "разрезами расходятся, и в модели встаёт щель или "
+               "нахлёст, которых на разрезе нет. Ноль отключает "
+               "склейку: тогда каждая поверхность своя.",
+    "MASK": "Слой полигонов, которым обрезается результат. За его "
+            "пределами грида не будет вовсе. Между разрезами данных "
+            "нет, и поверхность там идёт туда, куда её провела "
+            "интерполяция: маской задаётся, докуда этому верить. "
+            "Обычно это контур выработки, шурфа или подсчётного "
+            "блока. Пусто - грид на весь охват контуров.",
+    "MASK_BUFFER": "Запас наружу от маски. Пласт обычно продолжается "
+                   "за контур выработки, и обрезка ровно по нему "
+                   "срезала бы то, что есть в данных.",
+    "OUTPUT": "Многоканальный грид: на каждый пласт кровля и подошва, "
+              "в порядке номеров. Сцена показывает такой грид телом "
+              "пласта, 1.02 считает по нему мощность, 1.03 - блоки "
+              "и объёмы.",
+}
+
+
 class Mba3DAlgorithm(IsolinerAlgorithm):
     """MBA в объёме: куб значений мультисеточными B-сплайнами.
 
@@ -3163,9 +3240,13 @@ class Mba3DAlgorithm(IsolinerAlgorithm):
                 "уровней или начальную решётку."))
 
         pts = np.column_stack([xs, ys, zs])
+        # Тренд снимается: ошибка метода растёт вместе с величиной
+        # значения, а не с его разбросом. На содержаниях около двадцати
+        # процентов в середине пропуска выходило 20.26 при истинных
+        # 21.99, со снятым трендом 21.63.
         lat = mba.fit(pts, vals, lo=[x0, y0, z0], hi=[x1, y1, z1],
                       grid=(gx, gx, gz), levels=levels,
-                      tol=(tol if tol > 0 else None))
+                      tol=(tol if tol > 0 else None), center="plane")
         # Отчёт по уровням возвращает словари, а не строки: собираем
         # строку сами. По невязке видно, когда дробить пора прекратить -
         # если уровень её почти не уменьшил, дальше он ловит шум.
@@ -3211,6 +3292,423 @@ class Mba3DAlgorithm(IsolinerAlgorithm):
                          [self.tr("уровень %d") % (k + 1)
                           for k in range(nz)],
                          meta={"Z0": "%.6f" % z0, "DZ": "%.6f" % cellz})
+        return {"OUTPUT": out_path}
+
+
+class SectionsToBedAlgorithm(IsolinerAlgorithm):
+    """Грид пласта по контурам на разрезах.
+
+    У пласта есть кровля и подошва, и каждая из них - обычная
+    поверхность. Их и надо интерполировать, а не тело целиком:
+    в объёме между разрезами данных нет, и поле там остаётся нулевым,
+    а ноль в таком поле и есть граница. «Нет данных» и «здесь
+    граница» становятся одним и тем же значением, и тело не выходит
+    за плоскости разрезов.
+
+    Кровля и подошва интерполируются по площади - это задача,
+    у которой решение есть при любой сети разрезов.
+    """
+
+    def name(self):
+        return "sections_to_bed"
+
+    def displayName(self):
+        return self.tr("2.08 Пласты по разрезам")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def createInstance(self):
+        return SectionsToBedAlgorithm()
+
+    def shortHelpString(self):
+        return self.tr(
+            "Строит грид пластов по контурам, нарисованным "
+            "на разрезах.\n\n"
+            "Каждое кольцо идёт по кровле вперёд и по подошве назад, "
+            "поэтому из него берутся две поверхности. Они "
+            "интерполируются по площади мультисеточными B-сплайнами, "
+            "и пространство между разрезами заполняется.\n\n"
+            "Положение разрезов в пространстве берётся из самой "
+            "геометрии, по вершинам контуров. Задавать линии разрезов "
+            "отдельно не надо. Плоский чертёжный разрез не годится: "
+            "у него нет настоящих отметок.\n\n"
+            "На выходе многоканальный грид: на каждый пласт кровля "
+            "и подошва. Такой грид сцена показывает телом пласта, "
+            "а 1.02 и 1.03 считают по нему мощность, блоки "
+            "и объёмы.\n\n"
+            "Подошва верхнего пласта и кровля нижнего это одна "
+            "граница, если геолог провёл их одной линией. Такая "
+            "граница строится один раз по обоим наборам точек: "
+            "построенные порознь, они между разрезами расходятся, "
+            "и в модели встаёт щель или нахлёст, которых на разрезе "
+            "нет. Порог склейки задаётся допуском.\n\n"
+            "Маска области обрезает результат: между разрезами "
+            "данных нет, и ею задаётся, докуда поверхностям верить.\n\n"
+            "Между разрезами поверхность идёт так, как её провела "
+            "интерполяция: данных там нет. Где разрезы пересекаются, "
+            "отметки на них должны сойтись. Расхождения считаются "
+            "и печатаются в журнал вместе с координатами места, где "
+            "они наибольшие: с одним числом искать съехавшую вершину "
+            "негде.")
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "INPUT", self.tr("Контуры на разрезах (полигоны с Z)"),
+            [QgsProcessing.SourceType.TypeVectorPolygon]))
+        self.addParameter(QgsProcessingParameterField(
+            "FIELD", self.tr("Поле номера пласта"),
+            parentLayerParameterName="INPUT", optional=True))
+        self.addParameter(QgsProcessingParameterString(
+            "ONLY", self.tr("Только этот пласт (пусто - все)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            "CELL", self.tr("Шаг грида, м (0 - от данных)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=0.0, minValue=0.0))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "LEVELS", self.tr("Уровней"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=7, minValue=1, maxValue=12)))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "CONTACT", self.tr("Допуск склейки контактов, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=0.01, minValue=0.0)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "MASK", self.tr("Маска области (полигоны, необязательно)"),
+            [QgsProcessing.SourceType.TypeVectorPolygon],
+            optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            "MASK_BUFFER", self.tr("Запас наружу от маски, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=0.0, minValue=0.0)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            "OUTPUT", self.tr("Грид пластов")))
+        _hints(self, HINTS_2_08)
+
+    def _mask_rings(self, src, crs, buffer_m, context, feedback):
+        """Кольца маски в системе координат результата.
+
+        Слой маски человек берёт какой есть, и его система координат
+        не обязана совпадать с системой контуров. Пересчёт делается
+        здесь, иначе маска ляжет мимо грида и обрежет всё подчистую.
+        """
+        from qgis.core import (QgsCoordinateTransform, QgsProject,
+                               QgsFeatureRequest)
+        if src is None:
+            return []
+        tr_ = None
+        s_crs = src.sourceCrs()
+        if (crs is not None and s_crs is not None and s_crs.isValid()
+                and crs.isValid() and s_crs != crs):
+            tr_ = QgsCoordinateTransform(s_crs, crs,
+                                         QgsProject.instance())
+        rings, n_ft = [], 0
+        for ft in src.getFeatures(QgsFeatureRequest()):
+            if feedback.isCanceled():
+                break
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            if tr_ is not None:
+                g = QgsGeometry(g)
+                if g.transform(tr_) != 0:
+                    continue
+            if buffer_m > 0:
+                g = g.buffer(float(buffer_m), 8)
+            n_ft += 1
+            for poly in (g.asMultiPolygon() if g.isMultipart()
+                         else [g.asPolygon()]):
+                for ring in poly or []:
+                    if len(ring) >= 3:
+                        rings.append([(float(p.x()), float(p.y()))
+                                      for p in ring])
+        if n_ft and not rings:
+            feedback.pushWarning(self.tr(
+                "Маска не дала ни одного кольца, обрезки не будет."))
+        return rings
+
+    def _rings(self, src, field, only, feedback):
+        """Кольца контуров с номером пласта, из геометрии как есть."""
+        from qgis.core import QgsFeatureRequest
+        no_check = getattr(
+            getattr(QgsFeatureRequest, "InvalidGeometryCheck",
+                    QgsFeatureRequest), "GeometryNoCheck", None)
+        setter = getattr(src, "setInvalidGeometryCheck", None)
+        if no_check is not None and setter is not None:
+            setter(no_check)
+        out, n_flat = [], 0
+        for ft in src.getFeatures():
+            if feedback.isCanceled():
+                break
+            bed = ""
+            if field:
+                try:
+                    bed = str(ft[field])
+                except (KeyError, IndexError):
+                    bed = ""
+            if only and bed != only:
+                continue
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            root = g.constGet()
+            if root is None:
+                continue
+            try:
+                n_part = root.numGeometries()
+            except AttributeError:
+                n_part = 1
+            for pi in range(n_part):
+                try:
+                    cg = root.geometryN(pi) if n_part > 1 else root
+                except AttributeError:
+                    cg = root
+                ring = getattr(cg, "exteriorRing", lambda: None)()
+                if ring is None:
+                    continue
+                pts = np.array(
+                    [(ring.xAt(k), ring.yAt(k), ring.zAt(k))
+                     for k in range(ring.numPoints())], dtype=float)
+                if len(pts) < 4:
+                    continue
+                if not np.isfinite(pts).all():
+                    n_flat += 1
+                    continue
+                out.append((bed, pts))
+        if n_flat:
+            feedback.pushWarning(self.tr(
+                "Контуров без высоты: %d, они пропущены. Разрез должен "
+                "быть трёхмерным: у чертёжного разреза настоящих "
+                "отметок нет.") % n_flat)
+        return out
+
+    def _process(self, parameters, context, feedback):
+        from . import mba, section3d
+
+        src = self.parameterAsSource(parameters, "INPUT", context)
+        field = self.parameterAsString(parameters, "FIELD", context)
+        only = (self.parameterAsString(parameters, "ONLY",
+                                       context) or "").strip()
+        cell = self.parameterAsDouble(parameters, "CELL", context)
+        levels = self.parameterAsInt(parameters, "LEVELS", context)
+        contact = self.parameterAsDouble(parameters, "CONTACT",
+                                         context)
+        out_path = self.parameterAsOutputLayer(parameters, "OUTPUT",
+                                               context)
+
+        rings = self._rings(src, field, only, feedback)
+        if not rings:
+            raise QgsProcessingException(self.tr(
+                "Контуров с высотой не нашлось."))
+        beds = sorted({b for b, _p in rings})
+        feedback.pushInfo(self.tr("Контуров: %d, пластов: %d.")
+                          % (len(rings), len(beds)))
+
+        allp = np.vstack([p for _b, p in rings])
+        x0, x1 = float(allp[:, 0].min()), float(allp[:, 0].max())
+        y0, y1 = float(allp[:, 1].min()), float(allp[:, 1].max())
+        span = max(x1 - x0, y1 - y0, 1.0)
+        if cell <= 0:
+            cell = span / 200.0
+            feedback.pushInfo(self.tr("Шаг грида от данных: %.1f м.")
+                              % cell)
+        nx = max(int(np.ceil((x1 - x0) / cell)), 2)
+        ny = max(int(np.ceil((y1 - y0) / cell)), 2)
+        gt = (x0, cell, 0.0, y0 + ny * cell, 0.0, -cell)
+        # Решётка начинается ГРУБОЙ и удваивается. Начав мелкой,
+        # оставишь между разрезами ячейки без единой точки, и там
+        # поверхность повиснет.
+        feedback.pushInfo(self.tr(
+            "Грид %d x %d, ячейка %.1f м, уровней %d.")
+            % (nx, ny, cell, levels))
+
+        # Пласты разбираются все разом, а сшивка контактов решается
+        # до интерполяции: подошва верхнего и кровля нижнего это одна
+        # поверхность, если геолог провёл их одной линией.
+        picked = []
+        for bed in beds:
+            if feedback.isCanceled():
+                break
+            own = [p for b, p in rings if b == bed]
+            top, bot, whose = section3d.roof_and_floor(own, with_ring=True)
+            n_plane = len(set(whose.tolist()))
+            if n_plane and n_plane < len(own):
+                # Линза или пропласток, нарисованный внутри пласта тем же
+                # номером. Опрашивая такие кольца порознь, в облаке кровли
+                # получаешь два разных ответа в одной точке.
+                feedback.pushInfo(self.tr(
+                    "Пласт %s: контуров %d на %d плоскостях разреза. "
+                    "Вложенные контуры разобраны по внешней границе: "
+                    "кровля по самому верхнему, подошва по самому "
+                    "нижнему.") % (bed or "-", len(own), n_plane))
+            if not len(top):
+                feedback.pushWarning(self.tr(
+                    "Пласт %s: кровлю и подошву не разобрать.")
+                    % (bed or "-"))
+                continue
+            thick = top[:, 2] - bot[:, 2]
+            feedback.pushInfo(self.tr(
+                "Пласт %s: точек %d, мощность на разрезах "
+                "%.2f .. %.2f м.")
+                % (bed or "-", len(top), float(thick.min()),
+                   float(thick.max())))
+            picked.append({"bed": bed, "top": top, "bot": bot,
+                           "whose": whose,
+                           "thin": float(thick.min())})
+        if not picked:
+            raise QgsProcessingException(self.tr(
+                "Ни одного пласта не построено."))
+
+        # Порядок пластов - по глубине залегания, а не по имени поля.
+        # Номера бывают текстом, и «10» тогда встаёт между «1» и «2»,
+        # а контакт ищется между соседями по разрезу, не по алфавиту.
+        picked.sort(key=lambda d: -float(np.median(d["top"][:, 2])))
+        if len(picked) > 1:
+            feedback.pushInfo(self.tr("Порядок пластов сверху вниз: %s.")
+                              % ", ".join(str(d["bed"] or "-")
+                                          for d in picked))
+
+        # Контакты: подошва верхнего и кровля нижнего сводятся в одну
+        # поверхность, если на разрезах они совпали в пределах допуска.
+        # Иначе две независимо построенные поверхности расходятся между
+        # разрезами, и в модели между пластами появляется щель или
+        # нахлёст, которых на разрезе нет.
+        for up, low in zip(picked, picked[1:]):
+            snap = max(section3d.sample_step(up["bot"]), cell)
+            joint = np.vstack([up["bot"], low["top"]])
+            side = np.concatenate([np.zeros(len(up["bot"])),
+                                   np.ones(len(low["top"]))])
+            places, worst, where = section3d.crossing_spread(
+                joint, joint[:, 2], snap=snap, owner=side)
+            if not places:
+                # Молчать здесь нельзя: человек ждёт склейки, её нет,
+                # и причина именно та, о которой он не догадается -
+                # контуры соседних пластов нарисованы в разных местах
+                # плана, и общих проб у них не нашлось вовсе.
+                feedback.pushWarning(self.tr(
+                    "Контакт пластов %s и %s: общих мест не нашлось, "
+                    "поверхности строятся порознь. Контуры нарисованы "
+                    "в разных местах плана дальше шага опробования.")
+                    % (up["bed"] or "-", low["bed"] or "-"))
+                continue
+            feedback.pushInfo(self.tr(
+                "Контакт пластов %s и %s: на разрезах расходится "
+                "до %.3f м, наибольшее в точке %.2f, %.2f.")
+                % (up["bed"] or "-", low["bed"] or "-", worst,
+                   where[0], where[1]))
+            if worst <= contact:
+                up["glue"] = low["glue_top"] = joint
+                feedback.pushInfo(self.tr(
+                    "Контакт пластов %s и %s строится одной "
+                    "поверхностью: расхождение в пределах допуска "
+                    "%.3f м.") % (up["bed"] or "-", low["bed"] or "-",
+                                  contact))
+            else:
+                feedback.pushWarning(self.tr(
+                    "Контакт пластов %s и %s больше допуска %.3f м, "
+                    "поверхности строятся порознь. Между разрезами "
+                    "они разойдутся, и в модели встанет щель или "
+                    "нахлёст.") % (up["bed"] or "-", low["bed"] or "-",
+                                   contact))
+
+        made = {}
+
+        def _surface(pts, key):
+            """Поверхность по точкам, с кэшем по ключу склейки."""
+            if key is not None and key in made:
+                return made[key]
+            # Тренд снимается: без этого ошибка растёт вместе
+            # с самой отметкой, а не с её разбросом.
+            lat = mba.fit(pts[:, :2], pts[:, 2],
+                          lo=[x0, y0], hi=[x1, y1],
+                          grid=(2, 2), levels=levels, center="plane")
+            out = mba.surface_on_grid(lat, gt, nx, ny)
+            if key is not None:
+                made[key] = out
+            return out
+
+        bands, names = [], []
+        for bi, d in enumerate(picked):
+            if feedback.isCanceled():
+                break
+            bed, thin = d["bed"], d["thin"]
+            surf = []
+            for tag, which in ((self.tr("кровля"), "top"),
+                               (self.tr("подошва"), "bot")):
+                pts = d[which]
+                snap = max(section3d.sample_step(pts), cell)
+                places, worst, where = section3d.crossing_spread(
+                    pts, pts[:, 2], snap=snap, owner=d["whose"])
+                if places:
+                    feedback.pushInfo(self.tr(
+                        "Пласт %s, %s: разрезы сошлись не меньше чем "
+                        "в %d местах, отметки расходятся до %.2f м, "
+                        "наибольшее в точке %.2f, %.2f.")
+                        % (bed or "-", tag, places, worst,
+                           where[0], where[1]))
+                    if worst >= thin:
+                        feedback.pushWarning(self.tr(
+                            "Пласт %s, %s: расхождение больше "
+                            "наименьшей мощности пласта. "
+                            "Интерполяция усреднит его молча, "
+                            "и модель выйдет правдоподобной "
+                            "и неверной.") % (bed or "-", tag))
+                key = None
+                if which == "bot" and d.get("glue") is not None:
+                    pts, key = d["glue"], id(d["glue"])
+                elif which == "top" and d.get("glue_top") is not None:
+                    pts, key = d["glue_top"], id(d["glue_top"])
+                surf.append(_surface(pts, key))
+                names.append(self.tr("%s пласта %s") % (tag, bed or "-"))
+            bands.extend(surf)
+            m = surf[0] - surf[1]
+            fin = m[np.isfinite(m)]
+            if fin.size:
+                feedback.pushInfo(self.tr(
+                    "Пласт %s: мощность по площади %.2f .. %.2f м.")
+                    % (bed or "-", float(fin.min()), float(fin.max())))
+                if float(fin.min()) < 0:
+                    feedback.pushWarning(self.tr(
+                        "Пласт %s: местами подошва выше кровли. Там "
+                        "мощность отрицательна, и объём по ней "
+                        "считать нельзя.") % (bed or "-"))
+            feedback.setProgress(90.0 * (bi + 1) / max(len(picked), 1))
+
+        if not bands:
+            raise QgsProcessingException(self.tr(
+                "Ни одного пласта не построено."))
+        crs = src.sourceCrs()
+        mask_src = self.parameterAsSource(parameters, "MASK", context)
+        mask_buf = self.parameterAsDouble(parameters, "MASK_BUFFER",
+                                          context)
+        mrings = self._mask_rings(mask_src, crs, mask_buf, context,
+                                  feedback)
+        if mrings:
+            from .mesh3d import polygon_mask
+            keep = polygon_mask(mrings, gt, (ny, nx))
+            n_keep = int(keep.sum())
+            if not n_keep:
+                raise QgsProcessingException(self.tr(
+                    "Маска не накрыла ни одной ячейки грида. Обычно "
+                    "это разные системы координат у маски и "
+                    "у контуров либо маска в стороне от участка."))
+            bands = [np.where(keep, b, np.nan) for b in bands]
+            feedback.pushInfo(self.tr(
+                "Обрезано маской: осталось %.1f процента ячеек. "
+                "За её пределами грида нет: между разрезами данных "
+                "нет, и маской задано, докуда поверхности верить.")
+                % (100.0 * n_keep / float(nx * ny)))
+        _write_grid_tiff(out_path, bands, gt,
+                         crs.toWkt() if crs is not None else "",
+                         float("nan"), nx, ny, names)
+        feedback.pushInfo(self.tr(
+            "Каналов: %d, по кровле и подошве на пласт. Сцена "
+            "показывает такой грид телом пласта, 1.02 и 1.03 считают "
+            "по нему мощность, блоки и объёмы.") % len(bands))
         return {"OUTPUT": out_path}
 
 
@@ -4006,6 +4504,7 @@ ALGORITHMS = [
     Demo3DPointsAlgorithm,
     Interp3DAlgorithm,
     Mba3DAlgorithm,
+    SectionsToBedAlgorithm,
     CubeToBlocksAlgorithm,
     CubeVoxelBodyAlgorithm,
     CrossValidateAlgorithm,

@@ -830,6 +830,149 @@ def test_edge_smoothing_is_set_on_the_widget():
     assert "QSurfaceFormat.setDefaultFormat" not in src
 
 
+def test_mask_clip_is_in_the_scene():
+    """Обрезка растровой маской задаётся на сцену, а не слою.
+
+    Полигон задаёт границу линией, а маска - площадью: так удобнее,
+    когда границу посчитал инструмент.
+    """
+    src = _viewer_src()
+    for name in ("self.mask_lyr", "self.mask_level",
+                 "def _mask_array"):
+        assert name in src, name
+    start = src.index("def _z_kept")
+    body = src[start:src.index("def _mask_array", start)]
+    assert "mask_keep(xs, ys, ma, mg" in body
+    # маска сохраняется в проект, как прочая обрезка
+    save = src[src.index('"opts": self._opts,'):]
+    save = save[:save.index("QgsProject.instance().writeEntry")]
+    assert '"mask_lyr"' in save and '"mask_level"' in save
+
+
+def test_fence_cuts_through_every_bed():
+    """Забор это разрез сквозь всю пачку, а не поверхность на линии.
+
+    Прежний переключатель менял режим слоя на стенку - полотнище,
+    натянутое на ОДНУ поверхность. Забор же показывает все пласты
+    сразу, с их кровлями и подошвами.
+    """
+    src = _viewer_src()
+    scene = src[src.index("def _rebuild_scene"):]
+    assert "from .slice3d import fence_mesh" in scene
+    i = scene.index("fence_mesh(pairs, gt, ln)")
+    body = scene[max(0, i - 1200):i + 200]
+    assert "for b in range(first, n_band, 2)" in body
+    assert "self.fence_all.isChecked()" in body
+    # прежняя подмена режима на стенку убрана
+    assert 'mode = "wall"' not in scene
+
+
+def test_clip_mismatch_is_named():
+    """Полигон с коридором и линия с внутренностью - обе не режут.
+
+    Молча они дают несрезанную сцену, и человек ищет причину
+    в данных.
+    """
+    src = _viewer_src()
+    i = src.index("def _clip_ctx")
+    body = src[i:i + 1400]
+    assert 'side == "corridor" and rings and not lines' in body
+    assert 'side != "corridor" and lines and not rings' in body
+
+
+def test_fence_is_a_scene_switch():
+    """Заборы задаются на всю сцену, а не слою за слоем.
+
+    Обрезка общая, и разрез по той же линии тоже общий: задавать
+    его каждому слою значит просить одно и то же по многу раз.
+    """
+    src = _viewer_src()
+    assert "self.fence_all" in src
+    scene = src[src.index("def _rebuild_scene"):]
+    i = scene.index("fence_mesh(pairs, gt, ln)")
+    body = scene[max(0, i - 1500):i]
+    assert "self.fence_all.isChecked()" in body
+    assert "clip_lines" in body
+
+
+def test_gradient_background_is_on_by_default():
+    """Градиентный фон стоит по умолчанию и переживает пересборку.
+
+    Фон живёт в самом виде, а не в сцене, и терялся на любом пути,
+    который вид пересоздавал: сцена собиралась, градиент пропадал,
+    и человеку приходилось снимать и ставить флажок.
+    """
+    src = _viewer_src()
+    i = src.index("self.bg_grad = QCheckBox")
+    assert "self.bg_grad.setChecked(True)" in src[i:i + 400]
+    assert 'state.get("bg_grad", True)' in src
+    rb = src.index("def _rebuild_scene")
+    assert "self._bg_apply()" in src[rb:rb + 60000]
+
+
+def test_shells_button_takes_the_bed_body_too():
+    """Кнопка оболочек принимает и тело пласта, не только изоповерхность.
+
+    Меш тела в сцене уже строится, а разбор на связные тела, объём
+    и запись MultiPolygonZ лежат в той же функции. Отдавать надо
+    своё построение: у показанного тела вертикаль растянута,
+    и объём у него неверен во столько же раз.
+    """
+    src = _viewer_src()
+    i = src.index("def _shells_to_layer")
+    body = src[i:i + 3000]
+    assert "_bed_meshes(lyr, o)" in body
+    assert 'mode == "iso"' in body
+    i2 = src.index("def _bed_meshes")
+    made = src[i2:i2 + 2600]
+    assert "zscale=1.0" in made and "zoffset=0.0" in made
+    assert "step=1" in made, "выгрузка идёт полной сеткой, без прореживания"
+    assert "_clip_for_layer" in made, "обрезка та же, что в сцене"
+
+
+def test_cube_modes_refuse_a_bed_grid():
+    """Грид пласта кубовым режимам не годится, и сцена это говорит.
+
+    Каналы куба - уровни по Z, и разметку по Z пишут все инструменты
+    куба. У грида пласта её нет: каналы там кровля и подошва,
+    а значения - абсолютные отметки. Считая их уровнями от нуля
+    с шагом единица, сцена рисовала параллелепипед у нулевой отметки,
+    ниже всех объектов, и по нему делали вывод о модели.
+    """
+    src = _viewer_src()
+    i = src.index("def _cube_arrays")
+    body = src[i:i + 4000]
+    assert '"Z0" not in meta' in body
+    assert "кровля" in body and "подошва" in body
+    # отказ, а не молчаливый отсчёт от нуля
+    assert "return None, None, 0.0, 1.0" in body
+    assert "«Тело" in body, "надо назвать годный режим"
+
+
+def test_bed_body_shows_every_pair():
+    """Тело пласта строится по всем парам каналов, а не по первой.
+
+    Режим брал каналы 1 и 2 жёстко, и переключатели каналов на него
+    не действовали вовсе. У грида из 2.08 на каждый пласт своя пара,
+    и виден был только верхний.
+    """
+    src = _viewer_src()
+    i = src.index("as_bed = (mode ==")
+    body = src[i:i + 5200]
+    assert "for pi, (b_top, b_bot) in enumerate(pairs):" in body
+    assert "_read_raster(lyr.source(), 1, prof)" not in body
+    # пары строятся через один канал: кровля, подошва, кровля...
+    assert "for b in range(first, n_band, 2)" in body
+
+
+def test_bed_body_honours_the_chosen_band():
+    """Заданный канал высот берётся как начало пары, а не игнорируется."""
+    src = _viewer_src()
+    i = src.index("as_bed = (mode ==")
+    body = src[i:i + 5200]
+    assert 'o.get("zband"' in body
+
+
 def test_bodies_have_their_own_transparency():
     """Общая прозрачность к телам не относится.
 
@@ -1616,7 +1759,7 @@ def test_surface_clipping_is_in_scene_properties():
     по площади, а отметка плоская.
     """
     src = _viewer_src()
-    assert 'f2.addRow(tr("По поверхностям"), srow)' in src
+    assert 'f2.addRow(tr("Сверху и снизу (растры)"), srow)' in src
     assert "srow.addWidget(self.zs_top)" in src
     assert "srow.addWidget(self.zs_bot)" in src
     # списки наполняются растрами проекта
@@ -2921,8 +3064,8 @@ def test_shells_export_refuses_a_wrong_layer():
         src = fh.read()
     start = src.index("def _shells_to_layer")
     body = src[start:src.index("\n    def ", start + 20)]
-    assert 'tr("Выберите в списке слой-куб.")' in body
-    assert 'tr("Слой не в режиме изоповерхности.")' in body
+    assert "Выберите в списке слой" in body
+    assert 'не в режиме изоповерхности или тела пласта' in body
 
 
 def test_cap_treats_gaps_as_outside():

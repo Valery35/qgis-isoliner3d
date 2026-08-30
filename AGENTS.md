@@ -67,6 +67,7 @@ v3.2.0`, домен codeload из контейнера доступен.
 | `glyphs.py` | чертёжные цифры: штрихи знаков, полоски вместо линий, размер по оси |
 | `mba.py` | мультисеточные B-сплайны: решётки уровней, оценка в объёме, края значений |
 | `cadmesh.py` | запись в STL и OBJ, двоичная сборка геометрии |
+| `section3d.py` | опробование контуров на разрезах знаком, расхождения на пересечениях |
 | `cleanup.py` | чистка поверхности: сглаживание с закреплённым краем, отброс мелких кусков |
 | `voxel.py` | воксельная модель куба: отбрасывание невидимых граней, слияние в прямоугольники, защипы по ребру |
 | `demo3d.py` | модель демонстрационной залежи и разбуривание: три типа тела, опробование интервалами, логнормальный шум |
@@ -75,7 +76,7 @@ v3.2.0`, домен codeload из контейнера доступен.
 | `libs/` | вложенные pyqtgraph 0.14.0 и PyOpenGL 3.1.10, заморожены |
 | `doc/` | `Isoliner3D.pdf` и `Isoliner3D_en.pdf`, открываются кнопкой Справка и кнопкой справки в диалогах инструментов |
 | `tools/gen_tool_tables.py` | таблицы полей инструментов для руководства, разбором algorithms.py |
-| `tests/` | двадцать девять headless-наборов |
+| `tests/` | тридцать headless-наборов |
 | `LICENSE` | GPL-2.0-or-later |
 
 Вне папки модуля, в корне репозитория: `README.md` и `README.en.md`
@@ -253,7 +254,7 @@ LOW, все до одного B101 (`assert`) и все в `tests/`, котор�
 
 ## Тесты
 
-Двадцать девять файлов, все headless, QGIS не требуется:
+Тридцать файлов, все headless, QGIS не требуется:
 
 ```
 python isoliner3d/tests/test_mesh3d.py
@@ -284,6 +285,7 @@ python isoliner3d/tests/test_axes.py
 python isoliner3d/tests/test_glyphs.py
 python isoliner3d/tests/test_cadmesh.py
 python isoliner3d/tests/test_about.py
+python isoliner3d/tests/test_section3d.py
 python isoliner3d/tests/test_mba.py
 ```
 

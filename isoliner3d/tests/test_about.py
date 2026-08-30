@@ -120,6 +120,22 @@ def test_log_setup_writes_a_file():
     assert trace.setup("") == ""
 
 
+def test_every_menu_item_has_its_own_icon():
+    """У каждого пункта меню свой значок.
+
+    Одинаковые значки в меню неразличимы, и человек жмёт наугад.
+    Отличаться они должны формой, а не только цветом: в меню значки
+    мелкие.
+    """
+    import re
+    src = open(os.path.join(PKG, "plugin.py"), encoding="utf-8").read()
+    used = re.findall(r"QAction\((\w+),", src)
+    assert len(used) >= 3, used
+    assert len(set(used)) == len(used), "значки повторяются: %s" % used
+    for name in ("icon.svg", "icon_about.svg", "icon_help.svg"):
+        assert os.path.isfile(os.path.join(PKG, name)), name
+
+
 def test_menu_item_is_wired():
     """Пункт меню заведён и не роняет интерфейс при ошибке."""
     src = open(os.path.join(PKG, "plugin.py"), encoding="utf-8").read()

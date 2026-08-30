@@ -352,6 +352,174 @@ def test_clamp_refuses_swapped_bounds():
     raise AssertionError("перепутанные границы приняты молча")
 
 
+def test_fit_in_batches_gives_the_same_answer():
+    """Счёт порциями даёт тот же ответ, что и целиком.
+
+    Каждая точка разворачивается в шестьдесят четыре узла носителя,
+    и на них заводится несколько массивов: миллион точек это два
+    гигабайта разом. QGIS падает раньше, чем NumPy успевает сказать
+    «нет памяти».
+    """
+    rs = np.random.RandomState(7)
+    pts = rs.uniform(0, 100, (4000, 3))
+    vals = np.sin(pts[:, 0] / 20.0) + pts[:, 2] / 50.0
+    a = mba.fit(pts, vals, lo=[0, 0, 0], hi=[100, 100, 100],
+                grid=(4, 4, 4), levels=3, batch=10 ** 9)
+    b = mba.fit(pts, vals, lo=[0, 0, 0], hi=[100, 100, 100],
+                grid=(4, 4, 4), levels=3, batch=250)
+    at = np.array([[10.0, 20.0, 30.0], [55.0, 5.0, 95.0]])
+    assert np.allclose(mba.evaluate(a, at), mba.evaluate(b, at),
+                       atol=1e-9)
+
+
+def test_batch_bounds_the_working_arrays():
+    """Порция ограничивает разом занятую память, а не число точек."""
+    src = open(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "mba.py"), encoding="utf-8").read()
+    i = src.index("def fit(self, pts, vals")
+    body = src[i:src.index("\n    def ", i + 20)]
+    assert "batch" in body
+    assert "for start in range(" in body
+    # накопители заводятся один раз, а не на каждую порцию
+    assert body.index("num = np.zeros(") < body.index("for start in range(")
+
+
+def test_grid_evaluation_matches_scattered():
+    """Счёт по сетке даёт то же, что и счёт по отдельным точкам.
+
+    На правильной сетке веса разделяются по осям, и считать можно
+    по одной оси за раз. Ответ обязан совпасть до последнего знака -
+    иначе это уже другой расчёт, а не тот же быстрее.
+    """
+    rs = np.random.RandomState(11)
+    pts = rs.uniform(0, 100, (2000, 3))
+    vals = np.sin(pts[:, 0] / 30.0) + pts[:, 2] / 40.0
+    lat = mba.fit(pts, vals, lo=[0, 0, 0], hi=[100, 100, 100],
+                  grid=(4, 4, 4), levels=3)
+    ax = [np.linspace(2, 98, 7), np.linspace(1, 99, 5),
+          np.linspace(3, 97, 4)]
+    fast = mba.evaluate_grid(lat, ax)
+    mesh = np.meshgrid(*ax, indexing="ij")
+    slow = mba.evaluate(lat, np.column_stack(
+        [m.ravel() for m in mesh])).reshape(fast.shape)
+    assert np.allclose(fast, slow, atol=1e-9), np.abs(fast - slow).max()
+
+
+def test_grid_evaluation_handles_the_edges():
+    """У самого края сетки ответ тот же: там веса обрезаются."""
+    rs = np.random.RandomState(12)
+    pts = rs.uniform(0, 10, (500, 3))
+    lat = mba.fit(pts, pts[:, 0], lo=[0, 0, 0], hi=[10, 10, 10],
+                  grid=(2, 2, 2), levels=2)
+    ax = [np.array([0.0, 10.0]), np.array([0.0, 5.0, 10.0]),
+          np.array([0.0, 10.0])]
+    fast = mba.evaluate_grid(lat, ax)
+    mesh = np.meshgrid(*ax, indexing="ij")
+    slow = mba.evaluate(lat, np.column_stack(
+        [m.ravel() for m in mesh])).reshape(fast.shape)
+    assert np.allclose(fast, slow, atol=1e-9)
+
+
+def test_error_grows_with_the_offset_without_centering():
+    """Без снятия тренда ошибка масштабируется самой величиной значения.
+
+    Формула коэффициента линейна по значению, поэтому один и тот же
+    набор, сдвинутый на тысячу, даёт ошибку в тысячу раз большую.
+    Это и есть причина горбов на отметках кровли.
+    """
+    rs = np.random.RandomState(3)
+    pts = rs.uniform(0, 100, (200, 2))
+    pts = pts[np.hypot(pts[:, 0] - 50, pts[:, 1] - 50) > 25]   # дыра
+    base = 0.01 * pts[:, 0]
+    probe = np.array([[50.0, 50.0]])
+
+    plain = mba.evaluate(mba.fit(pts, base, lo=[0, 0], hi=[100, 100],
+                                 grid=(2, 2), levels=5), probe)[0]
+    moved = mba.evaluate(mba.fit(pts, base + 1000.0, lo=[0, 0],
+                                 hi=[100, 100], grid=(2, 2), levels=5),
+                         probe)[0] - 1000.0
+    assert abs(moved - plain) > 1.0, (plain, moved)
+
+    fixed = mba.evaluate(mba.fit(pts, base + 1000.0, lo=[0, 0],
+                                 hi=[100, 100], grid=(2, 2), levels=5,
+                                 center="plane"), probe)[0] - 1000.0
+    ref = mba.evaluate(mba.fit(pts, base, lo=[0, 0], hi=[100, 100],
+                               grid=(2, 2), levels=5,
+                               center="plane"), probe)[0]
+    assert abs(fixed - ref) < 1e-6, (ref, fixed)
+
+
+def test_centering_returns_absolute_values():
+    """Снятый тренд возвращается в решётку, а не остаётся у вызывающего.
+
+    Оценка в точке и грид обязаны давать абсолютные значения: иначе
+    каждый вызов должен помнить о поправке, и однажды кто-нибудь
+    забудет.
+    """
+    rs = np.random.RandomState(5)
+    pts = rs.uniform(0, 50, (300, 2))
+    vals = -250.0 + 0.01 * pts[:, 0] - 0.005 * pts[:, 1]
+    lat = mba.fit(pts, vals, lo=[0, 0], hi=[50, 50], grid=(2, 2),
+                  levels=4, center="plane")
+    got = mba.evaluate(lat, pts)
+    assert np.allclose(got, vals, atol=1e-6)
+
+
+def test_a_plane_is_reproduced_by_the_trend_alone():
+    """Плоскость решётка воспроизводит точно, одним нулевым уровнем."""
+    pts = np.array([[0.0, 0.0], [10.0, 0.0], [0.0, 8.0], [10.0, 8.0],
+                    [5.0, 4.0]])
+    vals = 3.0 + 2.0 * pts[:, 0] - 0.5 * pts[:, 1]
+    lat = mba.fit(pts, vals, lo=[0, 0], hi=[10, 8], grid=(2, 2),
+                  levels=1, center="plane")
+    probe = np.array([[2.5, 6.0], [7.5, 1.0]])
+    ref = 3.0 + 2.0 * probe[:, 0] - 0.5 * probe[:, 1]
+    assert np.allclose(mba.evaluate(lat, probe), ref, atol=1e-9)
+
+
+def test_degenerate_layout_falls_back_to_the_mean():
+    """Точки на одной прямой: наклон подгонять не по чему, берём среднее."""
+    pts = np.column_stack([np.linspace(0, 10, 7), np.zeros(7)])
+    vals = np.full(7, -250.0)
+    lat = mba.fit(pts, vals, lo=[0, 0], hi=[10, 10], grid=(2, 2),
+                  levels=3, center="plane")
+    assert np.allclose(mba.evaluate(lat, pts), vals, atol=1e-6)
+
+
+def test_centering_works_in_three_dimensions():
+    """В объёме та же беда и то же лечение.
+
+    Содержания около двадцати процентов, проба в середине пропуска.
+    Без снятия тренда ответ уезжает на всю величину разброса данных.
+    """
+    rng = np.random.default_rng(1)
+    pts = rng.uniform([0, 0, -300], [1000, 800, -200], size=(1500, 3))
+    pts = pts[np.hypot(pts[:, 0] - 500, pts[:, 1] - 400) > 200]
+    vals = (20.0 + 2.0 * np.sin(pts[:, 0] / 300.0)
+            + 0.01 * (pts[:, 2] + 250.0))
+    probe = np.array([[500.0, 400.0, -250.0]])
+    true = 20.0 + 2.0 * np.sin(500.0 / 300.0)
+
+    def at(center):
+        lat = mba.fit(pts, vals, lo=[0, 0, -300], hi=[1000, 800, -200],
+                      grid=(4, 4, 2), levels=4, center=center)
+        return abs(float(mba.evaluate(lat, probe)[0]) - true)
+
+    assert at("plane") < 0.5 * at(None), (at(None), at("plane"))
+
+
+def test_unknown_centering_is_refused():
+    """Опечатка в имени способа не должна тихо означать «не снимать»."""
+    pts = np.array([[0.0, 0.0], [1.0, 1.0]])
+    try:
+        mba.fit(pts, np.array([1.0, 2.0]), lo=[0, 0], hi=[1, 1],
+                grid=(2, 2), levels=1, center="plain")
+    except ValueError:
+        return
+    raise AssertionError("неизвестный способ снятия тренда принят молча")
+
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

@@ -65,12 +65,21 @@ def _hint_strings(path):
 
 
 def collect():
+    """Строки из ВСЕХ файлов модуля, а не из перечисленных руками.
+
+    Список файлов был записан вручную, и viewer_dialog.py в него
+    не попал - а там половина строк окна. Проверка молчала о них
+    годами, и они уходили в сборку непереведёнными.
+    """
     keys = set()
-    for name in SOURCES:
+    for name in sorted(os.listdir(PKG)):
+        if not name.endswith(".py"):
+            continue
         path = os.path.join(PKG, name)
-        if os.path.isfile(path):
-            keys |= _tr_strings(path)
-            keys |= _hint_strings(path)
+        if not os.path.isfile(path):
+            continue
+        keys |= _tr_strings(path)
+        keys |= _hint_strings(path)
     return keys
 
 

@@ -22,11 +22,13 @@
 import os
 
 from .iso3d import weld
+from .lights import soft_shader
 
 from .viewer3d import (    # noqa: F401
     LIGHT_DIR, MAX_VERTS_SCENE, PALETTE, _DRAWNL_KEY, _DRAWN_KEY,
     _MAX_LINES, _MAX_POINT_LABELS, _Prof, _SCENE_KEY, _VOX_FACE_LIMIT,
     _auto_step, _band_count, _band_items, _bary_z, _closed_and_border,
+    is_bed_grid, volume_beyond_box,
     _css_rgba, _draw_on_top, _find_data, _flat_z, _halo_text_item,
     _import_gl, _layer_budget, _layer_has_z, _log, _map_order, _parts_xyz,
     _prism, _ramp_from_renderer, _read_raster, _tessellate, _tool_icon,
@@ -261,6 +263,7 @@ class ViewerDialog(QDialog):
         self._pick_marker = None
         self._spin_timer = None
         self._was_active = False
+        self._mask_cache = {}
         self._items = []
         self._owners = []
         self._warnings = []
@@ -481,8 +484,16 @@ class ViewerDialog(QDialog):
 
         box_clip = QGroupBox(tr("Обрезка"))
         f2 = QFormLayout(box_clip)
-        f2.addRow(tr("По контуру"), self.clip_combo)
-        f2.addRow(tr("Кусок"), self.clip_side)
+        self.clip_combo.setToolTip(tr(
+            "Обрезка по контуру или линии: остаётся то, что внутри. "
+            "Годится любой полигональный слой проекта, а также "
+            "нарисованное прямо в сцене - его можно сохранить слоем "
+            "кнопкой на плашке и выбрать здесь."))
+        f2.addRow(tr("Контуром или линией"), self.clip_combo)
+        self.clip_side.setToolTip(tr(
+            "Что оставить от контура: внутренность, наружное или "
+            "коридор вдоль линии заданной полуширины."))
+        f2.addRow(tr("Что оставить"), self.clip_side)
         f2.addRow(tr("Полуширина коридора, м"), self.clip_width)
         zrow = QHBoxLayout()
         zrow.addWidget(self.zlo)
@@ -496,7 +507,42 @@ class ViewerDialog(QDialog):
         srow = QHBoxLayout()
         srow.addWidget(self.zs_top)
         srow.addWidget(self.zs_bot)
-        f2.addRow(tr("По поверхностям"), srow)
+        self.mask_lyr = QComboBox()
+        self.mask_lyr.setToolTip(tr(
+            "Растр-маска: тело остаётся там, где значение не меньше "
+            "порога. Полигон задаёт границу линией, а маска - "
+            "площадью: так удобнее, когда границу посчитал "
+            "инструмент, а не рисовал человек."))
+        self.mask_level = QDoubleSpinBox()
+        self.mask_level.setRange(-1e9, 1e9)
+        self.mask_level.setDecimals(3)
+        self.mask_level.setValue(0.5)
+        self.mask_level.setToolTip(tr(
+            "Порог маски: что не меньше - внутри. Пропуск в маске "
+            "считается «снаружи»."))
+        self.zs_top.setToolTip(tr(
+            "Верхняя поверхность отсечки: всё выше неё не "
+            "показывается. Растр, а не отметка: кровля меняется "
+            "по площади."))
+        self.zs_bot.setToolTip(tr(
+            "Нижняя поверхность отсечки: всё ниже неё "
+            "не показывается."))
+        f2.addRow(tr("Сверху и снизу (растры)"), srow)
+        self.fence_all = QCheckBox(tr("Показать заборами по линии"))
+        self.fence_all.setToolTip(tr(
+            "Грид пластов показывается вертикальным разрезом "
+            "по выбранной линии: сквозь всю пачку сразу, с кровлей "
+            "и подошвой каждого пласта. Это чертёж разреза, "
+            "поставленный в сцену, а не поверхность, натянутая "
+            "на линию. Линия берётся та же, что и для обрезки."))
+        box_mask = QGroupBox(tr("Маска и заборы"))
+        f5 = QFormLayout(box_mask)
+        mrow = QHBoxLayout()
+        mrow.addWidget(self.mask_lyr)
+        mrow.addWidget(self.mask_level)
+        f5.addRow(tr("По маске (растр)"), mrow)
+        f5.addRow("", self.fence_all)
+        sv.addWidget(box_mask)
         sv.addWidget(box_clip)
 
         self.light = QSpinBox()
@@ -509,10 +555,16 @@ class ViewerDialog(QDialog):
             "и рельеф внутри одного оттенка пропадает. Ноль - как "
             "было."))
         self.bg_grad = QCheckBox(tr("Градиентный фон"))
-        self.bg_grad.setChecked(False)
+        # Градиент включён по умолчанию: на плоской заливке тело
+        # теряет глубину, а верх и низ сцены не различить.
+        self.bg_grad.setChecked(True)
         self.smooth_edges = QCheckBox(tr("Сглаживать края"))
         self.smooth_edges.setChecked(True)
         self.bg_grad.toggled.connect(self._bg_apply)
+        self.mask_lyr.currentIndexChanged.connect(
+            self._schedule_rebuild)
+        self.mask_level.valueChanged.connect(self._schedule_rebuild)
+        self.fence_all.toggled.connect(self._schedule_rebuild)
         self.light.valueChanged.connect(self._schedule_rebuild)
         self.smooth_edges.setToolTip(tr(
             "Сглаживание краёв линий и подписей. Действует "
@@ -579,6 +631,11 @@ class ViewerDialog(QDialog):
             "значения. Каналы грида считаются уровнями куба."))
         of = QFormLayout(self.opt_box)
         of.addRow(tr("Режим"), self.mode_combo)
+        self.zband.setToolTip(tr(
+            "В режиме тела пласта это ПЕРВЫЙ канал пары: "
+            "за ним идёт подошва, дальше следующая пара. Грид "
+            "пластов показывается всеми парами сразу, а этот "
+            "канал говорит, с какого пласта начать."))
         of.addRow(tr("Канал высот (Z)"), self.zband)
         # Обёртка вокруг строки окраски: прятать по режиму можно
         # только виджет, у раскладки такого нет.
@@ -1140,6 +1197,56 @@ class ViewerDialog(QDialog):
         # по ним, что показывать, нельзя. Строки подбираются в конце
         # загрузки свойств слоя, когда виджеты уже заполнены.
 
+    def _bed_meshes(self, lyr, o):
+        """Меши тела пласта в координатах проекта, для выгрузки.
+
+        Сцена строит то же самое, но для показа: с преувеличением
+        по вертикали, с разносом слоёв по Z и с прореживанием сетки
+        под бюджет вершин. В слой проекта это отдавать нельзя -
+        объём такого тела будет неверен ровно во столько раз, во
+        сколько растянута вертикаль. Здесь отметки настоящие, сетка
+        полная, а обрезка берётся та же, что в сцене: человек её уже
+        настроил и видит.
+
+        Возвращает список (вершины, грани, цвет, номер канала кровли).
+        """
+        import numpy as np
+        n_band = _band_count(lyr.source())
+        first = max(int(o.get("zband", 1) or 1), 1)
+        if first % 2 == 0:
+            first -= 1
+        clip, clip_lines = self._clip_ctx()
+        lclip, lclip_lines = self._clip_for_layer(lyr, clip, clip_lines)
+        out = []
+        for pi, b_top in enumerate(range(first, n_band, 2)):
+            top, gt = _read_raster(lyr.source(), b_top, None)
+            bot, _g = _read_raster(lyr.source(), b_top + 1, None)
+            if top is None or bot is None:
+                continue
+            top = np.where(self._z_kept(top), top, np.nan)
+            bot = np.where(self._z_kept(bot), bot, np.nan)
+            if lclip:
+                top = self._clip_array(top, gt, lclip)
+                bot = self._clip_array(bot, gt, lclip)
+            if lclip_lines:
+                top = self._clip_by_lines(top, gt, lclip_lines)
+                bot = self._clip_by_lines(bot, gt, lclip_lines)
+            v, f = bed_to_mesh_arrays(top, bot, gt, zscale=1.0,
+                                      zoffset=0.0, step=1)
+            if not len(f):
+                continue
+            tr_r = self._xform(lyr)
+            if tr_r is not None:
+                v = v.copy()
+                v[:, 0], v[:, 1] = self._xform_xy(tr_r, v[:, 0], v[:, 1])
+            col = PALETTE[pi % len(PALETTE)]
+            if o.get("solid"):
+                qc = o["solid"].lstrip("#")
+                col = tuple(int(qc[i:i + 2], 16) / 255.0
+                            for i in (0, 2, 4)) + (1.0,)
+            out.append((v, f, col, b_top))
+        return out
+
     def _shells_to_layer(self):
         """Оболочки выбранного слоя в слой проекта.
 
@@ -1160,14 +1267,23 @@ class ViewerDialog(QDialog):
         lyr = (QgsProject.instance().mapLayer(lid)
                if lid and lid != _SCENE_KEY else None)
         if lyr is None:
-            self.info.setText(tr("Выберите в списке слой-куб."))
+            self.info.setText(tr(
+                "Выберите в списке слой: куб в режиме изоповерхности "
+                "либо грид пласта в режиме тела."))
             return
         o = self._opts.get(lid) or self._default_opts(lyr)
-        if o.get("mode") != "iso":
+        mode = o.get("mode")
+        bed_mode = (mode == "body" or
+                    (mode == "auto" and is_bed_grid(lyr.source())))
+        if mode == "iso":
+            got = self._iso_mesh(lyr, o, None)
+        elif bed_mode:
+            got = [(v, f, col, None, float(band))
+                   for v, f, col, band in self._bed_meshes(lyr, o)]
+        else:
             self.info.setText(
-                tr("Слой не в режиме изоповерхности."))
+                tr("Слой не в режиме изоповерхности или тела пласта."))
             return
-        got = self._iso_mesh(lyr, o, None)
         if not got:
             self.info.setText(tr("Оболочек не построено."))
             return
@@ -1198,6 +1314,7 @@ class ViewerDialog(QDialog):
                               shell_defects, close_holes)
         from .cadmesh import mesh_wkb
         made, tris, n_open, total = 0, 0, 0, 0.0
+        n_odd = 0
         n_sewn = 0
         for v, f, col, _a, lev in got:
             hexc = "#%02x%02x%02x" % tuple(
@@ -1221,8 +1338,18 @@ class ViewerDialog(QDialog):
                 # а смысла в нём нет.
                 q = mesh_volume(pv, pf) if closed else None
                 if closed:
-                    total += q
-                else:
+                    # Объём не бывает больше собственного габарита.
+                    # Это верный признак сбоя счёта, а не данных,
+                    # и молчать о нём нельзя: число выглядит
+                    # настоящим и уходит в отчёт.
+                    box = float(np.prod(pv.max(axis=0) - pv.min(axis=0)))
+                    if box > 0 and q > box * 1.001:
+                        n_odd += 1
+                        q = None
+                        closed = False
+                    else:
+                        total += q
+                if q is None:
                     n_open += 1
                 # Геометрия собирается двоично, одним куском.
                 # По объекту QGIS на треугольник это триста тысяч
@@ -1245,6 +1372,9 @@ class ViewerDialog(QDialog):
         note = ""
         if n_sewn:
             note += tr(" Зашито мелких дыр: %d.") % n_sewn
+        if n_odd:
+            note += tr(" У %d тел объём вышел больше их габарита - "
+                       "это сбой счёта, и он не записан.") % n_odd
         if n_open:
             note = tr(" Тел с дырами %d, объём у них не посчитан: "
                       "в поле holes число рваных рёбер, в поле pinch - "
@@ -1461,6 +1591,9 @@ class ViewerDialog(QDialog):
                 "grid_planes": self.grid_planes.currentData(),
                 "grid_step": float(self.grid_step.value()),
                 "axes_on": bool(self.btn_axes.isChecked()),
+                "mask_lyr": self.mask_lyr.currentData(),
+                "mask_level": float(self.mask_level.value()),
+                "fence_all": bool(self.fence_all.isChecked()),
                 "light": int(self.light.value()),
                 "bg_grad": bool(self.bg_grad.isChecked()),
                 "smooth_edges": bool(self.smooth_edges.isChecked()),
@@ -1505,8 +1638,13 @@ class ViewerDialog(QDialog):
                 combo.setCurrentIndex(max(k, 0))
             self.grid_step.setValue(float(state.get("grid_step", 0.0)))
             self.btn_axes.setChecked(bool(state.get("axes_on", False)))
+            im = _find_data(self.mask_lyr, state.get("mask_lyr"))
+            self.mask_lyr.setCurrentIndex(max(im, 0))
+            self.mask_level.setValue(
+                float(state.get("mask_level", 0.5) or 0.5))
+            self.fence_all.setChecked(bool(state.get("fence_all")))
             self.light.setValue(int(state.get("light", 55)))
-            self.bg_grad.setChecked(bool(state.get("bg_grad", False)))
+            self.bg_grad.setChecked(bool(state.get("bg_grad", True)))
             self.smooth_edges.setChecked(
                 bool(state.get("smooth_edges", True)))
             self._bg_apply()
@@ -1725,7 +1863,7 @@ class ViewerDialog(QDialog):
 
         # Поверхности отсечки: растры проекта. Одной отметкой этого
         # не заменить, кровля и подошва меняются по площади.
-        for combo in (self.zs_top, self.zs_bot):
+        for combo in (self.zs_top, self.zs_bot, self.mask_lyr):
             prev = combo.currentData()
             combo.blockSignals(True)
             combo.clear()
@@ -2655,7 +2793,7 @@ class ViewerDialog(QDialog):
         if self.view is None:
             return
         grad = bool(self.bg_grad.isChecked()) \
-            if hasattr(self, "bg_grad") else False
+            if hasattr(self, "bg_grad") else True
         if not grad:
             self.view.bg_top = None
             self.view.bg_bottom = None
@@ -2737,6 +2875,8 @@ class ViewerDialog(QDialog):
                               "отметку из поля.") % lyr.name())
                 continue
             n_flat = n_solid = n_noz = 0
+            n_vol_bad = 0
+            vol_idx = lyr.fields().lookupField("volume")
             zlo = zhi = None
             feats = list(lyr.getFeatures())
             # Делим бюджет только между слоями, которые и правда
@@ -2839,6 +2979,8 @@ class ViewerDialog(QDialog):
                         # вершин становится втрое меньше.
                         if len(f):
                             v, f = weld(v, f)
+                        n_vol_bad += self._volume_is_impossible(ft, v,
+                                                                vol_idx)
                         if used_verts and used_verts + len(v) > budget:
                             break
                         used_verts += len(v)
@@ -2913,7 +3055,38 @@ class ViewerDialog(QDialog):
             if n_noz:
                 self._warn(tr("Слой %s: у %d объектов нет отметок "
                               "низа или верха.") % (lyr.name(), n_noz))
+            if n_vol_bad:
+                self._warn(tr(
+                    "Слой %s: у %d тел объём в поле volume больше их "
+                    "собственного габарита, то есть неверен. Такие "
+                    "слои выгружены сборкой до 0.74.1, где счёт объёма "
+                    "терял значащие цифры в настоящих координатах. "
+                    "Выгрузите оболочки заново.")
+                    % (lyr.name(), n_vol_bad))
         return out
+
+    def _volume_is_impossible(self, ft, verts, vol_idx):
+        """Проверка объёма в атрибутах: он не бывает больше габарита.
+
+        Объём тела считался суммой объёмов тетраэдров от начала
+        координат, и при шести миллионах метров по северу значащие
+        цифры съедались взаимным вычитанием. Счёт исправлен в 0.74.1,
+        но слои, выгруженные раньше, продолжают ходить по рукам: там
+        встречается восемь миллиардов кубометров при собственном
+        габарите в шесть миллионов.
+
+        Проверка нарочно грубая и дешёвая. Габарит - верхняя граница
+        объёма при любой форме тела, поэтому ложных срабатываний
+        у неё нет, а пересчитывать чужой слой молча хуже, чем сказать,
+        что верить его числам нельзя.
+        """
+        if vol_idx is None or vol_idx < 0 or not len(verts):
+            return 0
+        try:
+            value = ft.attribute(vol_idx)
+        except (KeyError, IndexError):
+            return 0
+        return 1 if volume_beyond_box(value, verts) else 0
 
     def _vec_lines(self):
         """(точки, цвет, имя) по отмеченным линейным слоям.
@@ -4001,6 +4174,24 @@ class ViewerDialog(QDialog):
             return None
         if not src.isValid() or not dst.isValid() or src == dst:
             return None
+        # Местные системы координат пересчитывать нельзя. У раскопа
+        # или карьера своя сетка без привязки к земле, и QGIS всё
+        # равно поведёт пересчёт через WGS 84: координаты в полтора
+        # миллиона превращаются в минус миллион, и модель уезжает
+        # неизвестно куда.
+        for crs in (src, dst):
+            aid = ""
+            try:
+                aid = crs.authid() or ""
+            except Exception:  # nosec
+                aid = ""
+            if not aid or aid.startswith("USER:"):
+                self._warn(tr(
+                    "Система координат местная (%s), пересчёт "
+                    "не делается: у неё нет привязки к земле. "
+                    "Задайте слою и проекту одну систему, если "
+                    "они в разных.") % (aid or tr("не задана")))
+                return None
         a, b = (dst, src) if back else (src, dst)
         try:
             return QgsCoordinateTransform(a, b,
@@ -4111,6 +4302,22 @@ class ViewerDialog(QDialog):
         """
         if self._clip_now is None:
             self._clip_now = (self._clip_rings(), self._clip_lines())
+            rings, lines = self._clip_now
+            side = self.clip_side.currentData()
+            # Коридор нужен по линии. Выбрав полигональный слой
+            # и оставив коридор, не режешь ничего - и молча: человек
+            # видит несрезанную сцену и ищет причину в данных.
+            if side == "corridor" and rings and not lines:
+                self._warn(tr(
+                    "Коридор строится по линии, а выбран слой "
+                    "с полигонами. Поставьте «Что оставить» "
+                    "на внутренность или наружное, либо выберите "
+                    "линейный слой."))
+            elif side != "corridor" and lines and not rings:
+                self._warn(tr(
+                    "Выбран линейный слой: у линии нет внутренности. "
+                    "Поставьте «Что оставить» на коридор вдоль "
+                    "линии."))
         return self._clip_now
 
     def _z_active(self):
@@ -4196,10 +4403,36 @@ class ViewerDialog(QDialog):
                 else np.ones(zs.shape, dtype=bool))
         if xs is None or ys is None:
             return keep
+        # Маска в плане: тело остаётся там, где значение не меньше
+        # порога. Полигон задаёт границу линией, а маска - площадью.
+        ma, mg = self._mask_array()
+        if ma is not None:
+            from .flatten import mask_keep
+            keep = keep & mask_keep(xs, ys, ma, mg,
+                                    float(self.mask_level.value()))
         (ta, tg), (ba, bg) = self._z_surfaces()
         if ta is None and ba is None:
             return keep
         return keep & keep_between(xs, ys, zs, ta, tg, ba, bg)
+
+    def _mask_array(self):
+        """Растр-маска и его геопривязка, если задан."""
+        lid = self.mask_lyr.currentData()
+        if not lid:
+            return None, None
+        got = self._mask_cache.get(lid)
+        if got is not None:
+            return got
+        from qgis.core import QgsProject
+        lyr = QgsProject.instance().mapLayer(lid)
+        if lyr is None:
+            return None, None
+        arr, gt = _read_raster(lyr.source(), 1, None)
+        if arr is None:
+            self._warn(tr("Маска %s не прочиталась.") % lyr.name())
+            return None, None
+        self._mask_cache[lid] = (arr, gt)
+        return arr, gt
 
     def _points_kept(self, xs, ys):
         """Отбор сразу для множества точек.
@@ -4486,7 +4719,7 @@ class ViewerDialog(QDialog):
                 pass
         r = pk["span"] * 0.006
         sph = gl.MeshData.sphere(rows=8, cols=8, radius=r)
-        mk = gl.GLMeshItem(meshdata=sph, smooth=True, shader='shaded',
+        mk = gl.GLMeshItem(meshdata=sph, smooth=True, shader=soft_shader(),
                            color=(0.85, 0.15, 0.15, 1.0),
                            glOptions='opaque')
         mk.translate(xh - cx, yh - cy, zh)
@@ -5310,8 +5543,31 @@ class ViewerDialog(QDialog):
             return None, None, 0.0, 1.0
         gt = ds.GetGeoTransform()
         meta = ds.GetMetadata() or {}
+        marks = [(ds.GetRasterBand(b).GetDescription() or "").lower()
+                 for b in range(1, ds.RasterCount + 1)]
+        bed_like = any(w in nm for nm in marks
+                       for w in ("кровля", "подошва", "roof", "floor"))
+        if "Z0" not in meta and "z0" not in meta:
+            # Каналы куба - это уровни по Z, и разметку по Z пишут все
+            # инструменты куба. У грида пласта её нет и быть не может:
+            # каналы там кровля и подошва, а значения - абсолютные
+            # отметки. Считая их уровнями от нуля с шагом единица,
+            # сцена рисовала параллелепипед у нулевой отметки, ниже
+            # всех объектов, и по нему делали вывод о модели.
+            if bed_like:
+                self._warn(tr("Слой %s - это грид пласта: каналы кровля "
+                              "и подошва, а не уровни куба. Разметки "
+                              "по Z у него нет. Кубовые режимы к нему "
+                              "неприменимы, для него режим «Тело "
+                              "пласта».") % lyr.name())
+                return None, None, 0.0, 1.0
+            self._warn(tr("У слоя %s нет разметки куба по Z (Z0 и DZ). "
+                          "Уровни взяты от нуля с шагом единица, и куб "
+                          "встанет не на своё место по высоте.")
+                       % lyr.name())
         z0 = float(meta.get("Z0", meta.get("z0", 0.0)) or 0.0)
         dz = float(meta.get("DZ", meta.get("dz", 1.0)) or 1.0)
+
         bands = []
         for b in range(1, ds.RasterCount + 1):
             arr = ds.GetRasterBand(b).ReadAsArray().astype(float)
@@ -5677,6 +5933,10 @@ class ViewerDialog(QDialog):
             o = self._opts.get(lyr.id()) or \
                 self._default_opts(lyr.source())
             mode = o.get("mode", "auto")
+            # Заборы задаются на всю сцену, а не слою за слоем:
+            # обрезка общая, и разрез по той же линии тоже общий.
+            # Кубы и воксели остаются как есть - у них своя геометрия,
+            # и полотнищем её не показать.
             if mode == "iso":
                 # Куб значений: каналы это уровни. Оболочка
                 # по отсечке строится маршем по тетраэдрам, поэтому
@@ -5763,29 +6023,98 @@ class ViewerDialog(QDialog):
             lclip, lclip_lines = self._clip_for_layer(
                 lyr, clip, clip_lines)
             try:
+                if as_bed and self.fence_all.isChecked() \
+                        and clip_lines:
+                    # Забор: вертикальный разрез сквозь ВСЮ пачку
+                    # по линии обрезки. Не поверхность, натянутая
+                    # на линию, а чертёж, поставленный вертикально.
+                    from .slice3d import fence_mesh
+                    n_band = _band_count(lyr.source())
+                    first = max(int(o.get("zband", 1) or 1), 1)
+                    if first % 2 == 0:
+                        first -= 1
+                    pairs, gt = [], None
+                    for b in range(first, n_band, 2):
+                        tp, gt = _read_raster(lyr.source(), b, prof)
+                        bt, _g = _read_raster(lyr.source(), b + 1, prof)
+                        if tp is None or bt is None:
+                            continue
+                        pairs.append((tp, bt))
+                    prof.add("read")
+                    v_f = f_f = None
+                    if pairs and gt is not None:
+                        for ln in clip_lines:
+                            v2, f2 = fence_mesh(pairs, gt, ln)
+                            if not len(f2):
+                                continue
+                            if v_f is None:
+                                v_f, f_f = v2, f2
+                            else:
+                                f_f = np.vstack([f_f, f2 + len(v_f)])
+                                v_f = np.vstack([v_f, v2])
+                    prof.add("mesh")
+                    if v_f is None:
+                        self._warn(tr("Забор %s не построен: линия "
+                                      "мимо данных.") % lyr.name())
+                        continue
+                    _log(tr("Забор %s: пластов %d, граней %d.")
+                         % (lyr.name(), len(pairs), len(f_f)))
+                    meshes.append((v_f, f_f,
+                                   PALETTE[len(meshes) % len(PALETTE)],
+                                   lyr.id(), False, lyr.source(), o,
+                                   None, None, 0.0))
+                    nbeds += 1
+                    continue
                 if as_bed:
                     prof.skip()
-                    top, gt = _read_raster(lyr.source(), 1, prof)
-                    bot, _g = _read_raster(lyr.source(), 2, prof)
+                    # Пар каналов бывает несколько: у грида пластов
+                    # на каждый пласт своя кровля и подошва. Брав
+                    # только первую пару, показываешь верхний пласт
+                    # и молчишь про остальные.
+                    n_band = _band_count(lyr.source())
+                    first = max(int(o.get("zband", 1) or 1), 1)
+                    if first % 2 == 0:
+                        first -= 1
+                    pairs = [(b, b + 1)
+                             for b in range(first, n_band, 2)]
+                    verts = faces = None
+                    surf_arr = None
+                    for pi, (b_top, b_bot) in enumerate(pairs):
+                        top, gt = _read_raster(lyr.source(), b_top,
+                                               prof)
+                        bot, _g = _read_raster(lyr.source(), b_bot,
+                                               prof)
+                        if top is None or bot is None:
+                            continue
+                        top = np.where(self._z_kept(top), top, np.nan)
+                        bot = np.where(self._z_kept(bot), bot, np.nan)
+                        if lclip:
+                            top = self._clip_array(top, gt, lclip)
+                            bot = self._clip_array(bot, gt, lclip)
+                        if lclip_lines:
+                            top = self._clip_by_lines(top, gt,
+                                                      lclip_lines)
+                            bot = self._clip_by_lines(bot, gt,
+                                                      lclip_lines)
+                        v2, f2 = bed_to_mesh_arrays(
+                            top, bot, gt, zscale=1.0,
+                            zoffset=-spacing * k,
+                            step=_auto_step(top, budget))
+                        if not len(f2):
+                            continue
+                        if verts is None:
+                            verts, faces = v2, f2
+                            surf_arr = top
+                        else:
+                            faces = np.vstack([faces, f2 + len(verts)])
+                            verts = np.vstack([verts, v2])
                     prof.add("read")
-                    if top is None or bot is None:
+                    if verts is None:
                         raise ValueError
-                    top = np.where(self._z_kept(top), top, np.nan)
-                    bot = np.where(self._z_kept(bot), bot, np.nan)
-                    if lclip:
-                        top = self._clip_array(top, gt, lclip)
-                        bot = self._clip_array(bot, gt, lclip)
-                    if lclip_lines:
-                        top = self._clip_by_lines(top, gt,
-                                                  lclip_lines)
-                        bot = self._clip_by_lines(bot, gt,
-                                                  lclip_lines)
-                    verts, faces = bed_to_mesh_arrays(
-                        top, bot, gt, zscale=1.0,
-                        zoffset=-spacing * k,
-                        step=_auto_step(top, budget))
                     prof.add("mesh")
-                    surf_arr = top
+                    if len(pairs) > 1:
+                        _log(tr("Тело пласта %s: пар каналов %d.")
+                             % (lyr.name(), len(pairs)))
                     nbeds += 1
                 else:
                     prof.skip()
@@ -6020,7 +6349,7 @@ class ViewerDialog(QDialog):
                 exp_col = vc
             else:
                 item = gl.GLMeshItem(meshdata=md, smooth=True,
-                                     shader='shaded',
+                                     shader=soft_shader(),
                                      color=color[:3] + (alpha,),
                                      glOptions=gopt)
                 exp_col = None
@@ -6288,7 +6617,7 @@ class ViewerDialog(QDialog):
                 md = gl.MeshData(vertexes=bv.astype('float32'),
                                  faces=bf)
                 ball = gl.GLMeshItem(meshdata=md, smooth=True,
-                                     shader='shaded',
+                                     shader=soft_shader(),
                                      color=(0.12, 0.12, 0.12, 1.0),
                                      glOptions='opaque')
                 self._add_item(ball)
@@ -6442,6 +6771,11 @@ class ViewerDialog(QDialog):
         # заново, уже по новому центру.
         self._draw_refresh(
             closed=bool(self._draw_ring) and not self._draw_mode)
+        # Фон ставится заново на каждой пересборке. Он живёт
+        # в самом виде, а не в сцене, и его терял любой путь,
+        # который вид пересоздавал: сцена собиралась, а градиент
+        # пропадал, и человеку приходилось снимать и ставить флажок.
+        self._bg_apply()
         self._state_save()
         prof.add("scene").count("items", len(self._items))
         for w in self._warnings[:3]:

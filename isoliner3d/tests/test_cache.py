@@ -216,6 +216,12 @@ def _load_tri():
         spatial["n"] += 1
         return np.zeros((6, 3)), np.zeros((3, 3), dtype=np.int64)
 
+    # Подмена возвращается назад в `_unload_tri`. Оставленная в модуле,
+    # она достаётся следующему тесту: так `test_tessellate` получал
+    # нули вместо разбивки и падал только в общем прогоне, а по
+    # отдельности проходил.
+    _SAVED["_tessellate"] = vwin._tessellate
+    _SAVED["_tris_from_geometry"] = vwin._tris_from_geometry
     vwin._tessellate = fake
     vwin._tris_from_geometry = fake_spatial
     vcore.tri_cache_clear()
@@ -224,6 +230,19 @@ def _load_tri():
           "tri_cache_clear": vcore.tri_cache_clear,
           "tri_cache_size": vcore.tri_cache_size}
     return ns, calls, spatial
+
+
+_SAVED = {}
+
+
+def _unload_tri():
+    """Вернуть настоящую разбивку на место и очистить кэш."""
+    from isoliner3d import viewer_core as vcore
+    from isoliner3d import viewer3d as vwin
+    for name, fn in _SAVED.items():
+        setattr(vwin, name, fn)
+    _SAVED.clear()
+    vcore.tri_cache_clear()
 
 
 class _Box(object):
@@ -279,7 +298,7 @@ def test_triangulation_is_cached_per_feature():
     assert calls["n"] == 1, calls
     tri(lyr, _Feat(2), geom, None)
     assert calls["n"] == 2, calls
-    ns["tri_cache_clear"]()
+    _unload_tri()
 
 
 def test_triangulation_key_separates_elevation():
@@ -292,6 +311,7 @@ def test_triangulation_key_separates_elevation():
     assert ns["tri_cache_size"]()[0] == 2
     ns["tri_cache_clear"]()
     assert ns["tri_cache_size"]() == (0, 0)
+    _unload_tri()
 
 
 def test_spatial_triangulation_is_cached():
@@ -307,7 +327,7 @@ def test_spatial_triangulation_is_cached():
     assert spatial["n"] == 1, spatial
     tri(lyr, _Feat(2), geom, None, spatial=True)
     assert spatial["n"] == 2, spatial
-    ns["tri_cache_clear"]()
+    _unload_tri()
 
 
 def test_spatial_and_flat_keys_do_not_collide():
@@ -323,7 +343,7 @@ def test_spatial_and_flat_keys_do_not_collide():
     assert calls["n"] == 1 and spatial["n"] == 1
     assert len(flat_v) != len(sp_v)
     assert ns["tri_cache_size"]()[0] == 2
-    ns["tri_cache_clear"]()
+    _unload_tri()
 
 
 if __name__ == "__main__":

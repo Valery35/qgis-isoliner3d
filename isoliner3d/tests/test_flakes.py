@@ -33,7 +33,8 @@ MODULES = ("algorithms.py", "viewer3d.py", "texmesh.py", "plugin.py",
            "variogram.py", "kriging.py",
            "slice3d.py", "volume.py", "flatten.py",
            "cleanup.py", "axes.py", "mba.py",
-           "glyphs.py", "cadmesh.py", "about.py",
+           "glyphs.py", "cadmesh.py", "about.py", "section3d.py",
+           "lights.py",
            "viewer_core.py", "viewer_dialog.py",
            "__init__.py")
 
@@ -147,6 +148,41 @@ def test_no_scanner_blockers():
                 bad.append("%s:%d %s" % (name, node.lineno, code))
     assert not bad, ("сканер каталога отклонит загрузку:\n  %s"
                      % "\n  ".join(bad))
+
+
+def test_no_numpy_one_removals():
+    """Нет вызовов, снятых в NumPy 2.
+
+    У массивов убрали метод ptp и ещё несколько. На старой NumPy
+    такой код работает и молчит, а у человека с новой падает
+    посреди расчёта - у нас так и вышло на первом же прогоне 2.09.
+    """
+    import re
+    gone_methods = ("ptp", "itemset", "newbyteorder")
+    gone_names = ("np.float_", "np.int0", "np.alltrue", "np.sometrue",
+                  "np.product", "np.cumproduct", "np.NaN", "np.Inf")
+    bad = []
+    for root, _dirs, files in os.walk(PKG):
+        if "libs" in root:
+            continue
+        for name in files:
+            if not name.endswith(".py"):
+                continue
+            if name == os.path.basename(__file__):
+                continue      # в самой проверке эти имена перечислены
+            path = os.path.join(root, name)
+            for num, line in enumerate(open(path, encoding="utf-8"), 1):
+                code = line.split("#")[0]
+                for meth in gone_methods:
+                    for m in re.finditer(
+                            r"(\w+)\s*(\[[^\]]*\])?\s*\.%s\s*\("
+                            % meth, code):
+                        if m.group(1) not in ("np", "numpy"):
+                            bad.append("%s:%d %s" % (name, num, meth))
+                for nm in gone_names:
+                    if nm in code:
+                        bad.append("%s:%d %s" % (name, num, nm))
+    assert not bad, "снято в NumPy 2: %s" % "; ".join(bad[:6])
 
 
 def test_trace_is_wired_end_to_end():

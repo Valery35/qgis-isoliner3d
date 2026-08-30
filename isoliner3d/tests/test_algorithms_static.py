@@ -36,6 +36,7 @@ EXPECTED = {
     "DemoMapAlgorithm": ("demo_map", "1.08"),
     "Kriging3DAlgorithm": ("kriging_3d", "2.06"),
     "Mba3DAlgorithm": ("mba3d", "2.07"),
+    "SectionsToBedAlgorithm": ("sections_to_bed", "2.08"),
 }
 
 
@@ -321,6 +322,7 @@ def test_every_tool_has_field_hints():
              ("Demo3DPointsAlgorithm", "HINTS_2_01"),
              ("Interp3DAlgorithm", "HINTS_2_02"),
              ("Mba3DAlgorithm", "HINTS_2_07"),
+             ("SectionsToBedAlgorithm", "HINTS_2_08"),
              ("CubeToBlocksAlgorithm", "HINTS_2_03"),
              ("CubeVoxelBodyAlgorithm", "HINTS_2_04"),
              ("CrossValidateAlgorithm", "HINTS_2_05"),
@@ -498,6 +500,133 @@ def test_value_field_hint_names_the_demo_field():
         for k, v in zip(node.value.keys, node.value.values):
             if k.value == "FIELD":
                 assert "grade" in _ast.literal_eval(v), name
+
+
+def test_tool_numbers_have_no_gaps():
+    """Номера инструментов идут подряд, без дыр.
+
+    Дыра в нумерации читается как «инструмент был и пропал», и первым
+    делом человек ищет, куда он делся.
+    """
+    import re
+    nums = {}
+    for cls, (_name, num) in EXPECTED.items():
+        g, k = num.split(".")
+        nums.setdefault(g, set()).add(int(k))
+    for g, got in sorted(nums.items()):
+        want = set(range(1, max(got) + 1))
+        assert got == want, "в группе %s нет: %s" % (
+            g, sorted(want - got))
+
+
+def test_cubes_are_loaded_into_the_project():
+    """Записанные кубы открываются слоями сами.
+
+    Папка сама в проект ничего не кладёт, а открывать по пять файлов
+    руками - работа на пустом месте.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class SectionsToBedAlgorithm")
+    seg = src[i:src.index("\nclass ", i + 10)]
+    # грид один, и обычный выход растра открывается сам
+    assert 'return {"OUTPUT": out_path}' in seg
+
+
+def test_sections_tool_glues_contacts():
+    """Контакт соседних пластов строится одной поверхностью.
+
+    Подошва верхнего и кровля нижнего это одна граница, если геолог
+    провёл их одной линией. Построенные порознь, между разрезами они
+    расходятся, и в модели встаёт щель или нахлёст, которых
+    на разрезе нет.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class SectionsToBedAlgorithm")
+    seg = src[i:src.index("\nclass ", i + 10)]
+    assert '"CONTACT"' in seg
+    # порядок по залеганию, а не по имени поля: номера бывают текстом
+    assert 'key=lambda d: -float(np.median(d["top"][:, 2]))' in seg
+    # одна поверхность на контакт: кэш по ключу склейки
+    assert "def _surface(pts, key):" in seg
+    assert 'd.get("glue")' in seg and 'd.get("glue_top")' in seg
+
+
+def test_sections_tool_can_be_clipped_by_a_mask():
+    """2.08 умеет обрезать результат векторной маской.
+
+    Грид строится на весь охват контуров, и за пределами разрезов тело
+    живёт там, где данных нет вовсе. Маска задаёт, докуда поверхностям
+    верить: контур выработки, шурфа, подсчётного блока.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class SectionsToBedAlgorithm")
+    seg = src[i:src.index("\nclass ", i + 10)]
+    assert '"MASK"' in seg and '"MASK_BUFFER"' in seg
+    assert "polygon_mask(" in seg
+    # система координат маски своя: без пересчёта она ляжет мимо грида
+    assert "QgsCoordinateTransform" in seg
+    # пустое пересечение - отказ, а не молча пустой грид
+    assert "QgsProcessingException" in seg
+
+
+def test_feedback_goes_to_the_journal_too():
+    """Строки расчёта дублируются в журнал плагина.
+
+    Раньше журнал знал только имя инструмента и время: снимок
+    показывал, что расчёт прошёл за полсекунды, и ни одного числа,
+    по которому видно, что именно он посчитал. На удалённой машине
+    каждый такой круг стоит отдельного визита.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class _JournalFeedback")
+    body = src[i:src.index("\nclass ", i + 10)]
+    for name in ("pushInfo", "pushWarning", "reportError"):
+        assert "def %s(" % name in body, name
+    assert "__getattr__" in body, "остальное должно уходить в настоящий"
+    run = src[src.index("def processAlgorithm"):]
+    assert "_JournalFeedback(feedback, trace)" in run[:1200]
+
+
+def test_volume_mba_removes_the_trend():
+    """2.07 тоже снимает тренд: в объёме дефект тот же.
+
+    Ошибка метода растёт вместе с величиной значения, а не с его
+    разбросом. На содержаниях около двадцати процентов это половина
+    разброса данных.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class Mba3DAlgorithm")
+    seg = src[i:src.index("\nclass ", i + 10)]
+    assert 'center="plane"' in seg
+
+
+def test_sections_tool_samples_the_whole_bed():
+    """2.09 опробует пласт целиком, а не кусок за куском.
+
+    Забор нарезан по звеньям линии, и минусы вокруг одного куска
+    ложатся туда, где соседний даёт плюс. На настоящих данных плюсов
+    в слое решётки оставалось три процента, и ноль в кубе
+    не встречался вовсе.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class SectionsToBedAlgorithm")
+    seg = src[i:src.index("\nclass ", i + 10)]
+    # кровля и подошва: их и надо интерполировать, а не тело целиком
+    assert "section3d.roof_and_floor(own" in seg
+    assert "surface_on_grid(" in seg
+    # тренд снимается: без этого ошибка растёт вместе с самой отметкой,
+    # и на кровле около -250 м поверхность уходила на четырнадцать метров
+    assert 'center="plane"' in seg
+    # расхождение разрезов должно попадать в журнал, а не считаться
+    # и выбрасываться, как было
+    assert "crossing_spread(" in seg
+    assert "pushWarning" in seg
 
 
 def test_manual_tables_match_the_tools():

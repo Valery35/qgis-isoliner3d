@@ -122,3 +122,87 @@ def section_mesh(vol, gt, z0, dz, line, step=None, nz_step=1):
                            np.stack([v00, v11, v01], axis=1)], axis=0)
     keep = np.isfinite(val[tris]).all(axis=1)
     return verts, tris[keep].astype(np.int64), val
+
+
+def _walk_line(line, step):
+    """Точки вдоль ломаной через равные промежутки."""
+    pts = np.asarray(line, dtype=float)[:, :2]
+    if len(pts) < 2:
+        return pts
+    seg = np.hypot(*(pts[1:] - pts[:-1]).T)
+    walk = np.concatenate([[0.0], np.cumsum(seg)])
+    total = float(walk[-1])
+    if total <= 0.0:
+        return pts[:1]
+    n = max(int(np.ceil(total / max(float(step), 1e-9))), 1)
+    at = np.linspace(0.0, total, n + 1)
+    x = np.interp(at, walk, pts[:, 0])
+    y = np.interp(at, walk, pts[:, 1])
+    return np.column_stack([x, y])
+
+
+def _sample(arr, gt, xs, ys):
+    """Значения растра в точках, вне охвата - пропуск."""
+    a = np.asarray(arr, dtype=float)
+    x0, dx, _rx, ytop, _ry, dy = [float(v) for v in gt]
+    cols = np.floor((xs - x0) / dx).astype(np.int64)
+    rows = np.floor((ys - ytop) / dy).astype(np.int64)
+    ok = ((cols >= 0) & (cols < a.shape[1])
+          & (rows >= 0) & (rows < a.shape[0]))
+    out = np.full(xs.shape, np.nan)
+    if ok.any():
+        out[ok] = a[rows[ok], cols[ok]]
+    return out
+
+
+def fence_mesh(pairs, gt, line, step=None):
+    """Разрез сквозь пачку пластов по линии: забор для сцены.
+
+    Забор это вертикальный разрез через ВСЕ пласты сразу, а не
+    поверхность, натянутая на линию. Строится ровно по линии, без
+    толщины - как чертёж, поставленный вертикально в сцену.
+
+    `pairs` - список пар (кровля, подошва), по паре на пласт, все
+    на одной сетке `gt`. Каждая пара даёт своё полотнище, и пласты
+    не сливаются в одно.
+
+    Где пласта нет - там нет и полотнища: пропуск не выдумывается.
+
+    Возвращает вершины (N, 3) и грани (M, 3).
+    """
+    if not pairs:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+    if step is None:
+        step = abs(float(gt[1])) or 1.0
+    walk = _walk_line(line, step)
+    if len(walk) < 2:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+    xs, ys = walk[:, 0], walk[:, 1]
+    verts, faces = [], []
+    for top, bot in pairs:
+        zt = _sample(top, gt, xs, ys)
+        zb = _sample(bot, gt, xs, ys)
+        good = np.isfinite(zt) & np.isfinite(zb)
+        base = sum(len(v) for v in verts)
+        v = np.empty((2 * len(xs), 3), dtype=float)
+        v[0::2] = np.column_stack([xs, ys, zt])
+        v[1::2] = np.column_stack([xs, ys, zb])
+        keep = np.zeros(len(v), dtype=bool)
+        for i in range(len(xs) - 1):
+            if not (good[i] and good[i + 1]):
+                continue
+            a, b = base + 2 * i, base + 2 * i + 1
+            c, d = base + 2 * i + 2, base + 2 * i + 3
+            faces.append([a, b, d])
+            faces.append([a, d, c])
+            keep[2 * i:2 * i + 4] = True
+        v[~keep] = 0.0
+        verts.append(v)
+    if not faces:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+    V = np.vstack(verts)
+    F = np.asarray(faces, dtype=np.int64)
+    used = np.unique(F)
+    remap = np.full(len(V), -1, dtype=np.int64)
+    remap[used] = np.arange(len(used))
+    return V[used], remap[F]

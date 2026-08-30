@@ -73,6 +73,10 @@ class Isoliner3DPlugin:
             init_from_qgis()
             here = os.path.dirname(__file__)
             icon = QIcon(os.path.join(here, "icon.svg"))
+            # У каждого пункта свой значок: одинаковые в меню
+            # неразличимы, и человек жмёт наугад.
+            icon_about = QIcon(os.path.join(here, "icon_about.svg"))
+            icon_help = QIcon(os.path.join(here, "icon_help.svg"))
             win = self.iface.mainWindow()
             self.toolbar = self.iface.addToolBar(tr("Isoliner3D"))
             self.toolbar.setObjectName("Isoliner3DToolbar")
@@ -85,12 +89,13 @@ class Isoliner3DPlugin:
                 self._add(a3d, toolbar=True)
             else:
                 _log("pyqtgraph/PyOpenGL недоступны - пункт 3D не добавлен.")
-            aabout = QAction(icon, tr("О плагине…"), win)
+            aabout = QAction(icon_about, tr("О плагине…"), win)
             aabout.setToolTip(tr(
                 "Версия, ссылки, история изменений, журнал"))
             aabout.triggered.connect(self._show_about)
             self._add(aabout, toolbar=True)
-            ahelp = QAction(icon, tr("Справка (руководство PDF)…"), win)
+            ahelp = QAction(icon_help,
+                            tr("Справка (руководство PDF)…"), win)
             ahelp.setToolTip(tr("Руководство Isoliner3D в формате PDF"))
             ahelp.triggered.connect(self._open_help)
             self._add(ahelp)

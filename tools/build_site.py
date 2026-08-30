@@ -199,18 +199,27 @@ TEXTS = {
                "and the ribbon in the scene are one and the same place, "
                "shown three times."),
 
-"tools.eyebrow":("Семь инструментов", "Seven tools"),
-"tools.h2":   ("Группа «Пласт и блочная модель» в панели Обработки",
-               "The «Bed and block model» group in the Processing toolbox"),
+"tools.eyebrow":("Шестнадцать инструментов", "Sixteen tools"),
+"tools.h2":   ("Две группы в панели Обработки: пласт и объёмная "
+               "интерполяция",
+               "Two groups in the Processing toolbox: the bed and the "
+               "interpolation in volume"),
 "tools.sub":  ("Считают на NumPy и GDAL, кригинг им не нужен, поэтому "
                "работают и без основного плагина. Конвейер простой: собрать "
                "грид пласта, посчитать по нему запасы, развернуть "
-               "в блочную модель, получить списание разностью двух моделей.",
+               "в блочную модель, получить списание разностью двух моделей. "
+               "Вторая группа работает с объёмом: кригинг и мультисеточные "
+               "B-сплайны по разбросанным пробам, а по зарисовкам "
+               "на разрезах - кровля и подошва пласта со склейкой "
+               "контактов соседних пластов.",
                "They compute on NumPy and GDAL and need no kriging, so they "
                "work without the main plugin. The pipeline is simple: "
                "assemble a bed grid, compute reserves from it, unfold it "
                "into a block model, get the write-off as the difference of "
-               "two models."),
+               "two models. The second group works in volume: kriging and "
+               "multilevel B-splines over scattered samples, and from "
+               "drawings on sections a roof and a floor of a bed with the "
+               "contacts of neighbouring beds glued into one surface."),
 "g1":         ("Пласт и блочная модель", "Bed and block model"),
 "t101.h":     ("Собрать грид пласта", "Assemble a bed grid"),
 "t101.p":     ("Кровля, подошва и параметры в один многоканальный растр. "
@@ -242,6 +251,28 @@ TEXTS = {
                "Прямой путь оперативного списания.",
                "The difference of two block models over matching cells. "
                "The direct route to operational write-off."),
+"t108.h":     ("Карта для текстуры (демо)", "A map for the texture (demo)"),
+"t108.p":     ("Проверочная карта с сеткой и полями: показ текстуры "
+               "проверяется без рабочих слоёв.",
+               "A test map with a grid and margins: the texture display is "
+               "checked without working layers."),
+"t206.h":     ("Кригинг в объёме", "Kriging in three dimensions"),
+"t206.p":     ("Веса из вариограммы, замеренной по самим данным, и карта "
+               "доверия вторым кубом.",
+               "Weights from a variogram measured on the data itself, and a "
+               "confidence map as a second cube."),
+"t207.h":     ("MBA в объёме", "MBA in volume"),
+"t207.p":     ("Мультисеточные B-сплайны: сотни тысяч замеров там, где "
+               "кригинг встаёт.",
+               "Multilevel B-splines: hundreds of thousands of measurements "
+               "where kriging stalls."),
+"t208.h":     ("Пласты по разрезам", "Beds from sections"),
+"t208.p":     ("Кровля и подошва по зарисовкам на разрезах. Контакт "
+               "соседних пластов строится одной поверхностью, маска области "
+               "задаёт, докуда верить.",
+               "A roof and a floor from the drawings on sections. The "
+               "contact of neighbouring beds is built as one surface, and an "
+               "area mask says how far to trust it."),
 "t107.h":     ("Создать пример данных (демо)", "Create sample data (demo)"),
 "t107.p":     ("Тела с высотой Z и проверочная карта для текстуры: можно "
                "посмотреть показ, не трогая рабочие слои.",
@@ -679,7 +710,8 @@ def main():
     rows1 = "".join(tool_row(n, k) for n, k in (
         ("1.01", "t101"), ("1.02", "t102"), ("1.03", "t103"),
         ("1.04", "t104"), ("1.05", "t105"), ("1.06", "t106"),
-        ("1.07", "t107")))
+        ("1.07", "t107"), ("1.08", "t108"), ("2.06", "t206"),
+        ("2.07", "t207"), ("2.08", "t208")))
     page = page.replace("__ROWS1__", rows1)
     page = page.replace("__DICT__", dictionary())
     page = page.replace("__VERSION__", read_version())

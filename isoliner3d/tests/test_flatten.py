@@ -236,6 +236,44 @@ def test_cube_mask_without_surfaces_changes_nothing():
     assert np.isfinite(got).all()
 
 
+def test_mask_keeps_only_the_marked_area():
+    """Маска-растр оставляет то, что внутри, и убирает прочее.
+
+    Полигон задаёт границу линией, а маска - площадью: где значение
+    больше порога, там тело есть. Так удобнее, когда границу считал
+    инструмент, а не рисовал человек.
+    """
+    from isoliner3d.flatten import mask_keep
+    m = np.zeros((10, 10))
+    m[3:7, 3:7] = 1.0
+    gt = (0.0, 10.0, 0.0, 100.0, 0.0, -10.0)
+    xs = np.array([50.0, 5.0, 95.0])
+    ys = np.array([50.0, 95.0, 5.0])
+    keep = mask_keep(xs, ys, m, gt, 0.5)
+    assert keep.tolist() == [True, False, False], keep
+
+
+def test_mask_outside_the_raster_is_dropped():
+    """Точка вне охвата маски отбрасывается, а не считается своей."""
+    from isoliner3d.flatten import mask_keep
+    m = np.ones((4, 4))
+    gt = (0.0, 10.0, 0.0, 40.0, 0.0, -10.0)
+    keep = mask_keep(np.array([-50.0, 20.0]), np.array([20.0, 20.0]),
+                     m, gt, 0.5)
+    assert keep.tolist() == [False, True]
+
+
+def test_mask_treats_gaps_as_outside():
+    """Пропуск в маске это «снаружи», а не «внутри»."""
+    from isoliner3d.flatten import mask_keep
+    m = np.full((4, 4), np.nan)
+    m[1, 1] = 1.0
+    gt = (0.0, 10.0, 0.0, 40.0, 0.0, -10.0)
+    keep = mask_keep(np.array([15.0, 35.0]), np.array([25.0, 5.0]),
+                     m, gt, 0.5)
+    assert keep.tolist() == [True, False]
+
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

@@ -120,6 +120,69 @@ def test_short_line_is_refused():
     raise AssertionError("на одной точке стенку не построить")
 
 
+def test_fence_of_one_bed():
+    """Разрез через пару поверхностей: полотнище по линии.
+
+    Забор в сцене это вертикальный разрез сквозь всю пачку пластов
+    по заданной линии, а не поверхность, натянутая на неё. Строится
+    ровно по линии, без толщины - как чертёж, поставленный
+    вертикально.
+    """
+    top = np.full((5, 5), 10.0)
+    bot = np.full((5, 5), 4.0)
+    gt = (0.0, 10.0, 0.0, 50.0, 0.0, -10.0)
+    line = [(5.0, 25.0), (45.0, 25.0)]
+    v, f = slice3d.fence_mesh([(top, bot)], gt, line, step=10.0)
+    assert len(f) > 0
+    assert abs(v[:, 2].max() - 10.0) < 1e-6, v[:, 2].max()
+    assert abs(v[:, 2].min() - 4.0) < 1e-6, v[:, 2].min()
+    # полотнище стоит на линии: Y один и тот же
+    assert abs(v[:, 1].max() - v[:, 1].min()) < 1e-6
+
+
+def test_fence_keeps_every_bed_apart():
+    """Каждая пара даёт свои грани: пласты не сливаются в одно."""
+    a = (np.full((5, 5), 10.0), np.full((5, 5), 8.0))
+    b = (np.full((5, 5), 6.0), np.full((5, 5), 2.0))
+    gt = (0.0, 10.0, 0.0, 50.0, 0.0, -10.0)
+    line = [(5.0, 25.0), (45.0, 25.0)]
+    v1, f1 = slice3d.fence_mesh([a], gt, line, step=10.0)
+    v2, f2 = slice3d.fence_mesh([a, b], gt, line, step=10.0)
+    assert len(f2) == 2 * len(f1), (len(f1), len(f2))
+    # между пластами есть промежуток: 8 и 6 не срослись
+    zs = np.unique(np.round(v2[:, 2], 6))
+    assert 8.0 in zs and 6.0 in zs
+
+
+def test_fence_follows_a_bent_line():
+    """Ломаная линия даёт ломаное полотнище, а не прямое."""
+    top = np.full((7, 7), 10.0)
+    bot = np.full((7, 7), 4.0)
+    gt = (0.0, 10.0, 0.0, 70.0, 0.0, -10.0)
+    line = [(5.0, 10.0), (35.0, 10.0), (35.0, 60.0)]
+    v, _f = slice3d.fence_mesh([(top, bot)], gt, line, step=10.0)
+    assert np.ptp(v[:, 0]) > 20.0 and np.ptp(v[:, 1]) > 30.0
+
+
+def test_fence_skips_gaps():
+    """Где пласта нет, полотнища тоже нет: пропуск не выдумывается."""
+    top = np.full((5, 5), 10.0)
+    bot = np.full((5, 5), 4.0)
+    top[:, :2] = np.nan
+    gt = (0.0, 10.0, 0.0, 50.0, 0.0, -10.0)
+    line = [(5.0, 25.0), (45.0, 25.0)]
+    v, f = slice3d.fence_mesh([(top, bot)], gt, line, step=5.0)
+    assert len(f) > 0
+    assert np.isfinite(v).all()
+    assert v[:, 0].min() > 10.0, v[:, 0].min()
+
+
+def test_fence_of_nothing():
+    gt = (0.0, 10.0, 0.0, 50.0, 0.0, -10.0)
+    v, f = slice3d.fence_mesh([], gt, [(0.0, 0.0), (1.0, 0.0)])
+    assert len(v) == 0 and len(f) == 0
+
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

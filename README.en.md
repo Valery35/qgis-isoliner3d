@@ -47,9 +47,11 @@ place in space and a map draped over the relief.
 - Click query: the layer name, the coordinates, all band values, the
 - A cube of values is shown as an isosurface at a cutoff: a closed body fit for volume computation.
 - Hillshading, a gradient background and edge smoothing in the scene; a turntable and frame capture.
-- Shells into a project layer: split into connected bodies and the volume of each, in one click.
+- Shells into a project layer: split into connected bodies and the volume of each, in one click. Both an isosurface over a cube and a bed body are taken.
+- Bodies are lit by three sources: with a single one everything turned away from it falls into shadow, and half of a bed body is just that.
 - Export to STL and OBJ for CAD.
 - 2.07 MBA in volume: a cube from hundreds of thousands of measurements, where kriging stalls.
+- A bed body from drawings on sections: the roof and the floor are interpolated separately, the contact of neighbouring beds is built as one surface, and an area mask says how far to trust it.
 - Shells in a table: level, colour and opacity per row, a cap at the cube edge.
 - Cube clipping by surfaces: everything above the terrain or outside the bed is dropped before building.
 - Export to GLB with the coordinate box, tick labels and the same colouring as on screen.
@@ -99,6 +101,8 @@ values: a grid band is a horizontal level.
 | 2.04 Cube body as voxels | A body above the cutoff as cell boxes, one feature per interval | MULTIPOLYGON Z |
 | 2.05 Check of the interpolation | Leave one sample or one hole out, error and bias | Residual points |
 | 2.06 Kriging in three dimensions | Weights from a variogram measured on the data | A cube and a variance cube |
+| 2.07 MBA in volume | Multilevel B-splines: hundreds of thousands of measurements where kriging stalls | A cube of values |
+| 2.08 Beds from sections | A roof and a floor from the outlines on sections, with contact gluing and an area mask | A grid of beds |
 
 A bed grid assembled by the first tool is read by the 3D window as a body:
 computed and looked at right away.

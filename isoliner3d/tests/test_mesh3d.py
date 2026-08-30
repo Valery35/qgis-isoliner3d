@@ -195,6 +195,51 @@ def test_cap_ribbon_skips_outside_stations():
     assert len(cf) == 0 and len(cv) == 0
 
 
+def test_bed_body_is_watertight_and_its_volume_is_exact():
+    """Тело пласта в слой проекта: объём должен быть настоящим.
+
+    Меш идёт по ЦЕНТРАМ ячеек, поэтому занимает на полячейки меньше
+    с каждой стороны, чем грид. На мелкой сетке разница мала,
+    на грубой её надо знать: 1.02 считает по ячейкам целиком
+    и даст немного больше.
+    """
+    import numpy as np
+    from isoliner3d.mesh3d import bed_to_mesh_arrays
+    from isoliner3d.cleanup import mesh_volume, shell_defects
+    ny = nx = 21
+    cell = 1.0
+    gt = (0.0, cell, 0.0, ny * cell, 0.0, -cell)
+    top = np.full((ny, nx), -250.0)
+    bot = top - 3.0
+    v, f = bed_to_mesh_arrays(top, bot, gt, zscale=1.0, zoffset=0.0,
+                              step=1)
+    holes, _pinch = shell_defects(v, f)
+    assert holes == 0, "оболочка должна быть замкнутой"
+    want = (nx - 1) * (ny - 1) * cell * cell * 3.0
+    assert abs(mesh_volume(v, f) - want) < 1e-6
+
+
+def test_bed_body_volume_follows_the_vertical_scale():
+    """Преувеличение по вертикали нельзя тащить в выгрузку.
+
+    Тело, построенное для показа, растянуто по Z, и объём у него
+    неверен ровно во столько же раз. Поэтому выгрузка строит своё,
+    с zscale=1.
+    """
+    import numpy as np
+    from isoliner3d.mesh3d import bed_to_mesh_arrays
+    from isoliner3d.cleanup import mesh_volume
+    ny = nx = 11
+    gt = (0.0, 1.0, 0.0, float(ny), 0.0, -1.0)
+    top = np.full((ny, nx), -250.0)
+    bot = top - 2.0
+    v1, f1 = bed_to_mesh_arrays(top, bot, gt, zscale=1.0, zoffset=0.0,
+                                step=1)
+    v5, f5 = bed_to_mesh_arrays(top, bot, gt, zscale=5.0, zoffset=0.0,
+                                step=1)
+    assert abs(mesh_volume(v5, f5) / mesh_volume(v1, f1) - 5.0) < 1e-6
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

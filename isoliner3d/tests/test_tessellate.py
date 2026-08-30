@@ -114,6 +114,17 @@ def _band():
     return FakeGeom([FakePart(ring[:-1])], tris)
 
 
+def test_real_tessellation_is_in_place():
+    """Разбивка в модуле настоящая, а не подменённая соседним тестом.
+
+    `test_cache.py` подменяет `_tessellate` пустышкой, чтобы считать
+    вызовы. Оставленная в модуле, она доставалась этим тестам, и они
+    падали только в общем прогоне, а по отдельности проходили.
+    """
+    assert v3._tessellate.__module__.endswith("viewer3d"), \
+        "разбивка подменена: соседний тест не вернул её на место"
+
+
 def test_band_keeps_two_levels():
     """Скат: у пояса остаются обе отметки, а не одна на всю фигуру."""
     verts, faces = v3._tessellate(_band())

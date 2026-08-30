@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Isoliner3D - значок пункта «Справка (руководство PDF)».
+  © 2026 ООО «Информ++» (www.informpp.ru).
+  SPDX-License-Identifier: GPL-2.0-or-later
+
+  Страница с загнутым углом и строками текста. От значка «О плагине»
+  отличается формой, а не только цветом: в меню значки мелкие,
+  и цвет один читается плохо.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24">
+  <path d="M5 2.5h9l5 5v14H5z" fill="#FFFFFF" stroke="#1E6F5C"
+        stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M14 2.5v5h5" fill="none" stroke="#1E6F5C"
+        stroke-width="1.6" stroke-linejoin="round"/>
+  <rect x="7.6" y="11" width="8.8" height="1.6" rx="0.8"
+        fill="#C2622C"/>
+  <rect x="7.6" y="14.4" width="8.8" height="1.6" rx="0.8"
+        fill="#C2622C"/>
+  <rect x="7.6" y="17.8" width="5.6" height="1.6" rx="0.8"
+        fill="#C2622C"/>
+</svg>

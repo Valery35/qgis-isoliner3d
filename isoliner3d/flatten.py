@@ -146,3 +146,35 @@ def flat_span(x, y, z, roof, gt, floor=None):
     if not ok.any() or not zo.any():
         return None
     return (float(np.ptp(f[ok])), float(np.ptp(z[zo])), int(ok.sum()))
+
+
+def mask_keep(xs, ys, mask, gt, level=0.5):
+    """Отбор точек по растровой маске: внутри там, где значение выше.
+
+    Полигон задаёт границу линией, а маска - площадью. Так удобнее,
+    когда границу считал инструмент: зону, вероятность, контур
+    отработки. Рисовать её потом полигоном значит терять точность
+    на ровном месте.
+
+    Точка вне охвата маски отбрасывается: маска про неё ничего
+    не говорит, и считать такую точку своей нельзя. Пропуск в маске
+    это «снаружи» по той же причине.
+    """
+    xs = np.asarray(xs, dtype=float)
+    ys = np.asarray(ys, dtype=float)
+    m = np.asarray(mask, dtype=float)
+    if m.ndim != 2 or not m.size:
+        return np.zeros(xs.shape, dtype=bool)
+    x0, dx, _rx, ytop, _ry, dy = [float(v) for v in gt]
+    if abs(dx) < 1e-30 or abs(dy) < 1e-30:
+        return np.zeros(xs.shape, dtype=bool)
+    cols = np.floor((xs - x0) / dx).astype(np.int64)
+    rows = np.floor((ys - ytop) / dy).astype(np.int64)
+    ok = ((cols >= 0) & (cols < m.shape[1])
+          & (rows >= 0) & (rows < m.shape[0]))
+    out = np.zeros(xs.shape, dtype=bool)
+    if not ok.any():
+        return out
+    val = m[rows[ok], cols[ok]]
+    out[ok] = np.isfinite(val) & (val >= float(level))
+    return out

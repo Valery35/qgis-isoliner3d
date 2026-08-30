@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Isoliner3D - значок пункта «О плагине».
+  © 2026 ООО «Информ++» (www.informpp.ru).
+  SPDX-License-Identifier: GPL-2.0-or-later
+
+  Круг со знаком «i» в тех же цветах, что и значок модуля: пункт
+  должен читаться как свой, но не сливаться с кнопкой окна сцены.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+     width="24" height="24">
+  <circle cx="12" cy="12" r="10" fill="#1E6F5C"/>
+  <circle cx="12" cy="7.2" r="1.5" fill="#FFFFFF"/>
+  <rect x="10.6" y="10" width="2.8" height="8" rx="1.2"
+        fill="#FFFFFF"/>
+</svg>

@@ -121,13 +121,19 @@ class Lattice(object):
 
     # --- построение и оценка ---
 
-    def fit(self, pts, vals):
+    def fit(self, pts, vals, batch=50000):
         """Считает коэффициенты по точкам и значениям.
 
         Правило из статьи: каждая точка раскладывает своё значение по
         носителю пропорционально квадрату веса, а коэффициент собирает
         приход со всех своих точек. Знаменатель - сумма квадратов весов:
         там, где точек нет, он ноль, и коэффициент остаётся нулевым.
+
+        Считается порциями. Каждая точка разворачивается в шестьдесят
+        четыре узла носителя, и на них заводится несколько массивов:
+        миллион точек это два гигабайта разом, и QGIS падает раньше,
+        чем NumPy успевает сказать «нет памяти». Порция ограничивает
+        занятую память, а на ответ не влияет: суммы накапливаются.
         """
         pts = np.asarray(pts, dtype=np.float64)
         vals = np.asarray(vals, dtype=np.float64)
@@ -135,37 +141,150 @@ class Lattice(object):
             raise ValueError("Точки должны быть массивом (m, ndim).")
         if vals.shape[0] != pts.shape[0]:
             raise ValueError("Число значений и точек должно совпадать.")
-        base, frac = self._cells(pts)
-        idx, w = self._support(base, frac)
-
-        w2 = w * w
-        denom_pt = w2.sum(axis=1)
-        denom_pt[denom_pt == 0.0] = 1.0
-        # вклад точки в коэффициент: phi = w * v / sum(w^2)
-        phi = w * (vals / denom_pt)[:, None]
 
         size = self.coef.size
-        num = np.bincount(idx.ravel(), weights=(w2 * phi).ravel(),
-                          minlength=size)
-        den = np.bincount(idx.ravel(), weights=w2.ravel(), minlength=size)
+        num = np.zeros(size, dtype=np.float64)
+        den = np.zeros(size, dtype=np.float64)
+        step = max(int(batch), 1)
+        for start in range(0, len(pts), step):
+            part = pts[start:start + step]
+            pv = vals[start:start + step]
+            base, frac = self._cells(part)
+            idx, w = self._support(base, frac)
+            w2 = w * w
+            denom_pt = w2.sum(axis=1)
+            denom_pt[denom_pt == 0.0] = 1.0
+            # вклад точки в коэффициент: phi = w * v / sum(w^2)
+            phi = w * (pv / denom_pt)[:, None]
+            num += np.bincount(idx.ravel(),
+                               weights=(w2 * phi).ravel(),
+                               minlength=size)
+            den += np.bincount(idx.ravel(), weights=w2.ravel(),
+                               minlength=size)
         with np.errstate(invalid="ignore", divide="ignore"):
             c = np.where(den > 0, num / np.where(den > 0, den, 1.0), 0.0)
         self.coef = c.reshape(self.shape)
         return self
 
-    def evaluate(self, pts):
-        """Значение поверхности в точках."""
+    def evaluate_axes(self, axes):
+        """Значения на правильной сетке, по оси за раз.
+
+        На такой сетке веса разделяются по осям: значение это
+        произведение весов по X, по Y и по Z. Значит вместо того,
+        чтобы для каждого узла собирать шестьдесят четыре соседа
+        вразнобой, можно свернуть решётку по одной оси за раз.
+
+        Ответ тот же до последнего знака, но работы много меньше:
+        на кубе двести на двести на семьдесят это секунды вместо
+        десятков секунд.
+        """
+        axes = [np.asarray(a, dtype=np.float64) for a in axes]
+        if len(axes) != self.ndim:
+            raise ValueError("Осей должно быть по числу измерений.")
+        acc = self.coef
+        for d in range(self.ndim):
+            rel = (axes[d] - self.lo[d]) / self.step[d]
+            base = np.floor(rel).astype(np.int64)
+            np.clip(base, 0, self.n[d] - 1, out=base)
+            frac = np.clip(rel - base, 0.0, 1.0)
+            w1 = _weights_1d(frac)                # (SUPPORT, m)
+            got = None
+            for a in range(w1.shape[0]):
+                part = np.take(acc, base + a, axis=d)
+                sh = [1] * acc.ndim
+                sh[d] = -1
+                add = part * w1[a].reshape(sh)
+                got = add if got is None else got + add
+            acc = got
+        return acc
+
+    def evaluate(self, pts, batch=50000):
+        """Значение поверхности в точках.
+
+        Тоже порциями: оценка разворачивает те же шестьдесят четыре
+        узла на точку, и на большом наборе её память больше, чем
+        у самой подгонки - невязка по уровням считается по всем
+        точкам сразу.
+        """
         pts = np.asarray(pts, dtype=np.float64)
         if pts.ndim != 2 or pts.shape[1] != self.ndim:
             raise ValueError("Точки должны быть массивом (m, ndim).")
-        base, frac = self._cells(pts)
-        idx, w = self._support(base, frac)
         flat = self.coef.ravel()
-        return (flat[idx] * w).sum(axis=1)
+        out = np.empty(len(pts), dtype=np.float64)
+        step = max(int(batch), 1)
+        for start in range(0, len(pts), step):
+            part = pts[start:start + step]
+            base, frac = self._cells(part)
+            idx, w = self._support(base, frac)
+            out[start:start + step] = (flat[idx] * w).sum(axis=1)
+        return out
+
+
+def _trend_coefs(pts, vals, kind):
+    """Тренд, снимаемый перед подгонкой. Множители при осях и свободный член.
+
+    Коэффициент решётки считается формулой, линейной по значению:
+    phi = w * v / sum(w^2). Значит и ошибка растёт вместе с ВЕЛИЧИНОЙ
+    значения, а не с его разбросом. Там, где носитель односторонний -
+    край области, дыра в данных, внутренность замкнутого обхода, -
+    знаменатель мал, и коэффициент разлетается пропорционально самой
+    отметке. На кровле около -250 м с разбросом в восемьдесят
+    сантиметров поверхность уходила на четырнадцать метров, и числом
+    уровней это не лечится: с третьего уровня ошибка не меняется вовсе.
+
+    Снятый тренд оставляет решётке остаток около нуля. Та же подгонка
+    на том же наборе даёт шесть сантиметров вместо четырнадцати метров.
+
+    `kind`: None или "none" - не снимать, "mean" - среднее, "plane" -
+    плоскость наименьшими квадратами. Плоскость на вырожденной сети
+    (точек меньше, чем неизвестных, или все они на одной прямой)
+    вырождается в среднее: подгонять наклон не по чему.
+    """
+    if kind is None:
+        return None
+    kind = str(kind).lower()
+    if kind == "none":
+        return None
+    if kind not in ("mean", "plane"):
+        raise ValueError("Снятие тренда бывает 'mean', 'plane' или None.")
+    ndim = pts.shape[1]
+    out = np.zeros(ndim + 1, dtype=np.float64)
+    out[-1] = float(vals.mean())
+    if kind == "mean" or len(pts) < ndim + 1:
+        return out
+    a = np.column_stack([pts, np.ones(len(pts))])
+    coef, _res, rank, _sv = np.linalg.lstsq(a, vals, rcond=None)
+    if rank < ndim + 1:
+        return out
+    return np.asarray(coef, dtype=np.float64)
+
+
+def _trend_at(pts, tc):
+    """Значение тренда в точках."""
+    return pts @ tc[:-1] + tc[-1]
+
+
+def _add_trend(lat, tc):
+    """Вернуть снятый тренд внутрь решётки нулевого уровня.
+
+    Решётка воспроизводит плоскость ТОЧНО, если коэффициент взять в его
+    собственной точке: lo + (j - 1) * step по каждой оси. Поэтому тренд
+    возвращается прямо в коэффициенты, и вызывающей стороне не надо
+    помнить о нём ни при оценке, ни на гриде, ни в кубе.
+    """
+    add = np.full(lat.shape, tc[-1], dtype=np.float64)
+    for d in range(lat.ndim):
+        j = np.arange(lat.shape[d], dtype=np.float64)
+        pos = lat.lo[d] + (j - 1.0) * lat.step[d]
+        shape = [1] * lat.ndim
+        shape[d] = lat.shape[d]
+        add = add + tc[d] * pos.reshape(shape)
+    lat.coef = lat.coef + add
+    return lat
 
 
 def fit(pts, vals, lo=None, hi=None, grid=(2, 2), levels=8, tol=None,
-        progress=None):
+        progress=None, batch=50000, center=None):
     """Строит поверхность MBA и возвращает список решёток по уровням.
 
     `grid` - число ячеек начальной решётки по каждой оси. Оно и задаёт
@@ -179,6 +298,12 @@ def fit(pts, vals, lo=None, hi=None, grid=(2, 2), levels=8, tol=None,
 
     `tol` - остановка по остатку: если наибольшая невязка стала меньше,
     дальше дробить нечего.
+
+    `center` - снять ли тренд перед подгонкой: "plane", "mean" или None.
+    Для отметок и вообще для величин, далёких от нуля, снимать надо:
+    без этого ошибка масштабируется самой отметкой (см. `_trend_coefs`).
+    По умолчанию не снимается, чтобы не менять молча поведение там,
+    где на нём что-то построено.
     """
     pts = np.asarray(pts, dtype=np.float64)
     vals = np.asarray(vals, dtype=np.float64).ravel()
@@ -202,28 +327,32 @@ def fit(pts, vals, lo=None, hi=None, grid=(2, 2), levels=8, tol=None,
     if grid.size != ndim:
         raise ValueError("Размер начальной решётки должен быть по числу осей.")
 
+    tc = _trend_coefs(pts, vals, center)
+
     lattices = []
-    resid = vals.copy()
+    resid = vals.copy() if tc is None else vals - _trend_at(pts, tc)
     n = grid.copy()
     for lvl in range(max(1, int(levels))):
-        lat = Lattice(lo, hi, n).fit(pts, resid)
+        lat = Lattice(lo, hi, n).fit(pts, resid, batch=batch)
         lattices.append(lat)
-        resid = resid - lat.evaluate(pts)
+        resid = resid - lat.evaluate(pts, batch=batch)
         worst = float(np.max(np.abs(resid))) if resid.size else 0.0
         if progress is not None:
             progress(lvl, worst, tuple(int(v) for v in n))
         if tol is not None and worst <= float(tol):
             break
         n = n * 2
+    if tc is not None:
+        _add_trend(lattices[0], tc)
     return lattices
 
 
-def evaluate(lattices, pts):
+def evaluate(lattices, pts, batch=50000):
     """Сумма всех уровней в точках."""
     pts = np.asarray(pts, dtype=np.float64)
     out = np.zeros(pts.shape[0], dtype=np.float64)
     for lat in lattices:
-        out += lat.evaluate(pts)
+        out += lat.evaluate(pts, batch=batch)
     return out
 
 
@@ -240,16 +369,13 @@ def evaluate_grid(lattices, axes):
     if len(axes) == 1:
         return evaluate(lattices, axes[0][:, None])
 
-    rest = [a for a in axes[1:]]
-    mesh = np.meshgrid(*rest, indexing="ij")
-    tail = np.stack([m.ravel() for m in mesh], axis=1)
-    for i, v in enumerate(axes[0]):
-        block = np.column_stack([np.full(tail.shape[0], v), tail])
-        out[i] = evaluate(lattices, block).reshape(tuple(a.size for a in rest))
+    out = np.zeros(shape, dtype=np.float64)
+    for lat in lattices:
+        out += lat.evaluate_axes(axes)
     return out
 
 
-def levels_report(lattices, pts, vals):
+def levels_report(lattices, pts, vals, batch=50000):
     """Невязка по уровням: чем каждый уровень помог.
 
     Нужна не для красоты. По ней видно, когда дробить пора прекратить:
@@ -261,7 +387,7 @@ def levels_report(lattices, pts, vals):
     out = []
     cur = np.zeros_like(vals)
     for lat in lattices:
-        cur = cur + lat.evaluate(pts)
+        cur = cur + lat.evaluate(pts, batch=batch)
         d = vals - cur
         out.append({"cells": tuple(int(v) for v in lat.n),
                     "max": float(np.max(np.abs(d))) if d.size else 0.0,

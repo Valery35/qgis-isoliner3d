@@ -72,7 +72,15 @@ settings are saved into the project.
 
 Hillshading is not decoration: a surface coloured by a ramp is drawn
 with vertex colours and no light at all, so the relief within one shade
-is lost.
+is lost. The gradient background is on by default.
+
+Bodies are lit by three sources. With a single one everything turned
+away from it falls into shadow completely, and half of a bed body is
+just that - the side walls and the floor - so the scene comes out dark.
+The main source draws the shape, the second lights from the other side
+at half strength, the third from below keeps the bottom from sinking.
+The hillshading keeps a single source: with three it goes flatter, and
+the relief within one shade of the ramp reads worse.
 
 ## Layer properties
 
@@ -98,6 +106,15 @@ The button on the toolbar puts the shells into a project layer, splitting
 them into connected bodies and computing the volume of each. The volume
 is computed by an exact formula over a watertight shell, not by summing
 cells: the shell cuts the edge cells in half.
+
+The button takes two modes: an isosurface over a cube and a bed body.
+For a bed body every pair of bands gives its own body, and the level
+field holds the number of the roof band. The body is built afresh
+rather than taken from the scene: what is shown has its vertical
+stretched by the exaggeration, the layers spaced down Z and the mesh
+thinned to a vertex budget, so the volume of such a body is wrong by
+exactly the factor the vertical is stretched by. The clipping, however,
+is the one set in the scene.
 
 The **holes** field counts torn edges - with them the volume is
 meaningless. The **pinch** field counts self-touches, which do not
@@ -352,6 +369,206 @@ Beyond the cloud of points the surface goes anywhere: the edge coefficients have
 | **Stop by residual (0 means all levels)** | Stopping by residual: once the largest deviation from the measured values falls below it, no further levels are built. Zero means build them all. |
 | **Smallest value (empty means no bound)** | The smallest possible value: a grade is never below zero, while the method does leave the range. What leaves is pressed to the bound, and a plateau appears where the overshoot was - the shape is lost there. Leave it empty if there is no bound. |
 | **Largest value (empty means no bound)** | The largest possible value. The number of clamped nodes goes to the log: it shows whether the model is any good. |
+## 2.08 Beds from sections
+
+Builds a grid of beds from the outlines drawn on sections.
+
+Every ring runs along the roof one way and along the floor back, so two surfaces are taken from it. They are interpolated over the area with multilevel B-splines, and the space between the sections is filled.
+
+The position of the sections is taken from the geometry itself, from the vertices of the outlines. The lines of the sections need not be given separately. A flat drawn section is no good: it has no real elevations.
+
+The output is a multiband grid: a roof and a floor per bed. The scene shows such a grid as a bed body, and 1.02 and 1.03 compute the thickness, the blocks and the volumes from it.
+
+The floor of the upper bed and the roof of the lower one are one and the same boundary if the geologist drew them as one line. Such a boundary is built once from both sets of points: built separately, they drift apart between the sections, and the model gets a gap or an overlap that the section does not have. The threshold of the gluing is set by the tolerance.
+
+The area mask clips the result: between the sections there is no data, and the mask says how far to trust the surfaces.
+
+Between the sections the surface goes where the interpolation put it: there is no data there. Where the sections cross, the elevations on them must agree. The disagreements are counted and go to the log together with the coordinates of the place where they are largest: with a number alone there is nowhere to look for the vertex that slipped.
+
+| Field | What it sets |
+|---|---|
+| **Outlines on sections (polygons with Z)** | A layer of outlines on sections: polygons with real Z. The position of the sections is taken from the geometry itself, from the vertices of the outline, and is never asked for. A flat drawn section is no good: its X and Y are coordinates on the sheet and there are no elevations at all. The geometry type must be PolygonZ or MultiPolygonZ. |
+| **The field of the bed number** | The field of the bed number. Every bed gives two bands in the grid: a roof and a floor. |
+| **This bed only (empty means all)** | The number of the bed, if only one is wanted. Empty means all. |
+| **Grid step, m (0 means from the data)** | The step of the grid over the area. Zero takes a two-hundredth of the extent. |
+| **Area mask (polygons, optional)** | A polygon layer the result is clipped by. Outside it there is no grid at all. Between the sections there are no data, and the surface goes where the interpolation drew it: the mask says how far to trust that. Usually it is the outline of a working, a pit or a block. Empty - the grid covers the whole extent of the contours. |
+| **Grid of the beds** | A multiband grid: a roof and a floor per bed, in order of the numbers. The scene shows such a grid as a bed body, 1.02 computes the thickness from it and 1.03 the blocks and the volumes. |
+| **Levels** | Levels in the multilevel approximation. Few levels give a smooth surface, many bring it closer to the elevations on the sections. |
+| **Contact gluing tolerance, m** | The tolerance within which the floor of the upper bed and the roof of the lower one count as one surface and are built once. Two surfaces built independently drift apart between the sections, and the model gets a gap or an overlap that the section does not have. Zero switches the gluing off: then every surface is its own. |
+| **Margin outwards from the mask, m** | A margin outwards from the mask. The bed usually continues beyond the outline of a working, and clipping exactly along it would cut away what the data do hold. |
+
+# From drawings on sections to a body
+
+The tool **2.08 Beds from sections**, for when the holes are few and
+the sections are drawn.
+
+## Where the coordinates come from
+
+From the geometry of the outlines, and from nowhere else. An outline on
+a three-dimensional section is a polygon whose every vertex has X, Y
+and Z. X and Y run along the line of the section, Z is the elevation.
+The tool works out the plane of the outline from those vertices, taking
+the direction from the largest spread of the points in plan. The lines
+of the sections need not be given separately: they are already in the
+data.
+
+A flat drawn section is no good: its X and Y are coordinates on the
+sheet, not on the ground, and there are no elevations at all. The
+geometry type must be `PolygonZ` or `MultiPolygonZ`.
+
+## How the roof and the floor are taken
+
+The ring of the outline is sampled across, along the line of the
+section: at every step the upper point of the ring and the lower one.
+Splitting the ring in half is not allowed - only a fence is built that
+way, with the top running forward and the bottom back, while a
+hand-drawn outline has its vertices in any order.
+
+It is these two surfaces that are interpolated, not the body as a
+whole. A roof and a floor are ordinary surfaces, and the problem about
+them has a solution for any layout of sections.
+
+Before the fitting a flat trend is removed from the elevations. Without
+that the error of the method grows with the elevation itself rather
+than with its spread: on a roof around minus two hundred and fifty
+metres with a spread of eighty centimetres the surface went off by
+fourteen metres, and no number of levels mended it.
+
+## The contact of neighbouring beds
+
+The floor of the upper bed and the roof of the lower one are one and
+the same boundary if the geologist drew them as one line. Built
+separately, they drift apart between the sections, and the model gets a
+gap or an overlap that the section does not have.
+
+The tool brings the samples of neighbouring beds together and measures
+the spread of the elevations. If it is within the **contact gluing
+tolerance**, the boundary is built once from both sets of points and
+put into both bands: the gap is then zero by construction. If it is
+larger, the surfaces are built separately and a warning goes to the log
+with the coordinates of the place where the disagreement is largest.
+Go there and look in your own layer of outlines: usually one vertex has
+slipped.
+
+For this the beds are ordered by their bedding, from the top down,
+rather than by the name of the field: numbers come as text, and then
+"10" stands between "1" and "2".
+
+## A lens inside a bed
+
+The outlines of one section plane are taken together, by their outer
+boundary: the roof follows the topmost of them, the floor the lowest.
+A lens or a parting drawn inside a bed under the same number therefore
+does not touch the boundary of the body. Their samples used to be
+pooled together, and the cloud of the roof held both the real roof and
+the top of the lens: the interpolation got two answers in one place and
+ran the surface between them.
+
+If the lens is wanted as a body of its own, give it its own bed number.
+
+Outlines of different sections are never merged this way. A
+disagreement at one place in plan between two sections is data, and it
+must be seen rather than hidden by taking the outermost.
+
+## How far to trust the surface
+
+The grid is built over the whole extent of the outlines, and beyond the
+sections the surface goes where the interpolation put it. The **area
+mask** says how far to trust that: outside it there is no grid at all.
+Usually it is the outline of a working, a pit or a block. The **margin
+outwards from the mask** is left because the bed continues beyond the
+outline of a working, and clipping exactly along it would cut away what
+the data do hold.
+
+## The order of the work
+
+1. Outlines of the beds on sections: polygons with real Z.
+2. **2.08 Beds from sections**. Set the field of the bed number and
+   leave "This bed only" empty: all the beds are built in one run, on a
+   common grid. In separate runs every bed gets its own extent and its
+   own step, and the contacts between them no longer meet.
+3. The log: the thickness over the area must lie within the thickness
+   on the sections, and the lines about the contacts must show
+   centimetres rather than decimetres.
+4. The grid into the scene, the **Bed body** mode. The shells button
+   puts the bodies into a project layer, with the volume in the
+   attributes.
+5. Thickness, volume and reserves come from **1.02 Bed calculator**,
+   the block model from **1.03**.
+
+What is worth knowing beforehand. The accuracy is decided by how often
+the sections are spaced, and no computation can mend that: between two
+sections there is no data.
+
+The volume of a body from the shells button and the volume from 1.02
+will not agree exactly. The mesh runs through the centres of the cells,
+1.02 counts whole cells, and the difference is the half-cells around
+the perimeter: about one per cent on a grid of two hundred cells, and
+noticeably more on a coarse one.
+
+# Typical tasks
+
+Six chains that come round again and again in the work. Numbers with a
+dot are Isoliner3D tools, names without a number are the neighbouring
+Isoliner.
+
+## From boreholes to reserves
+
+1. Samples with grades in a point layer, the elevation in the geometry
+   or in a field.
+2. **2.05 Cross-validation** to choose the parameters. Leave out a
+   whole hole, not a single sample: a neighbouring sample in the same
+   hole almost repeats the one left out, and the error comes out lower
+   than the real one.
+3. **2.02 Interpolation of points in volume** or **2.07 MBA in
+   volume** for the cube of values.
+4. The cube into the scene, isosurface mode. Clipping by the terrain
+   and by the licence outline is in the scene properties.
+5. The **shells into a project layer** button: bodies with the volume
+   of each.
+
+## From horizons to a bed
+
+1. In Isoliner the **roof** and the **floor** are interpolated in plan.
+2. **1.01 Assemble a bed grid** - a multiband grid.
+3. **1.03 Bed into a block model** - blocks with volume and mass.
+4. The same grid shows in the scene as a bed body, without any
+   conversion.
+
+## A section on the drawing and in volume
+
+The section fence built by Isoliner is polygons with real Z, and it
+goes into the scene as it is; the colour of the beds comes from the
+`color` field. The point is a check by eye: the fence lies on the
+surfaces it was built from.
+
+## What has changed between surveys
+
+Two models of the same area from different times, then **1.06 Reserve
+difference**.
+
+## Showing it to someone who is not a geologist
+
+**GLB** for a browser, Blender or Windows; PNG frames of a turn for a
+video; **STL** or **OBJ** for CAD. For CAD switch on the cap at the
+cube edge: an open shell will show as a mesh but will not become a
+solid.
+
+## Checking the data before the model
+
+**2.05** leaving out one sample, and the same leaving out a whole hole.
+The difference between the two errors tells what the model rests on.
+
+Measured on the demonstration deposit, samples every five metres down
+the hole: with a 100 m grid of holes the ratio is 0.9, with 200 m it is
+1.6, with 400 m it is 2.6. The error per sample hardly changes with the
+grid - a neighbour down the hole is always close by. The error per hole
+grows with the distance between the holes, and that one is the real
+one.
+
+The figures are for the demonstration data; yours will differ. What
+matters is the ratio and how it changes as the grid gets denser.
+
 # Neighbouring plugins
 
 **Isoliner** - interpolation in plan, contours, terrain, drawn sections,
@@ -387,7 +604,10 @@ the same name, show the version and the links, open the changelog and
 the log of the module.
 
 The log is started when the module loads, next to the QGIS profile, as
-`isoliner3d.log`. Every step goes into it, not only failures.
+`isoliner3d.log`. Every step goes into it, not only failures. The lines
+the tools print go there as well, not only into the Processing window:
+a picture of the log used to show that a run took half a second and not
+a single number to judge the result by.
 
 | Where | What for |
 |---|---|

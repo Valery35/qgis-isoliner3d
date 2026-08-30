@@ -81,6 +81,483 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'Система координат местная (%s), пересчёт не делается: '
+    'у неё нет привязки к земле. Задайте слою и проекту одну '
+    'систему, если они в разных.':
+        'The coordinate system is a local one (%s), so no '
+        'reprojection is done: it has no tie to the earth. Give the '
+        'layer and the project the same system if they differ.',
+    'не задана': 'not set',
+    'Грид пластов показывается вертикальным разрезом '
+    'по выбранной линии: сквозь всю пачку сразу, с кровлей '
+    'и подошвой каждого пласта. Это чертёж разреза, '
+    'поставленный в сцену, а не поверхность, натянутая на линию. '
+    'Линия берётся та же, что и для обрезки.':
+        'A grid of beds is shown as a vertical section along the '
+        'chosen line: through the whole stack at once, with the '
+        'roof and the floor of every bed. It is the section drawing '
+        'set into the scene, not a surface stretched over the line. '
+        'The line is the same one used for clipping.',
+    'Коридор строится по линии, а выбран слой с полигонами. '
+    'Поставьте «Что оставить» на внутренность или наружное, '
+    'либо выберите линейный слой.':
+        'A corridor is built along a line, and a polygon layer was '
+        'chosen. Set «What to keep» to the inside or the outside, '
+        'or choose a line layer.',
+    'Выбран линейный слой: у линии нет внутренности. Поставьте '
+    '«Что оставить» на коридор вдоль линии.':
+        'A line layer was chosen: a line has no inside. Set «What '
+        'to keep» to a corridor along the line.',
+    'Забор %s не построен: линия мимо данных.':
+        'The fence %s was not built: the line misses the data.',
+    'Забор %s: пластов %d, граней %d.':
+        'Fence %s: %d beds, %d faces.',
+    ' У %d тел объём вышел больше их габарита - это сбой счёта, '
+    'и он не записан.':
+        ' For %d bodies the volume came out larger than their own '
+        'bounding box - that is a failure of the computation, and '
+        'it was not written.',
+    'Контуром или линией': 'By an outline or a line',
+    'Что оставить': 'What to keep',
+    'Сверху и снизу (растры)': 'Above and below (rasters)',
+    'По маске (растр)': 'By a mask (raster)',
+    'Маска и заборы': 'Mask and fences',
+    'Показать заборами по линии': 'Show as fences along the line',
+    'Маска %s не прочиталась.': 'The mask %s could not be read.',
+    'Обрезка по контуру или линии: остаётся то, что внутри. '
+    'Годится любой полигональный слой проекта, а также '
+    'нарисованное прямо в сцене - его можно сохранить слоем '
+    'кнопкой на плашке и выбрать здесь.':
+        'Clipping by an outline or a line: what is inside stays. Any '
+        'polygon layer of the project will do, as will something '
+        'drawn in the scene itself - save it as a layer with the '
+        'toolbar button and choose it here.',
+    'Что оставить от контура: внутренность, наружное или коридор '
+    'вдоль линии заданной полуширины.':
+        'What to keep of the outline: the inside, the outside, or a '
+        'corridor of the given half-width along the line.',
+    'Верхняя поверхность отсечки: всё выше неё не показывается. '
+    'Растр, а не отметка: кровля меняется по площади.':
+        'The upper clipping surface: everything above it is not '
+        'shown. A raster, not an elevation: a roof changes over the '
+        'area.',
+    'Нижняя поверхность отсечки: всё ниже неё не показывается.':
+        'The lower clipping surface: everything below it is not '
+        'shown.',
+    'Растр-маска: тело остаётся там, где значение не меньше '
+    'порога. Полигон задаёт границу линией, а маска - площадью: '
+    'так удобнее, когда границу посчитал инструмент, а не рисовал '
+    'человек.':
+        'A raster mask: the body stays where the value is not less '
+        'than the threshold. A polygon gives the boundary as a line, '
+        'a mask as an area: that is handier when the boundary was '
+        'computed by a tool rather than drawn by hand.',
+    'Порог маски: что не меньше - внутри. Пропуск в маске '
+    'считается «снаружи».':
+        'The threshold of the mask: not less means inside. A gap in '
+        'the mask counts as outside.',
+    'В режиме тела пласта это ПЕРВЫЙ канал пары: за ним идёт '
+    'подошва, дальше следующая пара. Грид пластов показывается '
+    'всеми парами сразу, а этот канал говорит, с какого пласта '
+    'начать.':
+        'In bed-body mode this is the FIRST band of a pair: the floor '
+        'follows it, then the next pair. A grid of beds is shown by '
+        'all its pairs at once, and this band says which bed to '
+        'start from.',
+    'Тело пласта %s: пар каналов %d.':
+        'Bed body %s: %d pairs of bands.',
+    '%s пласта %s':
+        '%s of bed %s',
+    '2.08 Пласты по разрезам':
+        '2.08 Beds from sections',
+    'Грид %d x %d, ячейка %.1f м, уровней %d.':
+        'Grid %d x %d, cell %.1f m, %d levels.',
+    'Грид пластов':
+        'Grid of the beds',
+    'Каналов: %d, по кровле и подошве на пласт. Сцена показывает такой грид '
+    'телом пласта, 1.02 и 1.03 считают по нему мощность, блоки и объёмы.':
+        '%d bands, a roof and a floor per bed. The scene shows such a grid as'
+        ' a bed body, and 1.02 and 1.03 compute the thickness, the blocks and'
+        ' the volumes from it.',
+    'Многоканальный грид: на каждый пласт кровля и подошва, в порядке '
+    'номеров. Сцена показывает такой грид телом пласта, 1.02 считает по нему '
+    'мощность, 1.03 - блоки и объёмы.':
+        'A multiband grid: a roof and a floor per bed, in order of the '
+        'numbers. The scene shows such a grid as a bed body, 1.02 computes '
+        'the thickness from it and 1.03 the blocks and the volumes.',
+    'Ни одного пласта не построено.':
+        'Not a single bed was built.',
+    'Пласт %s: кровлю и подошву не разобрать.':
+        'Bed %s: the roof and the floor cannot be told apart.',
+    'Пласт %s: местами подошва выше кровли. Там мощность отрицательна, и '
+    'объём по ней считать нельзя.':
+        'Bed %s: in places the floor is above the roof. The thickness there '
+        'is negative and no volume can be computed from it.',
+    'Пласт %s: мощность по площади %.2f .. %.2f м.':
+        'Bed %s: thickness over the area %.2f .. %.2f m.',
+    'Допуск склейки контактов, м':
+        'Contact gluing tolerance, m',
+    'Допуск, в пределах которого подошва верхнего пласта и кровля нижнего '
+    'считаются одной поверхностью и строятся один раз. Две независимо '
+    'построенные поверхности между разрезами расходятся, и в модели встаёт '
+    'щель или нахлёст, которых на разрезе нет. Ноль отключает склейку: '
+    'тогда каждая поверхность своя.':
+        'The tolerance within which the floor of the upper bed and the roof '
+        'of the lower one count as one surface and are built once. Two '
+        'surfaces built independently drift apart between the sections, and '
+        'the model gets a gap or an overlap that the section does not have. '
+        'Zero switches the gluing off: then every surface is its own.',
+    'Порядок пластов сверху вниз: %s.':
+        'The beds from the top down: %s.',
+    'Контакт пластов %s и %s: общих мест не нашлось, поверхности строятся '
+    'порознь. Контуры нарисованы в разных местах плана дальше шага '
+    'опробования.':
+        'The contact of beds %s and %s: no shared places were found, the '
+        'surfaces are built separately. The contours are drawn in different '
+        'places of the plan, further apart than the sampling step.',
+    'Контакт пластов %s и %s: на разрезах расходится до %.3f м, '
+    'наибольшее в точке %.2f, %.2f.':
+        'The contact of beds %s and %s: on the sections it differs by up to '
+        '%.3f m, the largest at the point %.2f, %.2f.',
+    'Контакт пластов %s и %s строится одной поверхностью: расхождение '
+    'в пределах допуска %.3f м.':
+        'The contact of beds %s and %s is built as one surface: the '
+        'difference is within the tolerance of %.3f m.',
+    'Контакт пластов %s и %s больше допуска %.3f м, поверхности строятся '
+    'порознь. Между разрезами они разойдутся, и в модели встанет щель '
+    'или нахлёст.':
+        'The contact of beds %s and %s exceeds the tolerance of %.3f m, the '
+        'surfaces are built separately. Between the sections they will drift '
+        'apart, and the model will get a gap or an overlap.',
+    'Маска области (полигоны, необязательно)':
+        'Area mask (polygons, optional)',
+    'Запас наружу от маски, м':
+        'Margin outwards from the mask, m',
+    'Слой полигонов, которым обрезается результат. За его пределами грида '
+    'не будет вовсе. Между разрезами данных нет, и поверхность там идёт '
+    'туда, куда её провела интерполяция: маской задаётся, докуда этому '
+    'верить. Обычно это контур выработки, шурфа или подсчётного блока. '
+    'Пусто - грид на весь охват контуров.':
+        'A polygon layer the result is clipped by. Outside it there is no '
+        'grid at all. Between the sections there are no data, and the '
+        'surface goes where the interpolation drew it: the mask says how '
+        'far to trust that. Usually it is the outline of a working, a pit '
+        'or a block. Empty - the grid covers the whole extent of the '
+        'contours.',
+    'Запас наружу от маски. Пласт обычно продолжается за контур выработки, '
+    'и обрезка ровно по нему срезала бы то, что есть в данных.':
+        'A margin outwards from the mask. The bed usually continues beyond '
+        'the outline of a working, and clipping exactly along it would cut '
+        'away what the data do hold.',
+    'Маска не дала ни одного кольца, обрезки не будет.':
+        'The mask yielded no ring at all, there will be no clipping.',
+    'Маска не накрыла ни одной ячейки грида. Обычно это разные системы '
+    'координат у маски и у контуров либо маска в стороне от участка.':
+        'The mask covered no cell of the grid. Usually the mask and the '
+        'contours are in different coordinate systems, or the mask lies '
+        'away from the area.',
+    'Обрезано маской: осталось %.1f процента ячеек. За её пределами грида '
+    'нет: между разрезами данных нет, и маской задано, докуда поверхности '
+    'верить.':
+        'Clipped by the mask: %.1f percent of the cells are left. Outside '
+        'it there is no grid: between the sections there are no data, and '
+        'the mask says how far to trust the surfaces.',
+    'Пласт %s: контуров %d на %d плоскостях разреза. Вложенные контуры '
+    'разобраны по внешней границе: кровля по самому верхнему, подошва '
+    'по самому нижнему.':
+        'Bed %s: %d outlines on %d section planes. The nested outlines are '
+        'taken by the outer boundary: the roof from the topmost, the floor '
+        'from the lowest.',
+    'Пласт %s: точек %d, мощность на разрезах %.2f .. %.2f м.':
+        'Bed %s: %d points, thickness on the sections %.2f .. %.2f m.',
+    'Пласт %s, %s: разрезы сошлись не меньше чем в %d местах, отметки '
+    'расходятся до %.2f м, наибольшее в точке %.2f, %.2f.':
+        'Bed %s, %s: the sections meet in at least %d places, the marks '
+        'disagree by up to %.2f m, the largest at the point %.2f, %.2f.',
+    'Пласт %s, %s: расхождение больше наименьшей мощности пласта. '
+    'Интерполяция усреднит его молча, и модель выйдет правдоподобной '
+    'и неверной.':
+        'Bed %s, %s: the disagreement is larger than the smallest thickness '
+        'of the bed. The interpolation will average it silently, and the '
+        'model will come out plausible and wrong.',
+    'Поле номера пласта. Каждый пласт даёт в гриде два канала: кровлю и '
+    'подошву.':
+        'The field of the bed number. Every bed gives two bands in the grid: '
+        'a roof and a floor.',
+    'Слой контуров на разрезах: полигоны с настоящими Z. Положение разрезов '
+    'берётся из самой геометрии, по вершинам контура, и нигде не '
+    'спрашивается. Плоский чертёжный разрез не годится: у него X и Y это '
+    'координаты на листе, а отметок нет вовсе. Тип геометрии должен быть '
+    'PolygonZ или MultiPolygonZ.':
+        'A layer of outlines on sections: polygons with real Z. The position '
+        'of the sections is taken from the geometry itself, from the vertices'
+        ' of the outline, and is never asked for. A flat drawn section is no '
+        'good: its X and Y are coordinates on the sheet and there are no '
+        'elevations at all. The geometry type must be PolygonZ or '
+        'MultiPolygonZ.',
+    'Строит грид пластов по контурам, нарисованным на разрезах.\n\nКаждое '
+    'кольцо идёт по кровле вперёд и по подошве назад, поэтому из него берутся'
+    ' две поверхности. Они интерполируются по площади мультисеточными '
+    'B-сплайнами, и пространство между разрезами заполняется.\n\nПоложение '
+    'разрезов в пространстве берётся из самой геометрии, по вершинам '
+    'контуров. Задавать линии разрезов отдельно не надо. Плоский чертёжный '
+    'разрез не годится: у него нет настоящих отметок.\n\nНа выходе '
+    'многоканальный грид: на каждый пласт кровля и подошва. Такой грид сцена '
+    'показывает телом пласта, а 1.02 и 1.03 считают по нему мощность, блоки и'
+    ' объёмы.\n\nПодошва верхнего пласта и кровля нижнего это одна граница, '
+    'если геолог провёл их одной линией. Такая граница строится один раз '
+    'по обоим наборам точек: построенные порознь, они между разрезами '
+    'расходятся, и в модели встаёт щель или нахлёст, которых на разрезе нет. '
+    'Порог склейки задаётся допуском.\n\nМаска области обрезает результат: '
+    'между разрезами данных нет, и ею задаётся, докуда поверхностям '
+    'верить.\n\nМежду разрезами поверхность идёт так, как её провела '
+    'интерполяция: данных там нет. Где разрезы пересекаются, отметки на них '
+    'должны сойтись. Расхождения считаются и печатаются в журнал вместе '
+    'с координатами места, где они наибольшие: с одним числом искать '
+    'съехавшую вершину негде.':
+        'Builds a grid of beds from the outlines drawn on sections.\n\nEvery '
+        'ring runs along the roof one way and along the floor back, so two '
+        'surfaces are taken from it. They are interpolated over the area with'
+        ' multilevel B-splines, and the space between the sections is '
+        'filled.\n\nThe position of the sections is taken from the geometry '
+        'itself, from the vertices of the outlines. The lines of the sections'
+        ' need not be given separately. A flat drawn section is no good: it '
+        'has no real elevations.\n\nThe output is a multiband grid: a roof '
+        'and a floor per bed. The scene shows such a grid as a bed body, and '
+        '1.02 and 1.03 compute the thickness, the blocks and the volumes from'
+        ' it.\n\nThe floor of the upper bed and the roof of the lower one '
+        'are one and the same boundary if the geologist drew them as one '
+        'line. Such a boundary is built once from both sets of points: built '
+        'separately, they drift apart between the sections, and the model '
+        'gets a gap or an overlap that the section does not have. The '
+        'threshold of the gluing is set by the tolerance.\n\nThe area mask '
+        'clips the result: between the sections there is no data, and the '
+        'mask says how far to trust the surfaces.\n\nBetween the sections '
+        'the surface goes where the interpolation put it: there is no data '
+        'there. Where the sections cross, the elevations on them must agree. '
+        'The disagreements are counted and go to the log together with the '
+        'coordinates of the place where they are largest: with a number '
+        'alone there is nowhere to look for the vertex that slipped.',
+    'Уровней в мультисеточном приближении. Мало уровней - гладкая '
+    'поверхность, много - она ближе к отметкам на разрезах.':
+        'Levels in the multilevel approximation. Few levels give a smooth '
+        'surface, many bring it closer to the elevations on the sections.',
+    'Шаг грида от данных: %.1f м.':
+        'Grid step from the data: %.1f m.',
+    'Шаг грида по площади. Ноль берёт двухсотую долю охвата.':
+        'The step of the grid over the area. Zero takes a two-hundredth of '
+        'the extent.',
+    'Шаг грида, м (0 - от данных)':
+        'Grid step, m (0 means from the data)',
+    '2.08 Куб по разрезам': '2.08 A cube from sections',
+    'Куб пласта %s': 'Cube of bed %s',
+    'Слой не открылся сам: %s': 'The layer did not open by itself: %s',
+    'Папка для кубов по пластам': 'Folder for the per-bed cubes',
+    'Задайте папку для кубов.': 'Give a folder for the cubes.',
+    'Папка, куда лягут кубы: по файлу на пласт, cube_<номер>.tif. '
+    'В каждом ноль это граница пласта, и каждый ставится в сцену '
+    'изоповерхностью по нулю. Один файл на все пласты не годится: '
+    'сцена читает куб целиком и пласты в нём не различит.':
+        'The folder the cubes go into: one file per bed, cube_<number>.tif. '
+        'In each of them zero is the boundary of the bed, and each '
+        'goes into the scene as an isosurface at zero. One file for '
+        'all the beds is no good: the scene reads a cube as a whole '
+        'and will not tell the beds apart.',
+    'Пласт %s: точек опробования %d, из них внутри контуров %d, '
+    'шаг %.1f м.':
+        'Bed %s: %d sampling points, %d of them inside the outlines, '
+        'step %.1f m.',
+    'Пласт %s: внутрь контуров не попала ни одна точка. Дело '
+    'не в решётке: опробование не нашло внутренности. Проверьте, '
+    'что контуры замкнуты и что у пласта есть мощность.':
+        'Bed %s: not a single point fell inside the outlines. The '
+        'lattice is not to blame: the sampling found no interior. '
+        'Check that the outlines are closed and that the bed has '
+        'a thickness.',
+    'Папка не создана: %s': 'The folder was not created: %s',
+    'Записан куб пласта %s: %s': 'Cube of bed %s written: %s',
+    'Кубов записано: %d, по одному на пласт. Каждый ставится '
+    'в сцену изоповерхностью по уровню ноль.':
+        '%d cubes written, one per bed. Each goes into the scene as '
+        'an isosurface at level zero.',
+    'уровень %d': 'level %d',
+    'Решётка %dx%dx%d, уровней %d: ячейка %.1f x %.1f x %.2f м, '
+    'память %.0f МБ.':
+        'Lattice %dx%dx%d, %d levels: cell %.1f x %.1f x %.2f m, '
+        '%.0f MB.',
+    'Решётке нужно больше двух гигабайт. Убавьте число уровней '
+    'или увеличьте шаг опробования.':
+        'The lattice needs more than two gigabytes. Reduce the '
+        'number of levels or increase the sampling step.',
+    'Пласт %s: куб %.3f .. %.3f.': 'Bed %s: cube %.3f .. %.3f.',
+    'Пласт %s: ноль в кубе не встретился, тела не будет. Обычно '
+    'это значит, что решётка крупнее пласта: убавьте шаг '
+    'опробования или прибавьте уровней.':
+        'Bed %s: zero never occurs in the cube, so there will be no '
+        'body. Usually that means the lattice is coarser than the '
+        'bed: reduce the sampling step or add levels.',
+    'Точек очень много. Счёт займёт минуты: если это лишнее, '
+    'увеличьте шаг опробования разреза.':
+        'There are a great many points. The computation will take '
+        'minutes: if that is more than you need, increase the '
+        'sampling step on a section.',
+    'Слой контуров на разрезах: полигоны с настоящими Z. Положение разрезов в'
+    ' пространстве инструмент берёт из самой геометрии - по вершинам контура,'
+    ' - и нигде не спрашивает. Плоский чертёжный разрез не годится: у него X '
+    'и Y это координаты на листе, а не на местности, и отметок нет вовсе. В '
+    'свойствах слоя тип геометрии должен быть PolygonZ или MultiPolygonZ. '
+    'Такой даёт забор разреза из Isoliner либо своя оцифровка по трёхмерному '
+    'разрезу.':
+        'A layer of outlines on sections: polygons with real Z. The tool '
+        'takes the position of the sections in space from the geometry '
+        'itself, from the vertices of the outline, and never asks for it. A '
+        'flat drawn section is no good: its X and Y are coordinates on the '
+        'sheet, not on the ground, and there are no elevations at all. The '
+        'geometry type must be PolygonZ or MultiPolygonZ. The section fence '
+        'from Isoliner gives such a layer, as does your own digitising over a'
+        ' three-dimensional section.',
+    'Строит куб значений по контурам пластов, нарисованным на '
+    'разрезах.\n\nКаждый контур лежит в своей вертикальной плоскости, и '
+    'положение этой плоскости берётся из самой геометрии: по вершинам '
+    'контура, у которых есть X, Y и Z. Задавать линии разрезов отдельно не '
+    'надо.\n\nПлоскость каждого разреза размечается знаком: точке внутри '
+    'контура плюс, снаружи минус. Интерполяция заполняет знаком весь объём '
+    'между разрезами, и там, где поле меняет знак, проходит ноль. Этот ноль и'
+    ' есть поверхность пласта: на самом разрезе он ложится на контур, а между'
+    ' разрезами идёт туда, куда провела интерполяция.\n\nДальше куб читается '
+    'сценой как изоповерхность, а тела и объёмы берутся кнопкой выгрузки '
+    'оболочек.\n\nТочность решает частота разрезов, и никакой расчёт этого не'
+    ' поправит: между двумя разрезами данных нет. На проверочном теле восемь '
+    'разрезов дали ошибку объёма в два процента, четыре - двадцать '
+    'один.\n\nГде разрезы пересекаются, границы на них должны сойтись. '
+    'Расхождения считаются и печатаются в журнал: молча усреднив их, получишь'
+    ' модель, которая выглядит правдоподобно и неверна.':
+        'Builds a cube of values from the outlines of beds drawn on '
+        'sections.\n\nEvery outline lies in its own vertical plane, and the '
+        'position of that plane is taken from the geometry itself: from the '
+        'vertices of the outline, which have X, Y and Z. The lines of the '
+        'sections need not be given separately.\n\nThe plane of every section'
+        ' is marked by sign: plus for a point inside the outline, minus '
+        'outside. The interpolation fills the whole volume between the '
+        'sections with that sign, and where the field changes sign it passes '
+        'through zero. That zero is the surface of the bed: on the section '
+        'itself it lies on the outline, and between the sections it goes '
+        'where the interpolation put it.\n\nThe scene then reads the cube as '
+        'an isosurface, and the bodies and volumes come from the shell export'
+        ' button.\n\nThe accuracy is decided by how often the sections are '
+        'spaced, and no computation can mend that: between two sections there'
+        ' is no data. On a test body eight sections gave an error of two per '
+        'cent in volume, four sections gave twenty-one.\n\nWhere the sections'
+        ' cross, the boundaries on them must agree. The disagreements are '
+        'counted and go to the log: averaging them silently gives a model '
+        'that looks plausible and is wrong.',
+    'Похоже, это слой оболочек, а не контуры на разрезах: %d '
+    'полигонов, почти все треугольные. Инструменту нужны '
+    'зарисовки пластов на разрезах - по контуру на пласт, а не '
+    'грани готового тела.':
+        'This looks like a layer of shells rather than outlines on '
+        'sections: %d polygons, almost all of them triangles. The '
+        'tool needs the beds drawn on sections - one outline per bed, '
+        'not the faces of a finished body.',
+    'Шаг куба по вертикали от данных: %.2f м.':
+        'Cube step down the vertical from the data: %.2f m.',
+    '%s уровень %d':
+        '%s level %d',
+    '2.09 Куб по разрезам':
+        '2.09 A cube from sections',
+    'Запас наружу от контура, где ставится минус. Без него интерполяция не '
+    'знает, где тело кончается, и растянет его до края куба.':
+        'The margin outside the outline where the minus is put. Without it '
+        'the interpolation does not know where the body ends and stretches it'
+        ' to the edge of the cube.',
+    'Запас наружу от контура, м (0 - от шага)':
+        'Margin outside the outline, m (0 means from the step)',
+    'Контуров без высоты: %d, они пропущены. Разрез должен быть трёхмерным: у'
+    ' чертёжного разреза настоящих отметок нет.':
+        'Outlines without a height: %d, they were skipped. The section must '
+        'be three-dimensional: a drawn section has no real elevations.',
+    'Контуров с высотой не нашлось.':
+        'No outlines with a height were found.',
+    'Контуров: %d, пластов: %d.':
+        'Outlines: %d, beds: %d.',
+    'Контуры на разрезах (полигоны с Z)':
+        'Outlines on sections (polygons with Z)',
+    'Куб значений: ноль это граница пласта. Дальше он читается сценой как '
+    'изоповерхность, а тела и объёмы берутся кнопкой выгрузки оболочек.':
+        'A cube of values: zero is the boundary of the bed. The scene then '
+        'reads it as an isosurface, and the bodies and volumes come from the '
+        'shell export button.',
+    'Номер пласта, если нужен один. Пусто - все.':
+        'The number of the bed, if only one is wanted. Empty means all.',
+    'Опробовать нечего: контуры лежат в одной плоскости.':
+        'There is nothing to sample: the outlines lie in one plane.',
+    'Пласт %s: разрезы расходятся в %d местах из %d общих. Там граница '
+    'проведена по-разному, и она будет усреднена.':
+        'Bed %s: the sections disagree in %d places out of %d shared ones. '
+        'The boundary is drawn differently there and will be averaged.',
+    'Пласт %s: точек %d.':
+        'Bed %s: %d points.',
+    'Пластов несколько, и каждый лёг своей стопкой каналов. Показывать их '
+    'надо по одному: сцена читает куб целиком и пласты в нём не различит.':
+        'There is more than one bed, and each went in as its own stack of '
+        'bands. Show them one at a time: the scene reads the cube as a whole '
+        'and will not tell the beds apart.',
+    'Поле номера пласта':
+        'The field of the bed number',
+    'Поле номера пласта. Каждый номер считается отдельно и даёт свой канал в '
+    'кубе: смешав пласты в один, получишь границу между ними там, где её нет.':
+        'The field of the bed number. Every number is computed separately and'
+        ' gives its own band in the cube: mixing the beds together puts a '
+        'boundary where there is none.',
+    'Слой контуров на разрезах: полигоны с настоящими Z. Такой даёт забор '
+    'разреза из Isoliner либо своя оцифровка по чертежу.':
+        'A layer of outlines on sections: polygons with real Z. The section '
+        'fence from Isoliner gives one, as does your own digitising.',
+    'Строит куб значений по контурам пластов, нарисованным на '
+    'разрезах.\n\nПлоскость каждого разреза опробуется знаком: внутри контура'
+    ' плюс, снаружи минус. Нулевой уровень куба и есть граница тела. Дальше '
+    'куб читается сценой как изоповерхность, а тела и объёмы берутся кнопкой '
+    'выгрузки оболочек.\n\nТочность решает частота разрезов, и никакой расчёт'
+    ' этого не поправит: между двумя разрезами данных нет. На проверочном '
+    'теле восемь разрезов дали ошибку объёма в два процента, четыре - '
+    'двадцать один.\n\nГде разрезы пересекаются, границы на них должны '
+    'сойтись. Расхождения считаются и печатаются в журнал: молча усреднив их,'
+    ' получишь модель, которая выглядит правдоподобно и неверна.':
+        'Builds a cube of values from the outlines of beds drawn on '
+        'sections.\n\nThe plane of every section is sampled by sign: plus '
+        'inside the outline, minus outside. The zero level of the cube is the'
+        ' boundary of the body. The scene then reads the cube as an '
+        'isosurface, and the bodies and volumes come from the shell export '
+        'button.\n\nThe accuracy is decided by how often the sections are '
+        'spaced, and no computation can mend that: between two sections there'
+        ' is no data. On a test body eight sections gave an error of two per '
+        'cent in volume, four sections gave twenty-one.\n\nWhere the sections'
+        ' cross, the boundaries on them must agree. The disagreements are '
+        'counted and go to the log: averaging them silently gives a model '
+        'that looks plausible and is wrong.',
+    'Только этот пласт (пусто - все)':
+        'This bed only (empty means all)',
+    'Уровней в мультисеточном приближении. Чем больше, тем ближе поверхность '
+    'к контурам и тем больше памяти.':
+        'Levels in the multilevel approximation. The more there are, the '
+        'closer the surface follows the outlines and the more memory it '
+        'takes.',
+    'Шаг куба по вертикали. Ноль берёт от шага опробования.':
+        'The cube step down the vertical. Zero takes it from the sampling '
+        'step.',
+    'Шаг куба по горизонтали. Ноль берёт от шага опробования.':
+        'The cube step in plan. Zero takes it from the sampling step.',
+    'Шаг опробования от данных: %.1f м.':
+        'Sampling step from the data: %.1f m.',
+    'Шаг опробования плоскости разреза. Мельче - точнее граница, но и точек '
+    'больше. Ноль берёт от размера контуров.':
+        'The step of sampling the plane of a section. Finer gives a more '
+        'exact boundary but more points. Zero takes it from the size of the '
+        'outlines.',
+    'Шаг опробования разреза, м (0 - от данных)':
+        'Sampling step on a section, m (0 means from the data)',
+    'пласт':
+        'bed',
     'О плагине…': 'About the plugin…',
     'О плагине': 'About the plugin',
     'Версия, ссылки, история изменений, журнал':
@@ -314,6 +791,12 @@ TRANSLATIONS = {
         'Shells of the selected layer into a project layer',
     'Выберите в списке слой-куб.': 'Select a cube layer in the '
         'list.',
+    'Выберите в списке слой: куб в режиме изоповерхности либо грид пласта '
+    'в режиме тела.':
+        'Pick a layer in the list: a cube in isosurface mode or a bed grid '
+        'in body mode.',
+    'Слой не в режиме изоповерхности или тела пласта.':
+        'The layer is not in isosurface or bed body mode.',
     'Слой не в режиме изоповерхности.':
         'The layer is not in isosurface mode.',
     'Оболочек не построено.': 'No shells were built.',
@@ -2241,12 +2724,32 @@ TRANSLATIONS = {
         'The layer %s: all %d features are flat, elevations from %.1f to '
         '%.1f. There is no volume in the geometry, use the prism display for '
         'steps.',
+    'Слой %s: у %d тел объём в поле volume больше их собственного '
+    'габарита, то есть неверен. Такие слои выгружены сборкой до 0.74.1, '
+    'где счёт объёма терял значащие цифры в настоящих координатах. '
+    'Выгрузите оболочки заново.':
+        'Layer %s: for %d bodies the volume in the volume field is larger '
+        'than their own bounding box, so it is wrong. Such layers were '
+        'exported by a build before 0.74.1, where the volume computation '
+        'lost significant digits in real coordinates. Export the shells '
+        'again.',
     'Слой %s: у %d объектов нет отметок низа или верха.':
         'The layer %s: %d features have no bottom or top elevation.',
     'Слой меша не загрузился: %s': 'Mesh layer failed to load: %s',
     'Слою %s нужен многоканальный грид: каналы это уровни куба.':
         'The layer %s needs a multiband grid: the bands are the levels of '
         'the cube.',
+    'Слой %s - это грид пласта: каналы кровля и подошва, а не уровни куба. '
+    'Разметки по Z у него нет. Кубовые режимы к нему неприменимы, для него '
+    'режим «Тело пласта».':
+        'The layer %s is a bed grid: its bands are a roof and a floor, not '
+        'the levels of a cube, and it carries no Z marking. The cube modes '
+        'do not apply to it, its mode is Bed body.',
+    'У слоя %s нет разметки куба по Z (Z0 и DZ). Уровни взяты от нуля '
+    'с шагом единица, и куб встанет не на своё место по высоте.':
+        'The layer %s carries no Z marking of the cube (Z0 and DZ). The '
+        'levels are taken from zero with a step of one, and the cube will '
+        'stand at the wrong height.',
     'Слоёв по вертикали (деление колонки)': 'Vertical layers (column split)',
     'Смещение Z': 'Z offset',
     'Снимок скопирован в буфер обмена.': 'The snapshot is on the clipboard.',
