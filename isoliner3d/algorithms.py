@@ -792,8 +792,11 @@ class BedCalculatorAlgorithm(IsolinerAlgorithm):
         grade_mean = metal_t = None
         if cband > 0:
             if cband > len(stack):
-                raise QgsProcessingException(
-                    self.tr("Канал содержания вне грида."))
+                raise QgsProcessingException(self.tr(
+                    "Канал содержания %d вне грида: в нём каналов %d. "
+                    "Грид пласта из кровли и подошвы содержит два канала, "
+                    "содержание появляется третьим только если оно было "
+                    "подано при сборке.") % (cband, len(stack)))
             grade = stack[cband - 1]
             w = np.where(mask & np.isfinite(grade), thick, 0.0)
             sw = float(np.nansum(w))
@@ -1554,6 +1557,11 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
 
         # footprint берётся из охвата (окна вида); пустой охват - дефолт
         crs = QgsProject.instance().crs()
+        if crs is None or not crs.isValid():
+            feedback.pushWarning(self.tr(
+                "У проекта не задана система координат, поэтому её не будет "
+                "и у демо-слоя. Инструменты, которым нужна СК, такой слой не "
+                "возьмут. Задайте СК проекта и постройте пример заново."))
         ext = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
         if ext is None or ext.isEmpty() or ext.width() <= 0 \
                 or ext.height() <= 0:
@@ -1648,12 +1656,26 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
                 "Не задан выходной слой. Укажите «Тело (демо)» "
                 "(например, временный слой)."))
 
+        # результат addFeature раньше не проверялся: writer отказывался от
+        # геометрии TIN, слой выходил пустым, а инструмент рапортовал успех
+        # и печатал «оболочка замкнута»
+        written = 0
         for o in objs:
             f = QgsFeature(fields)
             f.setGeometry(o["geom"])
             f.setAttributes([o["name"], used_kind, int(o["np"]),
                              1 if o["watertight"] else 0, int(o["bed"])])
-            sink.addFeature(f)
+            if sink.addFeature(f):
+                written += 1
+        if not written:
+            raise QgsProcessingException(self.tr(
+                "Ни один объект не записан: выбранный формат выходного слоя "
+                "не принял геометрию %s. Возьмите GeoPackage или снимите "
+                "галочку разбиения на треугольники.") % used_kind)
+        if written < len(objs):
+            feedback.pushWarning(self.tr(
+                "Записано объектов %d из %d: остальные выходной формат не "
+                "принял.") % (written, len(objs)))
 
         titles = {
             "bed": self.tr("Пласт (демо)"),
