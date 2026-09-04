@@ -319,6 +319,7 @@ block model** and **2. 3D interpolation**.
 | Field | What it sets |
 |---|---|
 | **Bed grid (band 1 roof, band 2 bottom)** | The bed grid from 1.01. The first band is the roof, the second the floor, and the thickness follows from them. |
+| **Roof band** | The roof band. The next one counts as the floor: that is how a bed grid is built. In a multi-bed grid this is the choice of bed - the first one used to be taken in silence. |
 | **Content band (empty - no content)** | The grade band. Empty means computing only volume and thickness, without reserves. |
 | **Ore density, t/m³** | The ore density. The volume is multiplied by it to get mass: without it the report is in cubic metres rather than tonnes. |
 | **Reserve contour (polygons, optional)** | Polygons outside which cells do not enter the computation: a computation block, a licence area. |

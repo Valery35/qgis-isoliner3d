@@ -81,6 +81,20 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'Ни один объект не записан: слой отказался принять геометрию %s. Выберите другой тип геометрии или другой формат выходного слоя.':
+        'Not a single feature was written: the layer refused the %s geometry. Choose another geometry type or another format for the output layer.',
+
+    'Каналов %d: грид многопластовый. Считается пласт по каналам %d и %d («%s»).':
+        '%d bands: the grid holds several beds. The bed computed is the one on bands %d and %d ("%s").',
+    'Канал %d - это «%s», то есть граница пласта, а не содержание. Укажите канал параметра или оставьте поле пустым.':
+        'Band %d is "%s", that is a boundary of a bed rather than a grade. Give the band of a parameter or leave the field empty.',
+    'Канал кровли. Подошвой считается следующий за ним: так устроен грид пласта. У многопластового грида это выбор пласта - раньше молча считался первый.':
+        'The roof band. The next one counts as the floor: that is how a bed grid is built. In a multi-bed grid this is the choice of bed - the first one used to be taken in silence.',
+    'Канал содержания %d вне грида: в нём каналов %d. Грид пласта из кровли и подошвы содержит два канала, содержание появляется третьим только если оно было подано при сборке.':
+        'The grade band %d is outside the grid: it holds %d bands. A bed grid of a roof and a floor holds two bands, and a grade appears as the third only if it was given at assembly.',
+    'У проекта не задана система координат, поэтому её не будет и у демо-слоя. Инструменты, которым нужна СК, такой слой не возьмут. Задайте СК проекта и постройте пример заново.':
+        'The project has no coordinate system set, so the demo layer will have none either. Tools that need one will not take such a layer. Set the project CRS and build the example again.',
+
     'Мимо объекта: центр не изменён. Щелчок за пределами площадки вернёт центр на всю сцену.':
         'Missed the object: the centre is unchanged. A click beyond the area puts the centre back on the whole scene.',
 

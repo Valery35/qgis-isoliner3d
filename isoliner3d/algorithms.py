@@ -63,6 +63,7 @@ from qgis.core import (
     QgsFields,
     QgsGeometry,
     QgsMeshLayer,
+    QgsPoint,
     QgsPointXY,
     QgsVectorLayer,
     QgsWkbTypes,
@@ -819,6 +820,7 @@ class BedCalculatorAlgorithm(IsolinerAlgorithm):
     каналами в новый грид пласта."""
 
     BED = "BED"
+    ROOF_BAND = "ROOF_BAND"
     CONTENT_BAND = "CONTENT_BAND"
     DENSITY = "DENSITY"
     CONTOUR = "CONTOUR"
@@ -850,9 +852,16 @@ class BedCalculatorAlgorithm(IsolinerAlgorithm):
             self.BED,
             self.tr("Грид пласта (канал 1 кровля, канал 2 подошва)")))
         self.addParameter(QgsProcessingParameterBand(
+            self.ROOF_BAND, self.tr("Канал кровли"),
+            defaultValue=_dv(self, self.ROOF_BAND, 1),
+            parentLayerParameterName=self.BED))
+        self.addParameter(QgsProcessingParameterBand(
             self.CONTENT_BAND,
             self.tr("Канал содержания (пусто - без содержания)"),
-            defaultValue=_dv(self, self.CONTENT_BAND, 3),
+            # Умолчания нет нарочно: на многопластовом гриде третий
+            # канал - это кровля следующего пласта, и подставлять его
+            # значило бы предлагать заведомо неверный ответ.
+            defaultValue=_dv(self, self.CONTENT_BAND, None),
             parentLayerParameterName=self.BED, optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             self.DENSITY, self.tr("Плотность руды, т/м³"),
@@ -873,6 +882,8 @@ class BedCalculatorAlgorithm(IsolinerAlgorithm):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         bed_l = self.parameterAsRasterLayer(parameters, self.BED, context)
+        rband = max(self.parameterAsInt(parameters, self.ROOF_BAND,
+                                        context), 1)
         cband = self.parameterAsInt(parameters, self.CONTENT_BAND, context)
         dens = self.parameterAsDouble(parameters, self.DENSITY, context)
         contour = self.parameterAsSource(parameters, self.CONTOUR, context)
@@ -900,7 +911,19 @@ class BedCalculatorAlgorithm(IsolinerAlgorithm):
             stack.append(a)
             names.append(nm or str(i))
         ds = None
-        roof, bot = stack[0], stack[1]
+        if rband + 1 > len(stack):
+            raise QgsProcessingException(self.tr(
+                "После канала %d нет канала подошвы. У грида пласта "
+                "каналы идут парами: кровля, подошва.") % rband)
+        # У многопластового грида пар несколько, и раньше молча
+        # считалась только первая: числа выходили верные, но не про
+        # тот пласт, про который думал человек.
+        if len(stack) > 2:
+            feedback.pushInfo(self.tr(
+                "Каналов %d: грид многопластовый. Считается пласт "
+                "по каналам %d и %d («%s»).")
+                % (len(stack), rband, rband + 1, names[rband - 1]))
+        roof, bot = stack[rband - 1], stack[rband]
         thick = roof - bot
         neg = int(np.nansum(thick < 0))
         thick = np.where(np.isfinite(thick), np.maximum(thick, 0.0), np.nan)
@@ -940,8 +963,23 @@ class BedCalculatorAlgorithm(IsolinerAlgorithm):
         grade_mean = metal_t = None
         if cband > 0:
             if cband > len(stack):
-                raise QgsProcessingException(
-                    self.tr("Канал содержания вне грида."))
+                raise QgsProcessingException(self.tr(
+                    "Канал содержания %d вне грида: в нём каналов %d. "
+                    "Грид пласта из кровли и подошвы содержит два канала, "
+                    "содержание появляется третьим только если оно было "
+                    "подано при сборке.") % (cband, len(stack)))
+            low = (names[cband - 1] or "").lower()
+            if any(w in low for w in ("кровля", "подошва", "roof",
+                                      "floor")):
+                # На многопластовом гриде канал содержания
+                # по умолчанию попадал на кровлю СЛЕДУЮЩЕГО пласта,
+                # и содержание выходило равным отметке: минус двести
+                # пятьдесят «процентов» и отрицательные запасы металла.
+                raise QgsProcessingException(self.tr(
+                    "Канал %d - это «%s», то есть граница пласта, "
+                    "а не содержание. Укажите канал параметра "
+                    "или оставьте поле пустым.")
+                    % (cband, names[cband - 1]))
             grade = stack[cband - 1]
             w = np.where(mask & np.isfinite(grade), thick, 0.0)
             sw = float(np.nansum(w))
@@ -1149,9 +1187,12 @@ class BedToBlockModelAlgorithm(IsolinerAlgorithm):
             fields.append(_field(nm, tp))
         for nm in pnames:
             fields.append(_field(nm, QVariant.Double))
+        # Точки с ВЫСОТОЙ: блочная модель без Z в объёме бесполезна,
+        # и 2.12 такую не берёт вовсе - отбор оболочкой держится
+        # на отметке. Плоские точки тут стояли по недосмотру.
         sink, dest = self.parameterAsSink(
             parameters, self.OUTPUT, context, fields,
-            QgsWkbTypes.Type.Point, bed_l.crs())
+            QgsWkbTypes.Type.PointZ, bed_l.crs())
 
         idx = np.argwhere(mask)
         total = len(idx)
@@ -1178,7 +1219,8 @@ class BedToBlockModelAlgorithm(IsolinerAlgorithm):
                 bid += 1
                 vol = dz * cell
                 f = QgsFeature(fields)
-                f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
+                f.setGeometry(QgsGeometry(QgsPoint(
+                    float(x), float(y), (zf + zt) * 0.5)))
                 attrs = [bid, int(i), int(j), L, float(x), float(y),
                          r_top, r_bot, zf, zt, dz, vol, d_ij, vol * d_ij]
                 attrs.extend(params)
@@ -1702,6 +1744,11 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
 
         # footprint берётся из охвата (окна вида); пустой охват - дефолт
         crs = QgsProject.instance().crs()
+        if crs is None or not crs.isValid():
+            feedback.pushWarning(self.tr(
+                "У проекта не задана система координат, поэтому её не будет "
+                "и у демо-слоя. Инструменты, которым нужна СК, такой слой не "
+                "возьмут. Задайте СК проекта и постройте пример заново."))
         ext = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
         if ext is None or ext.isEmpty() or ext.width() <= 0 \
                 or ext.height() <= 0:
@@ -1796,12 +1843,23 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
                 "Не задан выходной слой. Укажите «Тело (демо)» "
                 "(например, временный слой)."))
 
+        written = 0
         for o in objs:
             f = QgsFeature(fields)
             f.setGeometry(o["geom"])
             f.setAttributes([o["name"], used_kind, int(o["np"]),
                              1 if o["watertight"] else 0, int(o["bed"])])
-            sink.addFeature(f)
+            # Результат записи СМОТРИМ. Писатель слоя отказывался
+            # от геометрии TIN молча, объектов выходило ноль,
+            # а инструмент бодро заканчивал строкой «Оболочка
+            # замкнута»: успех на пустом слое хуже отказа.
+            if sink.addFeature(f):
+                written += 1
+        if not written:
+            raise QgsProcessingException(self.tr(
+                "Ни один объект не записан: слой отказался принять "
+                "геометрию %s. Выберите другой тип геометрии или "
+                "другой формат выходного слоя.") % used_kind)
 
         titles = {
             "bed": self.tr("Пласт (демо)"),
@@ -1968,6 +2026,9 @@ HINTS_1_01 = {
 }
 
 HINTS_1_02 = {
+    "ROOF_BAND": "Канал кровли. Подошвой считается следующий за ним: "
+                 "так устроен грид пласта. У многопластового грида "
+                 "это выбор пласта - раньше молча считался первый.",
     "BED": "Грид пласта из 1.01. Первый канал кровля, второй подошва, "
            "по ним и считается мощность.",
     "CONTENT_BAND": "Канал содержания. Пусто означает считать только "
@@ -5409,8 +5470,15 @@ class BooleanShellsAlgorithm(IsolinerAlgorithm):
                 "%s: треугольников не нашлось. Нужен слой полигонов "
                 "с высотой, какой даёт кнопка оболочек в окне "
                 "просмотра.") % title)
-        return np.asarray(verts, dtype=float), np.asarray(faces,
-                                                          dtype=np.int64)
+        # Вершины СШИВАЮТСЯ. Из файла каждая грань приходит своими
+        # тремя точками, общих рёбер нет, и восстановить ориентацию
+        # граней не по чему: формат при записи разворачивает кольца
+        # как ему удобно. Объём такой оболочки выходил втрое меньше
+        # настоящего - слагаемые гасили друг друга.
+        from .iso3d import weld
+        v, f = weld(np.asarray(verts, dtype=float),
+                    np.asarray(faces, dtype=np.int64))
+        return v, f
 
     def _process(self, parameters, context, feedback):
         from qgis.core import (QgsFields, QgsFeature, QgsGeometry,

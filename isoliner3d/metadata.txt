@@ -6,7 +6,7 @@ description=Standalone 3D viewer and bed/block-model toolset: surfaces, watertig
 about=A standalone 3D viewer for geological surfaces and bodies in QGIS, independent of the built-in 3D map. Renders project rasters as triangular-mesh surfaces (each horizon in its own colour, with vertical exaggeration and Z spacing), builds watertight bed bodies from multiband grids (band 1 roof, band 2 bottom), draws boreholes as coloured stems with collar masts and labels, shows a section plane with a bright section trace, and displays polyhedral / TIN / MultiPolygon Z bodies. Click-query prints layer name, coordinates, all band values and thickness. Colouring by palette, custom colour, own band, an external raster or a real map texture with shading: an orthophoto, a basemap or a styled geological map. A section drawing is draped onto the section ribbon, several sections at once. Sixteen Processing tools in two groups: the bed and block model computes thickness, volume and reserves from a bed grid, and the interpolation in volume builds cubes by kriging and multilevel B-splines and a bed grid from the outlines drawn on sections, with the contact of neighbouring beds built as one surface. PNG snapshot for reports. A companion to the Isoliner kriging and contouring toolset (plugins.qgis.org/plugins/grid_isolines) and to Topoliner, topology cleaning (plugins.qgis.org/plugins/topoliner). pyqtgraph and PyOpenGL are bundled - nothing to install. Companion to the Isoliner kriging toolset. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Автономный 3D-просмотр геологических поверхностей и тел в QGIS, не зависящий от штатного 3D-вида. Растры проекта рисуются треугольными мешами (каждый горизонт своим цветом, с вертикальным преувеличением и разносом по Z), из многоканальных гридов строятся водонепроницаемые тела пластов (канал 1 - кровля, канал 2 - подошва), скважины показываются цветными стволами с мачтами и подписями, плоскость разреза даёт яркий след сечения, а полиэдры / TIN / MultiPolygon Z отображаются объёмными телами. Клик по сцене печатает имя слоя, координаты, значения всех каналов и мощность. Окраска палитрой, своим цветом, собственным каналом, внешним растром или настоящей текстурой карты с затенением: ортофото, подложка, геологическая карта со своей символикой. На ленту разреза накладывается чертёж, несколько разрезов сразу. Шестнадцать инструментов Processing в двух группах: пласт и блочная модель считают мощность, объём и запасы по гриду пласта, а объёмная интерполяция строит кубы кригингом и мультисеточными B-сплайнами и грид пластов по зарисовкам на разрезах, склеивая контакт соседних пластов в одну поверхность. Снимок PNG для отчётов. Спутник набора кригинга и изолиний Isoliner (plugins.qgis.org/plugins/grid_isolines) и чистки топологии Topoliner (plugins.qgis.org/plugins/topoliner). pyqtgraph и PyOpenGL идут в комплекте - устанавливать ничего не нужно. Спутник набора кригинга Isoliner. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=0.96.2
+version=1.0.0
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner3d
@@ -18,7 +18,47 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=0.96.2
+changelog=1.0.0
+    - Найдено живым прогоном в QGIS 4.0.3, после того как всё уже было
+      собрано. Блочная модель падала на первом же блоке: имя QgsPoint
+      звалось без импорта. Тесты этого не видели - без QGIS модуль
+      не грузится, и проверка шла по тексту.
+    - Оболочка, прочитанная из файла, давала неверный объём: 1915 м3
+      вместо 5451. Формат при записи разворачивает кольца как ему
+      удобно, общих рёбер у граней не остаётся, и восстановить их
+      ориентацию не по чему - слагаемые гасили друг друга. Теперь
+      вершины сшиваются при чтении, и 2.11 с 2.12 показывают
+      настоящий объём.
+    - У канала содержания в 1.02 убрано умолчание. На многопластовом
+      гриде третий канал - это кровля следующего пласта, и подставлять
+      его значило предлагать заведомо неверный ответ.
+    - Первый круглый выпуск. Набор инструментов сложился: от грида
+      пласта и блочной модели до зарисовок на разрезах, поверхностей
+      по сечениям, булевых операций и выборки оболочкой. Сцена
+      научилась осмотру - подлёт, центр вращения щелчком, облёт.
+      Руководство описывает не только поля, но и сами данные, с
+      которыми модуль работает.
+    - Отказ по каналу содержания называет числа: номер канала и
+      сколько их в гриде. «Канал содержания вне грида» не говорил
+      человеку, что делать.
+    - Демонстрационные данные предупреждают, если у проекта не задана
+      система координат: слой построится, но инструменты, которым СК
+      нужна, его не возьмут, и причину будут искать в них.
+    0.97.0
+    - Найдено живым прогоном в QGIS 4.0.3: цепочка «блочная модель -
+      выборка оболочкой» обрывалась. 1.03 писал ПЛОСКИЕ точки, без
+      высоты, а 2.12 такие не берёт вовсе - отбор оболочкой держится
+      на отметке. Теперь точки пишутся с высотой середины блока.
+    - 1.02 на многопластовом гриде молча считал первую пару каналов.
+      Числа выходили верные, но не про тот пласт, про который думал
+      человек. Появился выбор канала кровли, а при нескольких парах
+      в журнал идёт строка, какой пласт считается.
+    - Там же: канал содержания по умолчанию попадал на кровлю
+      СЛЕДУЮЩЕГО пласта, и содержание выходило равным отметке - минус
+      двести сорок семь «процентов» и отрицательные запасы металла.
+      Теперь канал-граница отвергается с указанием, что это кровля
+      или подошва, а не параметр.
+    0.96.2
     - Сброс центра вернулся туда, где его и ждут: щелчок правой
       ЗА пределами площадки данных возвращает центр на всю сцену.
       Промах внутри площадки центр по-прежнему не трогает - это

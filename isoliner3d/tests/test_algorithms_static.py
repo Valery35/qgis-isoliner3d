@@ -972,6 +972,70 @@ def test_grid_to_shell_repeats_the_scene_button():
     assert "Незамкнутых тел" in seg
 
 
+def test_block_model_points_carry_height():
+    """Блочная модель пишется точками С ВЫСОТОЙ.
+
+    Плоские точки в объёме бесполезны, и 2.12 такие не берёт вовсе:
+    отбор оболочкой держится на отметке. Найдено живым прогоном:
+    цепочка 1.03 - 2.12 обрывалась отказом «у геометрии должна быть Z».
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class BedToBlockModelAlgorithm")
+    seg = src[i:src.index("\nclass ", i + 10)]
+    assert "QgsWkbTypes.Type.PointZ" in seg
+    assert "fromPointXY" not in seg, "плоских точек быть не должно"
+    assert "(zf + zt) * 0.5" in seg, "высота - середина блока"
+
+
+def test_bed_calculator_names_the_bed_it_counts():
+    """1.02 на многопластовом гриде выбирает пласт, а не берёт первый.
+
+    Раньше он молча считал каналы 1 и 2: числа верные, но не про тот
+    пласт, про который думал человек. А канал содержания по умолчанию
+    попадал на кровлю СЛЕДУЮЩЕГО пласта, и содержание выходило равным
+    отметке - минус двести пятьдесят «процентов».
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class BedCalculatorAlgorithm")
+    seg = src[i:src.index("\nclass ", i + 10)]
+    assert 'self.ROOF_BAND' in seg
+    assert "roof, bot = stack[rband - 1], stack[rband]" in seg
+    assert "грид многопластовый" in seg
+    # канал содержания не может быть границей пласта
+    assert '"кровля", "подошва", "roof"' in seg
+
+
+def test_shell_read_from_a_file_is_welded():
+    """Оболочка из файла сшивается по вершинам.
+
+    Формат при записи разворачивает кольца как ему удобно, и без общих
+    рёбер восстановить ориентацию граней не по чему. Живой прогон дал
+    объём 1915 м3 вместо 5451: слагаемые гасили друг друга.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("def _shell_mesh")
+    seg = src[i:i + 3000]
+    assert "from .iso3d import weld" in seg
+    assert "return v, f" in seg
+
+
+def test_algorithms_import_the_names_they_use():
+    """Модуль импортирует всё, что зовёт по имени.
+
+    `QgsPoint` в 1.03 звался без импорта, и блочная модель падала
+    на первом же блоке. Тесты этого не видели: без QGIS модуль
+    не грузится, и проверка шла по тексту.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    head = src[:src.index("class IsolinerAlgorithm")]
+    for name in ("QgsPoint,", "QgsPointXY,", "QgsGeometry,"):
+        assert name in head, name
+
+
 if __name__ == "__main__":
     ok = 0
     for nm, fn in sorted(globals().items()):
