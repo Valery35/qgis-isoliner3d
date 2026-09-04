@@ -31,7 +31,7 @@ from .viewer_core import (    # noqa: F401
     _ramp_from_renderer, _read_raster, _ring_normal, _tri_cached, _tri_key,
     _tri_rings, cache_clear, cache_size, clip_wall, colormap, draw_depth,
     field_color, flat_marker_mesh, is_available, is_bed_grid, layer_lift,
-    ramp_colors, volume_beyond_box,
+    ramp_colors, volume_beyond_box, bed_pairs,
     shade_colors, tri_cache_clear, tri_cache_size, walk_rings, z_range_mask)
 
 
@@ -473,6 +473,19 @@ def _tool_icon(kind, size=18):
             pts = [(0.5, dy), (0.86, dy + 0.14),
                    (0.5, dy + 0.28), (0.14, dy + 0.14)]
             p.drawPolygon(*[QPointF(x * s, y * s) for x, y in pts])
+    elif kind == "save":          # дискета: узнаваемый знак сохранения
+        # Стопка листов на этой кнопке читалась как «слои», а не как
+        # «сохранить»: спрашивали не раз. Дискета старомодна, но в этом
+        # её достоинство - другого столь же однозначного знака
+        # сохранения нет.
+        p.drawRect(int(0.14 * s), int(0.14 * s),
+                   int(0.72 * s), int(0.72 * s))
+        p.setBrush(QColor("#cfe3f2"))
+        p.drawRect(int(0.30 * s), int(0.14 * s),      # шторка
+                   int(0.40 * s), int(0.26 * s))
+        p.setBrush(QColor("#ffffff"))
+        p.drawRect(int(0.26 * s), int(0.52 * s),      # ярлык
+                   int(0.48 * s), int(0.34 * s))
     elif kind == "copy":          # два прямоугольника
         p.drawRect(int(0.16 * s), int(0.16 * s),
                    int(0.50 * s), int(0.56 * s))

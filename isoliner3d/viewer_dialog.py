@@ -25,10 +25,11 @@ from .iso3d import weld
 from .lights import soft_shader
 
 from .viewer3d import (    # noqa: F401
-    LIGHT_DIR, MAX_VERTS_SCENE, PALETTE, _DRAWNL_KEY, _DRAWN_KEY,
+    LIGHT_DIR, MAX_VERTS_SCENE, MIN_VERTS_LAYER, PALETTE, _DRAWNL_KEY,
+    _DRAWN_KEY,
     _MAX_LINES, _MAX_POINT_LABELS, _Prof, _SCENE_KEY, _VOX_FACE_LIMIT,
     _auto_step, _band_count, _band_items, _bary_z, _closed_and_border,
-    is_bed_grid, volume_beyond_box,
+    is_bed_grid, volume_beyond_box, bed_pairs,
     _css_rgba, _draw_on_top, _find_data, _flat_z, _halo_text_item,
     _import_gl, _layer_budget, _layer_has_z, _log, _map_order, _parts_xyz,
     _prism, _ramp_from_renderer, _read_raster, _tessellate, _tool_icon,
@@ -105,6 +106,7 @@ class _OneStyle(dict):
 class _PickView(gl.GLViewWidget):
     """GLViewWidget с колбэком на клик без перетаскивания."""
     pick_cb = None
+    pivot_cb = None
     dbl_cb = None
 
     undo_cb = None
@@ -228,27 +230,69 @@ class _PickView(gl.GLViewWidget):
     def mousePressEvent(self, ev):
         # В режиме рисования правая кнопка отдана отмене вершины:
         # иначе её забирает камера и до рисовалки нажатие не доходит.
-        right = getattr(getattr(Qt, "MouseButton", Qt), "RightButton")
-        if self.draw_mode and ev.button() == right:
+        if self.draw_mode and _btn_code(ev.button()) == 2:
             if self.undo_cb is not None:
                 self.undo_cb()
             ev.accept()
             return
         self._press = self._evpos(ev)
+        self._press_btn = ev.button()
         super().mousePressEvent(ev)
 
     def mouseReleaseEvent(self, ev):
         pos = self._evpos(ev)
         pr = getattr(self, "_press", None)
+        btn = getattr(self, "_press_btn", None)
         super().mouseReleaseEvent(ev)
-        if (self.pick_cb is not None and pr is not None and
-                abs(pos[0] - pr[0]) < 3 and abs(pos[1] - pr[1]) < 3):
+        if pr is None or abs(pos[0] - pr[0]) >= 3 \
+                or abs(pos[1] - pr[1]) >= 3:
+            return                      # это было вращение, не щелчок
+        # Кнопку сравниваем по НОМЕРУ, а не с константой: в Qt6
+        # это уже не число, и сравнение с константой другого модуля
+        # молча даёт ложь - правый щелчок уходил в опрос точки.
+        if _btn_code(btn) == 2 and not self.draw_mode:
+            # Правая кнопка в сцене свободна: перетаскиванием камера
+            # берёт её себе, а щелчок без движения - нет.
+            if self.pivot_cb is not None:
+                self.pivot_cb(pos[0], pos[1])
+            return
+        if self.pick_cb is not None:
             self.pick_cb(pos[0], pos[1])
 
     @staticmethod
     def _evpos(ev):
         p = ev.position() if hasattr(ev, "position") else ev.pos()
         return (float(p.x()), float(p.y()))
+
+
+def _pg_vector():
+    """Класс вектора pyqtgraph, тем же путём, каким берётся сцена.
+
+    Он живёт в корне pyqtgraph, а не в opengl: взяв его не оттуда,
+    получишь второй экземпляр модуля - на этом уже обжигались
+    со светом.
+    """
+    try:
+        _import_gl()
+        from pyqtgraph import Vector
+        return Vector
+    except Exception:  # nosec - без него остаётся правка на месте
+        return None
+
+
+def _btn_code(btn):
+    """Номер кнопки мыши, одинаково в Qt5 и Qt6.
+
+    В Qt6 кнопка - не число, и сравнение с константой, взятой
+    из другого модуля, даёт ложь без всякой ошибки. Левая - 1,
+    правая - 2, и эти номера не менялись никогда.
+    """
+    if btn is None:
+        return 0
+    try:
+        return int(btn)
+    except (TypeError, ValueError):
+        return int(getattr(btn, "value", 0))
 
 
 class ViewerDialog(QDialog):
@@ -976,7 +1020,7 @@ class ViewerDialog(QDialog):
             "clear", tr("Снять обрезку, наброски и точку опроса"),
             self._clip_clear_all)
         btn_draw_save = tool(
-            "layer", tr("Сохранить нарисованный контур слоем проекта"),
+            "save", tr("Сохранить нарисованный контур слоем проекта"),
             self._draw_save)
         btn_shells = tool(
             "shell", tr("Оболочки выбранного слоя в слой проекта"),
@@ -1034,6 +1078,7 @@ class ViewerDialog(QDialog):
         self.view.setBackgroundColor((250, 250, 248))
         self._bg_apply()
         self.view.pick_cb = self._pick_at
+        self.view.pivot_cb = self._pivot_at
         self.view.dbl_cb = self._draw_close
         self.view.undo_cb = self._draw_undo
         self.view.hover_cb = self._draw_hover
@@ -1144,9 +1189,90 @@ class ViewerDialog(QDialog):
         menu = QMenu(self)
         act = menu.addAction(tr("Свойства…"))
         act.triggered.connect(self._open_props)
+        menu.addSeparator()
+        fly = menu.addAction(tr("Подлететь"))
+        fly.triggered.connect(lambda *_a: self._fly_to(False))
+        orb = menu.addAction(tr("Облететь текущий центр"))
+        orb.triggered.connect(self._orbit_now)
+        res = menu.addAction(tr("Центр вращения - вся сцена"))
+        res.triggered.connect(self._center_reset)
         # exec_ снят в Qt6, exec есть в обоих: берём по имени
         show = getattr(menu, "exec", None) or getattr(menu, "exec_")
         show(widget.mapToGlobal(pos))
+
+    def _center_reset(self, *_a):
+        """Вернуть центр вращения на всю сцену."""
+        self._center_keeping_view(0.0, 0.0, 0.0)
+        self.info.setText(tr("Центр вращения - вся сцена."))
+
+    def _orbit_now(self, *_a):
+        """Крутить вокруг ТЕКУЩЕГО центра, ничего не наводя.
+
+        Порядок работы такой: подлететь к слою, поставить центр
+        щелчком правой по нужному месту, включить облёт. Если бы облёт
+        сам наводился на слой, он бы стирал выбранный центр -
+        последний шаг отменял бы предыдущий.
+        """
+        if hasattr(self, "btn_spin") and not self.btn_spin.isChecked():
+            # Кнопка вращения переключается щелчком: так же, как её
+            # нажал бы человек, и без разбора, чем она соединена.
+            self.btn_spin.click()
+        self.info.setText(tr("Облёт вокруг текущего центра."))
+
+    def _fly_to(self, orbit=False):
+        """Подвести камеру к выбранному слою.
+
+        На большой сцене мелкий объект искать нечем: он занимает
+        пиксель, а кручение вокруг общего центра его только уводит.
+        Здесь центр вращения переносится на сам слой, и удаление
+        камеры берётся по его охвату - дальше можно крутить вокруг
+        него же.
+
+        Сцена живёт в сдвинутых координатах: центр охвата данных
+        стоит в нуле, а отметки растянуты преувеличением. Поэтому
+        охват слоя переводится тем же преобразованием, каким строились
+        меши, иначе камера уедет мимо.
+        """
+        pk = getattr(self, "_pick", None)
+        if not pk:
+            self.info.setText(tr("Сначала соберите сцену."))
+            return
+        lyr = self._current_layer()
+        if lyr is None:
+            self.info.setText(tr("Выберите слой в списке сцены."))
+            return
+        ext = lyr.extent()
+        if ext is None or ext.isEmpty():
+            self.info.setText(tr("У слоя %s нет охвата.")
+                              % self._title(lyr))
+            return
+        tr_ = self._xform(lyr)
+        xs = [ext.xMinimum(), ext.xMaximum()]
+        ys = [ext.yMinimum(), ext.yMaximum()]
+        if tr_ is not None:
+            xs, ys = self._xform_xy(tr_, np.asarray(xs, dtype=float),
+                                    np.asarray(ys, dtype=float))
+            xs, ys = list(xs), list(ys)
+        cx, cy = pk["cx"], pk["cy"]
+        mx = (float(min(xs)) + float(max(xs))) * 0.5 - cx
+        my = (float(min(ys)) + float(max(ys))) * 0.5 - cy
+        span = max(float(max(xs)) - float(min(xs)),
+                   float(max(ys)) - float(min(ys)), 1.0)
+        c = self.view.opts["center"]
+        c.setX(mx)
+        c.setY(my)
+        c.setZ(0.0)
+        self.view.opts["distance"] = span * 1.5
+        self.view.update()
+        self.info.setText(tr("Камера у слоя %s, охват %.0f м.")
+                          % (self._title(lyr), span))
+
+    def _current_layer(self):
+        """Слой выделенной строки списка сцены."""
+        it = self.layer_list.currentItem()
+        if it is None:
+            return None
+        return QgsProject.instance().mapLayer(it.data(_USER_ROLE))
 
     def _open_props(self, *_a):
         """Открыть окно свойств для выделенной строки."""
@@ -1212,13 +1338,17 @@ class ViewerDialog(QDialog):
         """
         import numpy as np
         n_band = _band_count(lyr.source())
-        first = max(int(o.get("zband", 1) or 1), 1)
-        if first % 2 == 0:
-            first -= 1
         clip, clip_lines = self._clip_ctx()
         lclip, lclip_lines = self._clip_for_layer(lyr, clip, clip_lines)
+        pairs = bed_pairs(n_band, o.get("zband", 1))
+        # Бюджет делится на все пласты слоя и ещё пополам: у тела
+        # пласта на каждую ячейку грида приходится две вершины,
+        # кровля и подошва. Считая бюджет по ячейкам целиком,
+        # прореживание не включается там, где оно и нужно.
+        budget = max(MIN_VERTS_LAYER,
+                     self._vert_cap() // max(1, 2 * len(pairs)))
         out = []
-        for pi, b_top in enumerate(range(first, n_band, 2)):
+        for pi, b_top in enumerate(pairs):
             top, gt = _read_raster(lyr.source(), b_top, None)
             bot, _g = _read_raster(lyr.source(), b_top + 1, None)
             if top is None or bot is None:
@@ -1231,8 +1361,15 @@ class ViewerDialog(QDialog):
             if lclip_lines:
                 top = self._clip_by_lines(top, gt, lclip_lines)
                 bot = self._clip_by_lines(bot, gt, lclip_lines)
+            # Сетка полная, пока тело влезает в бюджет вершин сцены.
+            # Гриду в полмиллиона ячеек полная сетка даёт миллион
+            # треугольников на пласт: слой такого размера сцена уже
+            # не показывает целиком, а память съедает. Прореживание
+            # честнее обрезки по числу тел: лучше показать все пласты
+            # грубее, чем три из пяти подробно.
+            step = _auto_step(top, budget)
             v, f = bed_to_mesh_arrays(top, bot, gt, zscale=1.0,
-                                      zoffset=0.0, step=1)
+                                      zoffset=0.0, step=step)
             if not len(f):
                 continue
             tr_r = self._xform(lyr)
@@ -1244,7 +1381,7 @@ class ViewerDialog(QDialog):
                 qc = o["solid"].lstrip("#")
                 col = tuple(int(qc[i:i + 2], 16) / 255.0
                             for i in (0, 2, 4)) + (1.0,)
-            out.append((v, f, col, b_top))
+            out.append((v, f, col, b_top, step))
         return out
 
     def _shells_to_layer(self):
@@ -1275,11 +1412,14 @@ class ViewerDialog(QDialog):
         mode = o.get("mode")
         bed_mode = (mode == "body" or
                     (mode == "auto" and is_bed_grid(lyr.source())))
+        thin = 1
         if mode == "iso":
             got = self._iso_mesh(lyr, o, None)
         elif bed_mode:
+            beds = self._bed_meshes(lyr, o)
+            thin = max([m[4] for m in beds] or [1])
             got = [(v, f, col, None, float(band))
-                   for v, f, col, band in self._bed_meshes(lyr, o)]
+                   for v, f, col, band, _st in beds]
         else:
             self.info.setText(
                 tr("Слой не в режиме изоповерхности или тела пласта."))
@@ -1380,6 +1520,11 @@ class ViewerDialog(QDialog):
                       "в поле holes число рваных рёбер, в поле pinch - "
                       "касаний тела самого себя, они объёму не мешают.")\
                 % n_open
+        if thin > 1:
+            note += tr(" Сетка прорежена в %d раза: полная не влезает "
+                       "в предел вершин сцены. Объём посчитан "
+                       "по прореженной, предел меняется в свойствах "
+                       "сцены.") % thin
         self.info.setText(
             tr("Тел в слой: %d, треугольников %d, объём %.0f м3.%s "
                "Слой временный, сохраните его в файл.")
@@ -2570,7 +2715,7 @@ class ViewerDialog(QDialog):
         if not good:
             return None
         _log(tr("Цвет слоя %s из поля %s: разобрано %d, "
-                "не разобрано %d.") % (lyr.name(), want, good, bad))
+                "не разобрано %d.") % (self._title(lyr), want, good, bad))
         return out
 
     def _layer_colors(self, lyr):
@@ -2896,11 +3041,14 @@ class ViewerDialog(QDialog):
             k = 0
             tr_ = self._xform(lyr)
             surf_z = self._zsurf_of(o)
+            n_empty = n_style = n_cut = 0
             for ft in feats:
                 g = ft.geometry()
                 if g is None or g.isEmpty():
+                    n_empty += 1
                     continue
                 if self._style_hides(by_style, ft):
+                    n_style += 1
                     continue
                 if tr_ is not None:
                     g.transform(tr_)
@@ -3039,22 +3187,27 @@ class ViewerDialog(QDialog):
                 nm = ("%s #%d" % (lyr.name(), k)) if multi else lyr.name()
                 out.append((v, f.astype(np.int64), nm,
                             self._style_color(by_style, ft), lyr.id()))
+            if not k:
+                _log(tr("Слой %s: объектов %d, тел не вышло. Пусто %d, "
+                        "скрыто стилем %d, без отметок %d, плоских %d.")
+                     % (self._title(lyr), len(feats), n_empty,
+                        n_style, n_noz, n_flat))
             if shown < len(feats):
                 self._warn(
                     tr("В слое %s объектов %d, показаны первые %d: "
                        "набрано %d вершин из %d. Предел вершин "
                        "меняется в свойствах сцены.")
-                    % (lyr.name(), len(feats), shown, used_verts,
+                    % (self._title(lyr), len(feats), shown, used_verts,
                        budget))
             if n_flat and not n_solid:
                 self._warn(tr(
                     "Слой %s: все %d объектов плоские, отметки "
                     "от %.1f до %.1f. Объёма в геометрии нет, для "
                     "ступеней возьмите показ призмой.")
-                    % (lyr.name(), n_flat, zlo or 0.0, zhi or 0.0))
+                    % (self._title(lyr), n_flat, zlo or 0.0, zhi or 0.0))
             if n_noz:
                 self._warn(tr("Слой %s: у %d объектов нет отметок "
-                              "низа или верха.") % (lyr.name(), n_noz))
+                              "низа или верха.") % (self._title(lyr), n_noz))
             if n_vol_bad:
                 self._warn(tr(
                     "Слой %s: у %d тел объём в поле volume больше их "
@@ -3062,7 +3215,7 @@ class ViewerDialog(QDialog):
                     "слои выгружены сборкой до 0.74.1, где счёт объёма "
                     "терял значащие цифры в настоящих координатах. "
                     "Выгрузите оболочки заново.")
-                    % (lyr.name(), n_vol_bad))
+                    % (self._title(lyr), n_vol_bad))
         return out
 
     def _volume_is_impossible(self, ft, verts, vol_idx):
@@ -3123,11 +3276,17 @@ class ViewerDialog(QDialog):
                 feats = feats[:_MAX_LINES]
             tr_ = self._xform(lyr)
             surf = self._zsurf_of(o)
+            # Счётчики причин: пустая сцена при отмеченном слое
+            # разбирается только по ним. Без них видно «линий 0»,
+            # а почему - неизвестно.
+            n_empty = n_style = n_zcut = n_clip = n_made = 0
             for ft in feats:
                 g = ft.geometry()
                 if g is None or g.isEmpty():
+                    n_empty += 1
                     continue
                 if self._style_hides(by_style, ft):
+                    n_style += 1
                     continue
                 if tr_ is not None:
                     g.transform(tr_)
@@ -3135,10 +3294,12 @@ class ViewerDialog(QDialog):
                 fcol = self._style_color(by_style, ft) or "#7a5c3c"
                 off = self._zoff_of(o)
                 for pts in _parts_xyz(g, zf):
-                    pts = [p for p in pts
-                           if self._z_kept([p[2]], [p[0]], [p[1]])[0]]
-                    if not pts:
+                    kept = [p for p in pts
+                            if self._z_kept([p[2]], [p[0]], [p[1]])[0]]
+                    if not kept:
+                        n_zcut += 1
                         continue
+                    pts = kept
                     if surf:
                         laids = self._drape(pts, surf, off)
                     elif off and zf is None:
@@ -3146,10 +3307,20 @@ class ViewerDialog(QDialog):
                     else:
                         laids = [pts]
                     for laid in laids:
-                        for run in self._clip_run(laid):
+                        runs = list(self._clip_run(laid))
+                        if not runs:
+                            n_clip += 1
+                        for run in runs:
                             if len(run) >= 2:
+                                n_made += 1
                                 out.append((run, fcol, lyr.name(),
                                             lyr.id()))
+            if not n_made:
+                _log(tr("Слой %s: объектов %d, линий не вышло. "
+                        "Пусто %d, скрыто стилем %d, снято обрезкой "
+                        "по Z %d, снято обрезкой в плане %d.")
+                     % (self._title(lyr), len(feats), n_empty,
+                        n_style, n_zcut, n_clip))
         return out
 
     def _vec_points(self):
@@ -4657,8 +4828,137 @@ class ViewerDialog(QDialog):
                 zh = pts[i, 2] + (pts[i + 1, 2] - pts[i, 2]) * f
                 if self._draw_mode and not self._point_kept(xh, yh):
                     continue      # эта часть модели сейчас не видна
+                # X и Y здесь в координатах ПРОЕКТА (выше к ним
+                # прибавлены cx и cy), а Z - в координатах СЦЕНЫ,
+                # растянутая преувеличением. Смешение пространств
+                # неочевидно и уже стоило одной ошибки: кто берёт
+                # отсюда точку, пусть переводит только то, что нужно.
                 best = (tt, L, xh, yh, zh)
         return best
+
+    def _outside_scene(self, px, py):
+        """Щелчок пришёлся за пределы площадки данных.
+
+        Считается по лучу до горизонтального уровня середины сцены:
+        точнее и не нужно, потому что вопрос грубый - целились
+        в модель или мимо неё. Запас в четверть охвата оставлен
+        нарочно: у края коробки промах по телу дело обычное,
+        и сбрасывать там центр было бы неожиданно.
+        """
+        pk = self._pick or {}
+        hit = self._hit_plane(px, py)
+        if hit is None:
+            return True                 # луч ушёл в небо
+        _t, _L, xh, yh, _z = hit
+        cx, cy = pk.get("cx", 0.0), pk.get("cy", 0.0)
+        half = 0.5 * float(pk.get("span", 0.0) or 0.0)
+        if half <= 0:
+            return False
+        edge = half * 1.25
+        return abs(float(xh) - cx) > edge or abs(float(yh) - cy) > edge
+
+    def _center_keeping_view(self, x, y, z):
+        """Перенести центр вращения, не сдвинув картинку.
+
+        Камера у вида стоит НЕ сама по себе: её место считается
+        от центра, удаления и двух углов. Перенеся центр и оставив
+        остальное, картинку неизбежно уводит - именно это и было
+        видно.
+
+        Здесь запоминается место камеры, переносится центр, а удаление
+        и углы пересчитываются обратно так, чтобы камера осталась там
+        же. Меняется только точка, вокруг которой пойдёт вращение,
+        а вид - нет.
+        """
+        import math
+        try:
+            cam = self.view.cameraPosition()
+            dx = float(cam.x()) - x
+            dy = float(cam.y()) - y
+            dz = float(cam.z()) - z
+        except Exception:  # nosec - без места камеры остаётся простой путь
+            self._set_center(_pg_vector(), x, y, z)
+            return
+        dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if dist < 1e-9:
+            self._set_center(_pg_vector(), x, y, z)
+            return
+        elev = math.degrees(math.asin(max(-1.0, min(1.0, dz / dist))))
+        azim = math.degrees(math.atan2(dy, dx))
+        vec = _pg_vector()
+        try:
+            self.view.setCameraPosition(
+                pos=vec(x, y, z) if vec is not None else None,
+                distance=dist, elevation=elev, azimuth=azim)
+        except Exception:  # nosec
+            self._set_center(vec, x, y, z)
+            self.view.opts["distance"] = dist
+        self._view_span = None      # кадрирование теперь не наше
+        self.view.update()
+
+    def _set_center(self, vec, x, y, z):
+        """Поставить центр вращения штатным способом вида.
+
+        Правка `opts['center']` на месте работает не везде: вид
+        подменяет этот объект своим при каждом сдвиге камеры.
+        Поэтому центр ставится тем же вызовом, каким его ставит сам
+        pyqtgraph, а правка на месте остаётся запасным путём.
+        """
+        try:
+            if vec is not None:
+                self.view.setCameraPosition(pos=vec(x, y, z))
+            else:
+                raise AttributeError
+        except Exception:  # nosec - запасной путь для старых сборок
+            c = self.view.opts["center"]
+            c.setX(x)
+            c.setY(y)
+            c.setZ(z)
+        self.view.update()
+
+    def _pivot_at(self, px, py):
+        """Центр вращения по щелчку правой кнопкой.
+
+        Сцена крутится вокруг центра охвата данных, и осмотреть
+        деталь этим не выходит: она уезжает из кадра быстрее, чем
+        поворачивается. Здесь центр переносится в точку, куда
+        показали, - как в горных программах, откуда люди и приходят.
+
+        Щелчок по пустому месту возвращает центр на всю сцену:
+        отдельной кнопки для этого не нужно.
+        """
+        pk = self._pick
+        if not pk:
+            self.info.setText(tr("Сначала соберите сцену."))
+            return
+        best = self._hit_at(px, py)
+        if best is None:
+            # Промах промаху рознь. Щелчок ЗА пределами данных - это
+            # «покажи всё», и центр сбрасывается. Щелчок внутри
+            # площадки, но мимо тонкого тела, - обычный недолёт руки,
+            # и центр трогать нельзя: раньше он сбрасывался и там,
+            # и выглядело это как самовольный уход вида.
+            if self._outside_scene(px, py):
+                self._center_reset()
+            else:
+                self.info.setText(tr("Мимо объекта: центр не изменён. "
+                                     "Щелчок за пределами площадки "
+                                     "вернёт центр на всю сцену."))
+            return
+        _t, _L, xh, yh, zh = best
+        # ВАЖНО про пространства: `_hit_at` отдаёт X и Y в координатах
+        # проекта, а Z - уже в координатах сцены, растянутую
+        # преувеличением. Пересчитав Z второй раз, центр улетал
+        # тем дальше, чем сильнее растянута вертикаль, - вид отскакивал
+        # куда попало. Отметка для показа человеку, наоборот, считается
+        # обратно.
+        cx, cy = pk.get("cx", 0.0), pk.get("cy", 0.0)
+        cz, vex = pk.get("cz", 0.0), pk.get("vex", 1.0)
+        self._center_keeping_view(float(xh) - cx, float(yh) - cy,
+                                  float(zh))
+        z_real = float(zh) / (vex or 1.0) + cz
+        self.info.setText(tr("Центр вращения: %.1f, %.1f, отметка "
+                             "%.2f м.") % (xh, yh, z_real))
 
     def _pick_at(self, px, py):
         """Клик по сцене: точка, а в обычном режиме ещё и каналы."""
@@ -5834,6 +6134,29 @@ class ViewerDialog(QDialog):
         self._items.append(item)
         self._owners.append(owner)
 
+    def _title(self, lyr):
+        """Имя слоя для сообщений, с хвостом при совпадении имён.
+
+        Отметки и настройки держатся на идентификаторе, поэтому два
+        слоя с одним именем в сцене не путаются. А вот сообщения
+        путаются: «Слой Границы: линий не вышло» при двух «Границах»
+        разобрать нельзя. Здесь к имени добавляется хвост
+        идентификатора, и только когда имя в сцене повторяется.
+        """
+        if lyr is None:
+            return "?"
+        name = lyr.name()
+        proj = QgsProject.instance()
+        same = 0
+        for i in range(self.layer_list.count()):
+            other = proj.mapLayer(self.layer_list.item(i)
+                                  .data(_USER_ROLE))
+            if other is not None and other.name() == name:
+                same += 1
+                if same > 1:
+                    return "%s [%s]" % (name, lyr.id()[-6:])
+        return name
+
     def _warn(self, text):
         """Предупреждение человеку: на экран и в журнал.
 
@@ -5918,9 +6241,36 @@ class ViewerDialog(QDialog):
         vlines = self._vec_lines()
         vpoints = self._vec_points()
         prof.add("vector")
+        # Строка для разбора издалека: по ней видно, на каком шаге
+        # обрывается цепочка. Отмечено ноль - дело в списке слоёв;
+        # отмечено, а тел и линий ноль - в разборе геометрии.
+        n_marked = n_vec = 0
+        for i in range(self.layer_list.count()):
+            it = self.layer_list.item(i)
+            if it.checkState() != _CHECKED:
+                continue
+            n_marked += 1
+            lyr_i = QgsProject.instance().mapLayer(it.data(_USER_ROLE))
+            if isinstance(lyr_i, QgsVectorLayer):
+                n_vec += 1
+        _log(tr("Сбор сцены: отмечено %d (растров %d, векторов %d), "
+                "тел %d, линий %d, точек %d.")
+             % (n_marked, len(layers), n_vec, len(bodies),
+                len(vlines), len(vpoints)))
         if not layers and not bodies and not vlines and not vpoints:
-            self.info.setText(tr("Отметьте слой на вкладке «Слои» "
-                                 "или «Векторы»."))
+            if not n_marked:
+                self.info.setText(tr("Отметьте слой в списке сцены."))
+            else:
+                # Слой отмечен, а показывать нечего: причина уже
+                # найдена при разборе, и человеку нужна она, а не совет
+                # отметить то, что он отметил. Так было с чертёжным
+                # разрезом: у него нет отметок, он законно пропущен,
+                # а окно предлагало отметить слой.
+                why = " ".join(self._warnings[:2])
+                self.info.setText(
+                    (tr("Отмечено слоёв: %d, но показывать нечего.")
+                     % n_marked) + ((" " + why) if why else
+                                    tr(" Причина в журнале плагина.")))
             return
         vex = float(self.vex.value())
         spacing = float(self.spacing.value())
@@ -6030,11 +6380,8 @@ class ViewerDialog(QDialog):
                     # на линию, а чертёж, поставленный вертикально.
                     from .slice3d import fence_mesh
                     n_band = _band_count(lyr.source())
-                    first = max(int(o.get("zband", 1) or 1), 1)
-                    if first % 2 == 0:
-                        first -= 1
                     pairs, gt = [], None
-                    for b in range(first, n_band, 2):
+                    for b in bed_pairs(n_band, o.get("zband", 1)):
                         tp, gt = _read_raster(lyr.source(), b, prof)
                         bt, _g = _read_raster(lyr.source(), b + 1, prof)
                         if tp is None or bt is None:
@@ -6072,11 +6419,9 @@ class ViewerDialog(QDialog):
                     # только первую пару, показываешь верхний пласт
                     # и молчишь про остальные.
                     n_band = _band_count(lyr.source())
-                    first = max(int(o.get("zband", 1) or 1), 1)
-                    if first % 2 == 0:
-                        first -= 1
                     pairs = [(b, b + 1)
-                             for b in range(first, n_band, 2)]
+                             for b in bed_pairs(n_band,
+                                                o.get("zband", 1))]
                     verts = faces = None
                     surf_arr = None
                     for pi, (b_top, b_bot) in enumerate(pairs):

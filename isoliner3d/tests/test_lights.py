@@ -99,6 +99,89 @@ def test_shader_falls_back_when_opengl_is_missing():
     assert name in (lights.NAME, "shaded")
 
 
+class _FakeShaders(object):
+    """Подобие pyqtgraph.opengl.shaders со своим списком программ."""
+
+    class ShaderProgram(object):
+        names = {}
+
+        def __init__(self, name, parts):
+            self.name, self.parts = name, parts
+            _FakeShaders.ShaderProgram.names[name] = self
+
+    @staticmethod
+    def VertexShader(code):
+        return ("v", code)
+
+    @staticmethod
+    def FragmentShader(code):
+        return ("f", code)
+
+    @staticmethod
+    def getShaderProgram(name):
+        return _FakeShaders.ShaderProgram.names[name]
+
+
+def _with_fake_pyqtgraph(fake):
+    """Подставить модуль, из которого plugin берёт шейдеры."""
+    import types
+    pkg = types.ModuleType("pyqtgraph")
+    ogl = types.ModuleType("pyqtgraph.opengl")
+    pkg.opengl = ogl
+    ogl.shaders = fake
+    saved = {k: sys.modules.get(k) for k in
+             ("pyqtgraph", "pyqtgraph.opengl", "pyqtgraph.opengl.shaders")}
+    sys.modules["pyqtgraph"] = pkg
+    sys.modules["pyqtgraph.opengl"] = ogl
+    sys.modules["pyqtgraph.opengl.shaders"] = fake
+    return saved
+
+
+def _restore(saved):
+    for k, v in saved.items():
+        if v is None:
+            sys.modules.pop(k, None)
+        else:
+            sys.modules[k] = v
+
+
+def test_shader_lands_in_the_registry_the_scene_asks():
+    """Программа регистрируется там же, где её ищет отрисовка.
+
+    Взятая через `.libs`, она попадала во второй экземпляр модуля
+    со своим списком, а рисующий её GLMeshItem искал в первом. Падало
+    это молча, при отрисовке, и со сцены пропадало всё, что рисуется
+    сплошным цветом: изоповерхности, тела, шарики маркеров.
+    """
+    fake = _FakeShaders
+    fake.ShaderProgram.names = {}
+    saved = _with_fake_pyqtgraph(fake)
+    try:
+        name = lights.soft_shader()
+        assert name == lights.NAME, name
+        assert fake.getShaderProgram(lights.NAME) is not None
+        # повторный вызов не заводит второй экземпляр
+        lights.soft_shader()
+        assert len(fake.ShaderProgram.names) == 1
+    finally:
+        _restore(saved)
+
+
+def test_shader_falls_back_when_registration_fails():
+    """Не завелось - рисуем штатным. Тёмная сцена лучше пустой."""
+    class _Broken(_FakeShaders):
+        @staticmethod
+        def getShaderProgram(name):
+            raise KeyError(name)
+
+    _Broken.ShaderProgram.names = {}
+    saved = _with_fake_pyqtgraph(_Broken)
+    try:
+        assert lights.soft_shader() == "shaded"
+    finally:
+        _restore(saved)
+
+
 if __name__ == "__main__":
     for nm, fn in sorted(globals().items()):
         if nm.startswith("test_") and callable(fn):

@@ -34,7 +34,7 @@ MODULES = ("algorithms.py", "viewer3d.py", "texmesh.py", "plugin.py",
            "slice3d.py", "volume.py", "flatten.py",
            "cleanup.py", "axes.py", "mba.py",
            "glyphs.py", "cadmesh.py", "about.py", "section3d.py",
-           "lights.py",
+           "lights.py", "demo_drift.py", "boolean3d.py",
            "viewer_core.py", "viewer_dialog.py",
            "__init__.py")
 

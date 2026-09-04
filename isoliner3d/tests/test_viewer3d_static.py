@@ -861,7 +861,7 @@ def test_fence_cuts_through_every_bed():
     assert "from .slice3d import fence_mesh" in scene
     i = scene.index("fence_mesh(pairs, gt, ln)")
     body = scene[max(0, i - 1200):i + 200]
-    assert "for b in range(first, n_band, 2)" in body
+    assert "for b in bed_pairs(n_band, o.get(\"zband\", 1)):" in body
     assert "self.fence_all.isChecked()" in body
     # прежняя подмена режима на стенку убрана
     assert 'mode = "wall"' not in scene
@@ -895,6 +895,176 @@ def test_fence_is_a_scene_switch():
     assert "clip_lines" in body
 
 
+def test_button_code_is_read_as_a_number():
+    """Номер кнопки читается и в Qt5, и в Qt6.
+
+    В Qt6 кнопка мыши - не число, а член перечисления. Сравнение
+    с константой, взятой из другого модуля, молча даёт ложь: правый
+    щелчок уходил в опрос точки вместо переноса центра.
+    """
+    src = _viewer_src()
+    i = src.index("def _btn_code")
+    seg = src[i:i + 700]
+    ns = {}
+    exec(compile(seg[:seg.index("class ")], "<btn>", "exec"), ns)  # nosec
+    code = ns["_btn_code"]
+
+    class _Qt6Like(object):
+        value = 2
+
+    assert code(2) == 2
+    assert code(_Qt6Like()) == 2
+    assert code(None) == 0
+
+
+def test_moving_the_pivot_keeps_the_camera_in_place():
+    """Перенос центра вращения не должен двигать картинку.
+
+    Место камеры считается от центра, удаления и двух углов. Перенеся
+    центр и оставив остальное, вид неизбежно уводит. Здесь удаление
+    и углы пересчитываются обратно, и камера остаётся там же.
+    """
+    import math
+
+    def cam_pos(c, dist, elev, azim):
+        e, a = math.radians(elev), math.radians(azim)
+        return (c[0] + dist * math.cos(e) * math.cos(a),
+                c[1] + dist * math.cos(e) * math.sin(a),
+                c[2] + dist * math.sin(e))
+
+    def recentre(cam, p):
+        dx, dy, dz = (cam[0] - p[0], cam[1] - p[1], cam[2] - p[2])
+        dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+        elev = math.degrees(math.asin(max(-1.0, min(1.0, dz / dist))))
+        azim = math.degrees(math.atan2(dy, dx))
+        return dist, elev, azim
+
+    for centre, dist, elev, azim, new in (
+            ((0.0, 0.0, 0.0), 500.0, 30.0, 45.0, (120.0, -80.0, 15.0)),
+            ((10.0, 20.0, 5.0), 1200.0, 60.0, -120.0,
+             (-300.0, 400.0, -50.0))):
+        cam = cam_pos(centre, dist, elev, azim)
+        d2, e2, a2 = recentre(cam, new)
+        again = cam_pos(new, d2, e2, a2)
+        assert max(abs(x - y) for x, y in zip(cam, again)) < 1e-9
+
+    # та же формула должна стоять и в окне
+    src = _viewer_src()
+    i = src.index("def _center_keeping_view")
+    seg = src[i:i + 1600]
+    assert "math.asin" in seg and "math.atan2" in seg
+    assert "cameraPosition()" in seg
+
+
+def test_right_click_sets_the_pivot():
+    """Правая кнопка ставит центр вращения в точку, куда показали.
+
+    Сцена крутится вокруг центра охвата, и осмотреть деталь этим
+    не выходит: она уезжает из кадра быстрее, чем поворачивается.
+
+    Кнопка берётся только на ЩЕЛЧКЕ без движения: перетаскиванием
+    правую забирает камера, и отнимать это нельзя.
+    """
+    src = _viewer_src()
+    i = src.index("def mouseReleaseEvent")
+    seg = src[i:i + 1200]
+    # кнопка сравнивается по номеру: в Qt6 она уже не число,
+    # и сравнение с константой другого модуля молча даёт ложь
+    assert "_btn_code(btn) == 2" in seg
+    assert "self.pivot_cb" in seg
+    assert "abs(pos[0] - pr[0]) >= 3" in seg, "щелчок, а не вращение"
+    assert "not self.draw_mode" in seg, "в рисовании правая уже занята"
+    j = src.index("def _pivot_at")
+    piv = src[j:j + 2400]
+    # X и Y приходят в координатах проекта, а Z - уже в координатах
+    # сцены. Пересчитав Z второй раз, центр улетает тем дальше,
+    # чем сильнее растянута вертикаль: вид отскакивал куда попало.
+    assert "float(zh))" in piv, "Z берётся как есть"
+    assert "(float(zh) - cz) * vex" not in piv, "второго пересчёта нет"
+    assert 'pk.get("cx"' in piv, "а X и Y перевести надо"
+    # человеку показывается настоящая отметка, а не растянутая
+    assert "z_real = float(zh) / (vex or 1.0) + cz" in piv
+    # промах внутри площадки центр НЕ трогает: попасть в тонкое тело
+    # выходит не всегда. Промах ЗА площадкой - сброс, это и есть
+    # «покажи всё».
+    assert "self._outside_scene(px, py)" in piv
+    assert "self._center_reset()" in piv
+    assert "центр не изменён" in piv
+    out = src[src.index("def _outside_scene"):]
+    out = out[:out.index("def _center_keeping_view")]
+    assert "self._hit_plane(px, py)" in out
+    assert "half * 1.25" in out, "у края коробки промах - дело обычное"
+    # перенос не двигает картинку
+    assert "self._center_keeping_view(" in piv
+
+
+def test_messages_tell_apart_layers_of_one_name():
+    """В сообщениях одноимённые слои различаются.
+
+    Отметки и настройки держатся на идентификаторе, поэтому в сцене
+    такие слои не путаются. А «Слой Границы: линий не вышло» при двух
+    «Границах» разобрать нельзя.
+    """
+    src = _viewer_src()
+    i = src.index("def _title")
+    seg = src[i:i + 1200]
+    assert "lyr.id()[-6:]" in seg, "хвост идентификатора при совпадении"
+    assert "same > 1" in seg, "хвост добавляется только при повторе"
+    # диагностика пустой сцены им и пользуется
+    assert "% (self._title(lyr), len(feats), n_empty," in src
+
+
+def test_save_button_has_its_own_icon():
+    """У сохранения свой значок, а не стопка листов.
+
+    Стопка читалась как «слои», и спрашивали не раз.
+    """
+    # _viewer_src уже склеивает диалог, расчётную часть и точку входа
+    assert 'kind == "save"' in _viewer_src()
+    src = _viewer_src()
+    i = src.index("btn_draw_save = tool(")
+    assert '"save"' in src[i:i + 200]
+
+
+def test_fly_to_uses_the_scene_transform():
+    """Подлёт к слою считает центр в координатах СЦЕНЫ.
+
+    Сцена живёт сдвинутой: центр охвата данных стоит в нуле.
+    Взяв охват слоя как есть, камера уехала бы на полный сдвиг мимо -
+    на площадке в километры это промах в километры.
+    """
+    src = _viewer_src()
+    i = src.index("def _fly_to")
+    seg = src[i:i + 2600]
+    assert 'pk["cx"]' in seg and 'pk["cy"]' in seg
+    assert "self._xform(lyr)" in seg, "система координат слоя своя"
+    assert 'self.view.opts["distance"]' in seg
+    # облёт вынесен отдельным пунктом и крутит вокруг ТЕКУЩЕГО центра:
+    # наводись он на слой, выбранный щелчком центр стирался бы
+    orb = src[src.index("def _orbit_now"):]
+    orb = orb[:orb.index("def _fly_to")]
+    assert "self.btn_spin.click()" in orb
+    assert "self._pick" not in orb, "облёт ничего не наводит"
+
+
+def test_empty_scene_names_the_reason():
+    """Пустая сцена при отмеченном слое называет причину.
+
+    Раньше окно советовало отметить слой на вкладках, которых давно
+    нет, и советовало это тому, кто слой уже отметил. Причина при этом
+    была известна: у чертёжного разреза нет отметок, и он законно
+    пропущен.
+    """
+    src = _viewer_src()
+    i = src.index("if not layers and not bodies")
+    seg = src[i:i + 1200]
+    assert "n_marked" in seg
+    assert "Отмечено слоёв" in seg
+    assert "self._warnings" in seg, "причина берётся из разбора"
+    assert "Отметьте слой на вкладке" not in src, \
+        "старая подсказка про вкладки убрана"
+
+
 def test_gradient_background_is_on_by_default():
     """Градиентный фон стоит по умолчанию и переживает пересборку.
 
@@ -924,9 +1094,14 @@ def test_shells_button_takes_the_bed_body_too():
     assert "_bed_meshes(lyr, o)" in body
     assert 'mode == "iso"' in body
     i2 = src.index("def _bed_meshes")
-    made = src[i2:i2 + 2600]
+    made = src[i2:i2 + 4200]
     assert "zscale=1.0" in made and "zoffset=0.0" in made
-    assert "step=1" in made, "выгрузка идёт полной сеткой, без прореживания"
+    # сетка полная, пока тело влезает в бюджет вершин: на большом гриде
+    # полная даёт миллион треугольников на пласт
+    assert "_auto_step(top, budget)" in made
+    # бюджет делится на пласты и ещё пополам: на ячейку приходится
+    # две вершины, кровля и подошва
+    assert "self._vert_cap() // max(1, 2 * len(pairs))" in made
     assert "_clip_for_layer" in made, "обрезка та же, что в сцене"
 
 
@@ -962,7 +1137,7 @@ def test_bed_body_shows_every_pair():
     assert "for pi, (b_top, b_bot) in enumerate(pairs):" in body
     assert "_read_raster(lyr.source(), 1, prof)" not in body
     # пары строятся через один канал: кровля, подошва, кровля...
-    assert "for b in range(first, n_band, 2)" in body
+    assert "bed_pairs(n_band," in body
 
 
 def test_bed_body_honours_the_chosen_band():

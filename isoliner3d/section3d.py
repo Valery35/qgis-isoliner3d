@@ -267,6 +267,42 @@ def crossing_conflicts(pts, vals, snap=1.0):
     return int(bad.sum()), int(many.sum())
 
 
+def convex_hull_ring(pts):
+    """Выпуклая оболочка точек в плане, замкнутым кольцом.
+
+    Пласт, встреченный на трёх стенках из четырёх, интерполяция
+    растягивает на всю площадь охвата: за пределами своих разрезов его
+    не наблюдали, и поверхность там - выдумка. Оболочка своих же проб
+    и есть та область, где о пласте что-то известно.
+
+    Обход Эндрю: сортировка и два прохода. Стороннего кода не нужно,
+    а точек здесь тысячи, не миллионы.
+    """
+    p = np.unique(np.asarray(pts, dtype=float)[:, :2], axis=0)
+    if len(p) < 3:
+        return []
+    p = p[np.lexsort((p[:, 1], p[:, 0]))]
+
+    def half(seq):
+        out = []
+        for q in seq:
+            while len(out) >= 2:
+                a, b = out[-2], out[-1]
+                if ((b[0] - a[0]) * (q[1] - a[1])
+                        - (b[1] - a[1]) * (q[0] - a[0])) > 0:
+                    break
+                out.pop()
+            out.append(q)
+        return out
+
+    hull = half(p)[:-1] + half(p[::-1])[:-1]
+    if len(hull) < 3:
+        return []
+    ring = [(float(x), float(y)) for x, y in hull]
+    ring.append(ring[0])
+    return ring
+
+
 def sample_step(pts):
     """Шаг опробования: медиана расстояния между соседними пробами.
 
@@ -521,29 +557,52 @@ def roof_and_floor(rings, step=None, with_ring=False):
 
         lead = max(parts, key=_span)
         p0, origin, along = lead
-        ps0 = unfold(p0, origin, along)
+        many = len(parts) > 1
+        if many:
+            # Развёртка у каждого кольца своя: путь считается от его
+            # ПЕРВОЙ вершины, и у линзы, нарисованной в середине борта,
+            # ноль приходится на её начало, а не на начало борта.
+            # Сравнивать два кольца на общих сечениях в таких
+            # координатах нельзя - линза ложится не на своё место.
+            # Внутри одной плоскости разрез прямой (иначе кольца
+            # в группу и не попали бы), поэтому берём проекцию:
+            # она у всех колец общая.
+            def _pos(p):
+                return (p[:, :2] - origin[:2]) @ along[:2]
+        else:
+            def _pos(p):
+                return unfold(p, origin, along)
+        ps0 = _pos(p0)
         span = float(ps0.max() - ps0.min())
         if span <= 0:
             continue
         st = float(step) if step else max(span / 60.0, 1e-12)
-        line, at = spine_of(p0)
         cuts = np.arange(ps0.min() + st * 0.5, ps0.max(), st)
         if not len(cuts):
             cuts = np.array([(ps0.min() + ps0.max()) * 0.5])
         hi = np.full(len(cuts), np.nan)
         lo = np.full(len(cuts), np.nan)
         for p, _o, _a in parts:
-            ps = unfold(p, origin, along)
+            ps = _pos(p)
             pz = p[:, 2]
             h = _cut_extreme(ps, pz, cuts, high=True)
             ll = _cut_extreme(ps, pz, cuts, high=False)
-            ok = np.isfinite(h) & np.isfinite(ll)
+            # Кольцо отвечает только за свой участок борта. Опрос
+            # за его пределами продолжает крайнее ребро, и линза
+            # тянула бы подошву по всей длине.
+            own = (cuts >= ps.min() - 1e-9) & (cuts <= ps.max() + 1e-9)
+            ok = np.isfinite(h) & np.isfinite(ll) & own
             hi[ok] = np.fmax(hi[ok], h[ok])
             lo[ok] = np.fmin(lo[ok], ll[ok])
         good = np.isfinite(hi) & np.isfinite(lo) & (hi > lo)
         if not good.any():
             continue
-        xy = along_spine(line, at, cuts[good])
+        if many:
+            sel = cuts[good][:, None]
+            xy = origin[:2][None, :] + sel * along[:2][None, :]
+        else:
+            line, at = spine_of(p0)
+            xy = along_spine(line, at, cuts[good])
         tops.append(np.column_stack([xy[:, 0], xy[:, 1], hi[good]]))
         bots.append(np.column_stack([xy[:, 0], xy[:, 1], lo[good]]))
         owner.append(np.full(int(good.sum()), gi, dtype=np.int64))

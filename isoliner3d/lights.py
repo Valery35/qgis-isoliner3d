@@ -67,19 +67,26 @@ def soft_shader():
     идёт штатный `shaded`. Тёмная сцена лучше, чем пустая.
     """
     try:
-        from .libs.pyqtgraph.opengl import shaders
-    except Exception:  # nosec - без OpenGL просто остаёмся на штатном
-        try:
-            from pyqtgraph.opengl import shaders
-        except Exception:  # nosec
-            return "shaded"
+        from .viewer_core import _import_gl
+        # Тем же путём, каким pyqtgraph поднимает вся остальная сцена.
+        # Взяв его через `.libs`, получаешь ВТОРОЙ экземпляр модуля
+        # со своим списком шейдеров: программа регистрируется в нём,
+        # а рисующий её GLMeshItem ищет в первом и не находит.
+        # Падает это молча, уже при отрисовке, и со сцены пропадает
+        # всё, что рисуется сплошным цветом: изоповерхности, тела,
+        # шарики маркеров.
+        _import_gl()
+        from pyqtgraph.opengl import shaders
+    except Exception:  # nosec - без OpenGL остаёмся на штатном
+        return "shaded"
     try:
-        if NAME in shaders.ShaderProgram.names:
-            return NAME
-        shaders.ShaderProgram(NAME, [
-            shaders.VertexShader(VERTEX),
-            shaders.FragmentShader(FRAGMENT),
-        ])
+        if NAME not in shaders.ShaderProgram.names:
+            shaders.ShaderProgram(NAME, [
+                shaders.VertexShader(VERTEX),
+                shaders.FragmentShader(FRAGMENT),
+            ])
+        # Спрашиваем оттуда же, откуда спросит рисование.
+        shaders.getShaderProgram(NAME)
         return NAME
     except Exception:  # nosec
         return "shaded"

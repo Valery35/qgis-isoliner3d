@@ -240,6 +240,38 @@ def test_bed_body_volume_follows_the_vertical_scale():
     assert abs(mesh_volume(v5, f5) / mesh_volume(v1, f1) - 5.0) < 1e-6
 
 
+def test_a_surface_built_down_to_a_level_makes_a_closed_body():
+    """ЦМР, достроенная вниз до отметки, даёт замкнутое тело.
+
+    Это и есть путь «поверхность - тело - вычитание отработанного»:
+    без замкнутости ни объёма, ни булевых операций.
+
+    Там, где поверхность НЕ ВЫШЕ отметки, тела нет. Считать эти ячейки
+    с отрицательной мощностью нельзя: объём бы уменьшился, а на деле
+    тела там просто не существует.
+    """
+    import numpy as np
+    from isoliner3d.mesh3d import bed_to_mesh_arrays
+    from isoliner3d.cleanup import mesh_volume, shell_defects
+    ny = nx = 41
+    cell = 1.0
+    gt = (0.0, cell, 0.0, ny * cell, 0.0, -cell)
+    xs = gt[0] + cell * (np.arange(nx) + 0.5)
+    ys = gt[3] - cell * (np.arange(ny) + 0.5)
+    gx, gy = np.meshgrid(xs, ys)
+    dem = 100.0 + 5.0 * np.sin(gx / 9.0) + 3.0 * np.cos(gy / 7.0)
+    base = 98.0
+    top = np.where(dem > base, dem, np.nan)
+    bot = np.where(dem > base, base, np.nan)
+    assert np.isfinite(top).sum() < top.size, "должны быть ячейки ниже"
+    v, f = bed_to_mesh_arrays(top, bot, gt, zscale=1.0, zoffset=0.0,
+                              step=1)
+    assert shell_defects(v, f)[0] == 0, "оболочка обязана быть замкнутой"
+    by_cells = float(np.nansum(np.maximum(dem - base, 0.0))) * cell * cell
+    # Оболочка идёт по центрам ячеек, счёт по ячейкам - целиком.
+    assert abs(mesh_volume(v, f) - by_cells) / by_cells < 0.1
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

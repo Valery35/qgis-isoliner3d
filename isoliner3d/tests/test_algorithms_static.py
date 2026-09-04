@@ -37,6 +37,11 @@ EXPECTED = {
     "Kriging3DAlgorithm": ("kriging_3d", "2.06"),
     "Mba3DAlgorithm": ("mba3d", "2.07"),
     "SectionsToBedAlgorithm": ("sections_to_bed", "2.08"),
+    "DemoDriftAlgorithm": ("demo_drift", "2.09"),
+    "SectionLinesToSurfaceAlgorithm": ("sections_to_surface", "2.10"),
+    "BooleanShellsAlgorithm": ("boolean_shells", "2.11"),
+    "SelectByShellAlgorithm": ("select_by_shell", "2.12"),
+    "GridToShellAlgorithm": ("grid_to_shell", "2.13"),
 }
 
 
@@ -327,7 +332,12 @@ def test_every_tool_has_field_hints():
              ("CubeVoxelBodyAlgorithm", "HINTS_2_04"),
              ("CrossValidateAlgorithm", "HINTS_2_05"),
              ("DemoMapAlgorithm", "HINTS_1_08"),
-             ("Kriging3DAlgorithm", "HINTS_2_06"))
+             ("Kriging3DAlgorithm", "HINTS_2_06"),
+             ("DemoDriftAlgorithm", "HINTS_2_09"),
+             ("SectionLinesToSurfaceAlgorithm", "HINTS_2_10"),
+             ("BooleanShellsAlgorithm", "HINTS_2_11"),
+             ("SelectByShellAlgorithm", "HINTS_2_12"),
+             ("GridToShellAlgorithm", "HINTS_2_13"))
     tree = ast.parse(src)
     dicts = {}
     for node in tree.body:
@@ -533,6 +543,24 @@ def test_cubes_are_loaded_into_the_project():
     assert 'return {"OUTPUT": out_path}' in seg
 
 
+def test_mask_can_be_per_bed():
+    """Маска бывает общая, своя у пласта и по его собственным разрезам.
+
+    Пласт, встреченный на трёх стенках из четырёх, интерполяция
+    растягивает на всю площадь охвата: за пределами своих разрезов
+    его не наблюдали.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class SectionsToBedAlgorithm")
+    seg = src[i:src.index("\nclass ", i + 10)]
+    assert '"MASK_FIELD"' in seg and '"MASK_OWN"' in seg
+    # обрезка идёт внутри цикла по пластам, а не разом по всем полосам
+    assert "field=mask_fld, bed=bed" in seg
+    assert "self._own_hull(" in seg
+    assert "surf = [np.where(keep, a, np.nan) for a in surf]" in seg
+
+
 def test_sections_tool_glues_contacts():
     """Контакт соседних пластов строится одной поверхностью.
 
@@ -566,10 +594,14 @@ def test_sections_tool_can_be_clipped_by_a_mask():
     seg = src[i:src.index("\nclass ", i + 10)]
     assert '"MASK"' in seg and '"MASK_BUFFER"' in seg
     assert "polygon_mask(" in seg
-    # система координат маски своя: без пересчёта она ляжет мимо грида
-    assert "QgsCoordinateTransform" in seg
     # пустое пересечение - отказ, а не молча пустой грид
     assert "QgsProcessingException" in seg
+    # сам разбор маски общий для инструментов и лежит в базовом классе:
+    # система координат маски своя, без пересчёта она ляжет мимо грида
+    base = src[src.index("class IsolinerAlgorithm"):
+               src.index("class BedAssembleAlgorithm")]
+    assert "QgsCoordinateTransform" in base
+    assert "def _own_hull(" in base and "def _mask_rings(" in base
 
 
 def test_feedback_goes_to_the_journal_too():
@@ -861,6 +893,83 @@ def test_fields_avoid_the_deprecated_constructor():
     assert not left, "остались прямые вызовы: %d" % len(left)
     head = src[:src.index("def _advanced(")]
     assert "QMetaType" in head
+
+
+def test_auto_cell_looks_at_both_sides():
+    """Шаг грида берётся не от одной длинной стороны.
+
+    Насыпь длиной километр и шириной сорок метров при шаге в двухсотую
+    долю длины даёт поперёк восемь ячеек, и поперечник насыпи - то,
+    ради чего всё и строится, - пропадает.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("def _auto_cell(")
+    ns = {}
+    exec(compile(src[i:src.index("class IsolinerAlgorithm")],
+                 "<auto_cell>", "exec"), ns)     # nosec - свой же код
+    auto = ns["_auto_cell"]
+    # вытянутая насыпь: поперёк должно остаться не восемь ячеек, а сорок
+    cell = auto(0.0, 1000.0, 80.0, 120.0)
+    assert 40.0 / cell >= 40 - 1e-9, cell
+    # квадратный участок правило не трогает
+    assert abs(auto(0.0, 5000.0, 0.0, 5000.0) - 25.0) < 1e-9
+    # вырожденная сторона не делит на ноль
+    assert auto(0.0, 100.0, 5.0, 5.0) > 0.0
+
+
+def test_surface_tool_takes_lines_not_rings():
+    """2.10 строит поверхность по линиям, а не тело по кольцам.
+
+    Линия на разрезе это одна поверхность: разбирать её на кровлю
+    и подошву не надо, каждая вершина уже готовая точка.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class SectionLinesToSurfaceAlgorithm")
+    # это последний класс в файле, дальше идёт список инструментов
+    seg = src[i:src.index("\nclass ", i + 10)]
+    assert "TypeVectorLine" in seg
+    assert "roof_and_floor" not in seg, "линию делить на верх и низ незачем"
+    # тренд снимается, как и в 2.08
+    assert 'center="plane"' in seg
+    # схождение сечений считается по РАЗНЫМ линиям
+    assert "crossing_spread(" in seg and "owner=whose" in seg
+    # каналов столько, сколько поверхностей
+    assert "band_names" in seg
+
+
+def test_bed_assemble_can_build_from_one_surface():
+    """1.01 собирает тело и из одной поверхности.
+
+    ЦМР сама по себе только поверхность. Чтобы её вычитать
+    и пересекать, нужно тело: вниз до отметки или на мощность.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class BedAssembleAlgorithm")
+    seg = src[i:src.index("\nclass ", i + 10)]
+    assert 'self.BASE_Z' in seg and 'self.THICK' in seg
+    assert "optional=True" in seg, "подошва стала необязательной"
+    # ниже отметки тела нет: считать отрицательную мощность нельзя
+    assert "roof > base_z" in seg
+
+
+def test_grid_to_shell_repeats_the_scene_button():
+    """2.13 делает то же, что кнопка оболочек, но инструментом.
+
+    Ручной шаг модель обработки не повторит, и цепочка до запаса
+    не собирается целиком.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class GridToShellAlgorithm")
+    # это последний класс в файле, дальше идёт список инструментов
+    seg = src[i:src.index("\nALGORITHMS = [", i)]
+    assert "bed_to_mesh_arrays(" in seg and "zscale=1.0" in seg
+    assert "split_bodies(" in seg and "mesh_volume(" in seg
+    # незамкнутое тело называется прямо: его не примут 2.11 и 2.12
+    assert "Незамкнутых тел" in seg
 
 
 if __name__ == "__main__":

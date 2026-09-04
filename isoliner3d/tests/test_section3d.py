@@ -404,6 +404,29 @@ def test_lens_inside_a_bed_does_not_touch_the_boundary():
     assert abs(bot[:, 2].max() - 2.00) < 1e-9, bot[:, 2].max()
 
 
+def test_lens_lands_where_it_is_drawn():
+    """Линза влияет только на свой участок борта, а не на весь.
+
+    Развёртка у каждого кольца своя: путь считается от его первой
+    вершины, и у линзы, нарисованной в середине, ноль приходится
+    на её начало. Сравнивая кольца в таких координатах, линзу кладёшь
+    не на её место, и подошва уезжает там, где линзы нет вовсе.
+    """
+    main = _wall_ring([(0.0, 2.30), (20.0, 2.30), (20.0, 2.00),
+                       (0.0, 2.00)])
+    lens = _wall_ring([(12.0, 2.20), (16.0, 2.20), (16.0, 2.10),
+                       (12.0, 2.10)])
+    top, bot = section3d.roof_and_floor([main, lens])
+    s = top[:, 0] - 1425947.0
+    far = s < 8.0
+    assert far.any()
+    assert np.allclose(top[far, 2], 2.30, atol=1e-9)
+    assert np.allclose(bot[far, 2], 2.00, atol=1e-9), bot[far, 2].min()
+    # и на самой линзе граница тоже внешняя
+    assert abs(top[:, 2].max() - 2.30) < 1e-9
+    assert abs(bot[:, 2].min() - 2.00) < 1e-9
+
+
 def test_two_walls_stay_two_planes():
     """Контуры разных разрезов не сливаются: там расхождение это данные."""
     a = _wall_ring([(0.0, 2.30), (2.0, 2.30), (2.0, 2.00), (0.0, 2.00)])
@@ -426,6 +449,69 @@ def test_a_bed_twice_along_one_wall_keeps_both_pieces():
     gap = (s > 0.85) & (s < 1.15)
     assert not gap.any(), "в разрыве проб быть не должно"
     assert len(top) == len(bot) and len(top) > 10
+
+
+def test_convex_hull_ring_wraps_the_points():
+    """Оболочка проб: замкнутое кольцо по крайним точкам."""
+    pts = np.array([[0.0, 0.0], [10.0, 0.0], [10.0, 8.0], [0.0, 8.0],
+                    [5.0, 4.0], [2.0, 1.0]])
+    ring = section3d.convex_hull_ring(pts)
+    assert ring[0] == ring[-1], "кольцо должно быть замкнутым"
+    assert len(ring) == 5, ring
+    inside = {(5.0, 4.0), (2.0, 1.0)}
+    assert not inside & set(ring[:-1]), "внутренние точки в оболочку не идут"
+
+
+def test_convex_hull_ring_refuses_a_line():
+    """Точки на одной прямой площади не ограничивают."""
+    pts = np.column_stack([np.linspace(0, 10, 9), np.zeros(9)])
+    assert section3d.convex_hull_ring(pts) == []
+
+
+def test_own_hull_limits_a_bed_with_fewer_sections():
+    """Пласт с меньшим числом разрезов занимает меньшую площадь.
+
+    Иначе интерполяция растягивает его на весь охват участка, где
+    его никто не наблюдал.
+    """
+    def wall(a, b, z):
+        t = np.linspace(0.0, 1.0, 21)
+        xs = a[0] + (b[0] - a[0]) * t
+        ys = a[1] + (b[1] - a[1]) * t
+        return np.vstack([
+            np.column_stack([xs, ys, np.full(21, z)]),
+            np.column_stack([xs[::-1], ys[::-1], np.full(21, z - 1.0)])])
+
+    cor = [(0.0, 0.0), (60.0, 0.0), (60.0, 40.0), (0.0, 40.0)]
+    four = [wall(cor[i], cor[(i + 1) % 4], 2.0) for i in range(4)]
+    two = four[:2]
+
+    def area(rings_):
+        top, bot = section3d.roof_and_floor(rings_)
+        ring = section3d.convex_hull_ring(np.vstack([top, bot]))
+        a = np.asarray(ring[:-1])
+        x, y = a[:, 0], a[:, 1]
+        return abs(float(np.dot(x, np.roll(y, -1))
+                         - np.dot(y, np.roll(x, -1))) / 2.0)
+
+    assert area(two) < 0.75 * area(four), (area(two), area(four))
+
+
+def test_own_hull_cannot_make_a_dent():
+    """Оболочка выпукла, и вогнутого ограничения из неё не выйдет.
+
+    У пласта, встреченного на трёх стенках из четырёх, оболочка
+    накроет весь прямоугольник: середина внутри неё лежит. Для таких
+    случаев и нужна маска полигоном на пласт, поэтому обе возможности
+    в инструменте есть.
+    """
+    ring = section3d.convex_hull_ring(
+        np.array([[0.0, 0.0], [60.0, 0.0], [60.0, 40.0], [0.0, 40.0]]))
+    a = np.asarray(ring[:-1])
+    x, y = a[:, 0], a[:, 1]
+    area = abs(float(np.dot(x, np.roll(y, -1))
+                     - np.dot(y, np.roll(x, -1))) / 2.0)
+    assert abs(area - 2400.0) < 1e-6, area
 
 
 def test_contact_of_two_beds_is_recognised():

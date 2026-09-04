@@ -103,6 +103,11 @@ values: a grid band is a horizontal level.
 | 2.06 Kriging in three dimensions | Weights from a variogram measured on the data | A cube and a variance cube |
 | 2.07 MBA in volume | Multilevel B-splines: hundreds of thousands of measurements where kriging stalls | A cube of values |
 | 2.08 Beds from sections | A roof and a floor from the outlines on sections, with contact gluing and an area mask | A grid of beds |
+| 2.09 A demonstration drift (demo) | A potash drift with crosscuts: wall drawings, fan holes, grooves, a known answer | Three layers with grades |
+| 2.10 Surfaces from cross sections | A surface from lines on sections: embankment profiles, fault traces, member boundaries | A grid, a band per surface |
+| 2.11 Boolean operations on shells | Difference, union and intersection over cells: the reserves left after mining | Bodies with volumes |
+| 2.12 Selection by a shell | Points, lines and polygons inside a body: volume, tonnage and the weighted grade of the selection | The selected features |
+| 2.13 A shell from a bed grid | A closed body from a grid by a tool rather than a button: the chain to reserves fits a model | Bodies with volumes |
 
 A bed grid assembled by the first tool is read by the 3D window as a body:
 computed and looked at right away.

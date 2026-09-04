@@ -81,6 +81,392 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'Мимо объекта: центр не изменён. Щелчок за пределами площадки вернёт центр на всю сцену.':
+        'Missed the object: the centre is unchanged. A click beyond the area puts the centre back on the whole scene.',
+
+    'Облететь текущий центр':
+        'Orbit the current centre',
+    'Облёт вокруг текущего центра.':
+        'Orbiting about the current centre.',
+
+    'Мимо объекта: центр не изменён. Сброс - в списке сцены, по правой кнопке.':
+        'Missed the object: the centre is unchanged. The reset is in the scene list, on the right button.',
+    'Центр вращения - вся сцена':
+        'Centre of rotation - the whole scene',
+
+    'Центр вращения - вся сцена.':
+        'The centre of rotation is the whole scene.',
+    'Центр вращения: %.1f, %.1f, отметка %.2f м.':
+        'Centre of rotation: %.1f, %.1f, elevation %.2f m.',
+
+    'Подлететь':
+        'Fly to',
+    'Облететь':
+        'Orbit around',
+    'Сначала соберите сцену.':
+        'Build the scene first.',
+    'Выберите слой в списке сцены.':
+        'Pick a layer in the scene list.',
+    'У слоя %s нет охвата.':
+        'Layer %s has no extent.',
+    'Камера у слоя %s, охват %.0f м.':
+        'The camera is at layer %s, extent %.0f m.',
+
+    ' Причина в журнале плагина.':
+        ' The reason is in the plugin log.',
+    'Отметьте слой в списке сцены.':
+        'Mark a layer in the scene list.',
+    'Отмечено слоёв: %d, но показывать нечего.':
+        'Layers marked: %d, but there is nothing to show.',
+
+    'Слой %s: объектов %d, линий не вышло. Пусто %d, скрыто стилем %d, снято обрезкой по Z %d, снято обрезкой в плане %d.':
+        'Layer %s: %d features, no lines came out. Empty %d, hidden by style %d, cut by the Z clip %d, cut by the plan clip %d.',
+    'Слой %s: объектов %d, тел не вышло. Пусто %d, скрыто стилем %d, без отметок %d, плоских %d.':
+        'Layer %s: %d features, no bodies came out. Empty %d, hidden by style %d, without marks %d, flat %d.',
+
+    'Сбор сцены: отмечено %d (растров %d, векторов %d), тел %d, линий %d, точек %d.':
+        'Building the scene: %d marked (%d rasters, %d vectors), %d bodies, %d lines, %d points.',
+
+    '2.13 Оболочка грида пласта':
+        '2.13 A shell from a bed grid',
+    'Вершин %d, граней %d.':
+        'Vertices %d, faces %d.',
+    'Или мощность вниз, м':
+        'Or a thickness downwards, m',
+    'Местами подошва выше кровли: таких ячеек %d. Тела там нет, и они выброшены.':
+        'In places the floor is above the roof: %d such cells. There is no body there, and they are dropped.',
+    'Мощность нигде не считается: в каналах нет перекрывающихся данных.':
+        'The thickness cannot be computed anywhere: the bands hold no overlapping data.',
+    'Мощность: %.2f .. %.2f м.':
+        'Thickness: %.2f .. %.2f m.',
+    'Не удалось создать слой тел.':
+        'The layer of bodies could not be created.',
+    'Незамкнутых тел: %d. Их не примут 2.11 и 2.12, и объём по ним считать нельзя.':
+        'Bodies that are not closed: %d. 2.11 and 2.12 will not take them, and no volume can be computed from them.',
+    'Оболочка не построилась: проверьте каналы.':
+        'The shell was not built: check the bands.',
+    'Подошва (растр, необязательно)':
+        'Floor (raster, optional)',
+    'Подошва достроена вниз на %.2f м от кровли.':
+        'The floor is built %.2f m down from the roof.',
+    'Подошва на отметке, м':
+        'Floor at the elevation, m',
+    'Подошва положена на отметку %.2f м.':
+        'The floor is laid at the elevation of %.2f m.',
+    'Подошвы нет. Задайте растр подошвы, отметку или мощность вниз.':
+        'There is no floor. Give a floor raster, an elevation or a thickness downwards.',
+    'После канала %d нет канала подошвы. У грида пласта каналы идут парами: кровля, подошва.':
+        'After band %d there is no floor band. In a bed grid the bands go in pairs: roof, floor.',
+    'Прореживание сетки':
+        'Thinning of the mesh',
+    'Тел: %d, объём всего %.1f м3.':
+        'Bodies: %d, volume in all %.1f m3.',
+    'Тела пласта':
+        'Bodies of the bed',
+    'Ячеек, где кровля не выше отметки: %d. Тела там нет, и они обнулены.':
+        'Cells where the roof is not above the elevation: %d. There is no body there, and they are cleared.',
+    'Грид пласта: канал кровли и канал подошвы. Такой даёт 1.01 из двух поверхностей или из одной, достроенной вниз, и 2.08 по зарисовкам на разрезах.':
+        'A bed grid: a roof band and a floor band. 1.01 gives one from two surfaces or from a single one built downwards, and 2.08 from the drawings on sections.',
+    'Достроить вниз на постоянную мощность от самой поверхности. Годится для слоя равной толщины: вскрыша, почвенный слой, отсыпка.':
+        'Build downwards by a constant thickness from the surface itself. It suits a layer of even thickness: overburden, topsoil, fill.',
+    'Достроить поверхность вниз до постоянной отметки. Так из ЦМР получается тело, которое можно вычитать и пересекать: отработанные участки карьера, отвалы. Там, где поверхность НЕ ВЫШЕ отметки, тела нет, и такие ячейки обнуляются - иначе объём считался бы с отрицательной мощностью.':
+        'Build the surface downwards to a constant elevation. That turns a DEM into a body that can be subtracted and intersected: mined-out parts of a pit, spoil heaps. Where the surface is NOT ABOVE the elevation there is no body, and such cells are cleared - otherwise the volume would be counted with a negative thickness.',
+    'Канал кровли. Подошвой считается следующий за ним: так устроен грид пласта. У многопластового грида это выбор пласта.':
+        'The roof band. The next one counts as the floor: that is how a bed grid is built. In a multi-bed grid this is the choice of bed.',
+    'Прореживание сетки. Единица - как есть; двойка берёт каждую вторую ячейку и даёт вчетверо меньше треугольников. Объём при этом меняется мало, а вот тонкие детали срезаются.':
+        'Thinning of the mesh. One means as it is; two takes every second cell and gives four times fewer triangles. The volume changes little, but fine detail is cut away.',
+    'Тела пласта: полигоны с Z, объём каждого в атрибутах. Дальше их принимают 2.11 и 2.12.':
+        'The bodies of the bed: polygons with Z, the volume of each in the attributes. 2.11 and 2.12 take them next.',
+    'Строит замкнутую оболочку тела пласта по гриду: кровля, подошва и бортик между ними.\n\nТо же самое делает кнопка оболочек в окне просмотра, но там это ручной шаг. Инструментом он становится частью модели обработки, и цепочка «поверхность - тело - вычитание отработанного - подсчёт запаса» запускается целиком.\n\nОболочка замкнута, поэтому её принимают 2.11 и 2.12, а объём считается точной формулой по самой оболочке.\n\nОбъём здесь и объём из 1.02 расходятся примерно на процент: оболочка идёт по центрам ячеек, а 1.02 считает ячейки целиком. Это разные границы одной области, а не спор методов.':
+        'Builds a closed shell of a bed body from a grid: the roof, the floor and the skirt between them.\n\nThe shells button in the viewer does the same, but there it is a manual step. As a tool it becomes part of a processing model, and the chain "surface - body - subtract what is mined out - count the reserves" runs as a whole.\n\nThe shell is closed, so 2.11 and 2.12 take it, and the volume is computed by an exact formula over the shell itself.\n\nThe volume here and the volume from 1.02 differ by about one per cent: the shell runs through the centres of the cells, while 1.02 counts whole cells. These are different boundaries of one area, not a dispute of methods.',
+
+    '2.12 Выборка оболочкой':
+        '2.12 Selection by a shell',
+    'Не удалось создать слой отобранных объектов.':
+        'The layer of selected features could not be created.',
+    'Объектов %d, точек опроса %d.':
+        'Features: %d, sampling points: %d.',
+    'Объектов всего %d, отобрано %d (%.1f процента).':
+        'Features in all %d, selected %d (%.1f per cent).',
+    'Объектов с высотой не нашлось: у геометрии должна быть Z.':
+        'No features with height were found: the geometry must have Z.',
+    'Отобранные объекты':
+        'Selected features',
+    'Отобранные объекты со всеми своими полями. Сводка идёт в журнал.':
+        'The selected features with all their own fields. The summary goes to the log.',
+    'Пересекает оболочку':
+        'Crosses the shell',
+    'Снаружи':
+        'Outside',
+    'Целиком внутри':
+        'Entirely inside',
+    'Что отбирать (объекты с Z)':
+        'What to select (features with Z)',
+    'Шаг опроса вдоль линий, м (0 - вершины)':
+        'Sampling step along lines, m (0 - vertices)',
+    'Замкнутая оболочка, которой идёт отбор: рудное тело, зона отработки, контур подсчёта. Такие даёт кнопка оболочек в окне просмотра, 2.04 и 2.11.':
+        'The closed shell the selection is made by: an ore body, a mined-out zone, a block of reserves. The shells button in the viewer, 2.04 and 2.11 give such shells.',
+    'Объём оболочки %.1f м3, расхождение с блоками %+.1f процента. Это грубость блочной модели для этого тела: блок либо целиком внутри, либо целиком снаружи.':
+        'Volume of the shell %.1f m3, the difference against the blocks %+.1f per cent. That is how coarse the block model is for this body: a block is either wholly inside or wholly outside.',
+    'Целиком внутри - все вершины объекта внутри оболочки. Пересекает - хоть одна внутри: так ловятся скважины и выработки, проходящие тело насквозь. Снаружи - остаток, то есть всё, что не пересекает.':
+        'Entirely inside - every vertex of the feature is inside the shell. Crosses - at least one is: that is how holes and workings going right through the body are caught. Outside - the remainder, everything that does not cross.',
+    'Поле объёма блока, если отбирается блочная модель. С ним считается объём отобранного и сверяется с объёмом самой оболочки: расхождение показывает, насколько модель груба для этого тела.':
+        'The field of the block volume, if a block model is being selected. With it the volume of the selection is computed and checked against the volume of the shell itself: the difference shows how coarse the model is for this body.',
+    'Поле содержания. Среднее по отобранному считается взвешенным по объёму, а не простым: блоки бывают разного размера, и простое среднее завышает мелкие.':
+        'The field of the grade. The mean over the selection is weighted by volume rather than plain: blocks come in different sizes, and a plain mean gives the small ones too much say.',
+    'Что отбирать: точки, линии или полигоны с высотой. Блочная модель из 2.03 и 1.03, пробы, следы выработок, оболочки других тел - лишь бы у геометрии была Z.':
+        'What to select: points, lines or polygons with height. A block model from 2.03 and 1.03, samples, traces of workings, shells of other bodies - as long as the geometry has Z.',
+    'Шаг опроса вдоль линий и по краю полигонов. Без него смотрятся только вершины, и отрезок, прошивший тело насквозь между двумя своими вершинами, найден не будет. Ноль - только вершины.':
+        'The sampling step along lines and around the edge of polygons. Without it only the vertices are looked at, and a segment that goes right through the body between two of its own vertices will not be found. Zero - vertices only.',
+    'Вычитает, объединяет и пересекает два тела.\n\nТак считают отработку: из оболочки рудного тела вычитают оболочку отработанной камеры и получают остаток запасов. Пересечение даёт то, что попало в зону, объединение - два тела как одно.\n\nРабота идёт не по сеткам, а по ячейкам: обе оболочки переводятся в занятость общего куба, операция выполняется над занятостью, и результат снова превращается в тело. Точная операция над сетками режет треугольники друг о друга и на касаниях регулярно даёт незамкнутый результат, по которому объём уже не взять.\n\nЦена этого решения: тело выходит ступенчатым, а точность ограничена ячейкой. Ошибка идёт по площади поверхности и убывает вместе с ячейкой: на кубе в десять метров ячейка 0.5 м дала ошибку объёма пять процентов, 0.25 м - два с половиной, 0.1 м - попала точно. Память при этом растёт кубом.\n\nОболочки на входе должны быть замкнуты: у незамкнутой внутренности нет, и определить, что внутри, нечем. Незамкнутая на входе - отказ с указанием объекта.':
+        'Subtracts, unites and intersects two bodies.\n\nThis is how mining is accounted for: the shell of a mined-out chamber is subtracted from the shell of an ore body and the remaining reserves come out. An intersection gives what fell inside a zone, a union takes two bodies as one.\n\nThe work goes not over meshes but over cells: both shells are turned into the occupancy of a common cube, the operation is done over the occupancy, and the result is turned back into a body. An exact operation over meshes cuts triangles against each other and on touches regularly gives a result that is not closed, and no volume can be taken from it.\n\nThe price of this decision: the body comes out stepped, and the accuracy is limited by the cell. The error follows the surface area and falls with the cell: on a ten-metre cube a cell of 0.5 m gave a volume error of five per cent, 0.25 m two and a half, 0.1 m landed exactly. The memory meanwhile grows as a cube.\n\nThe shells on input must be closed: one that is not has no inside, and there is nothing to tell what is within. A shell that is not closed on input is refused with the object named.',
+    'Отбирает объекты, попавшие в замкнутую оболочку, и считает по ним сводку.\n\nТак получают запас: блочная модель, оболочка рудного тела или зоны отработки, и на выходе объём, тоннаж и средневзвешенное содержание отобранного. Отбор снаружи даёт остаток, не строя вычитания тел.\n\nОтбирать можно не только точки. Линии и полигоны с высотой идут тем же путём: скважины, прошившие тело, следы выработок, оболочки других тел.\n\nТочка считается внутри по правилу чётности: из неё вверх пускается луч, и если оболочка пересекается нечётное число раз, точка внутри. Ячейки для этого не нужны, и ответ выходит точный, а не с точностью до ячейки, как у булевых операций.\n\nУ линий и полигонов смотрятся вершины. Отрезок, прошивший тело насквозь между двумя своими вершинами, вершинами не ловится - на этот случай есть шаг опроса вдоль.\n\nОбъём отобранных блоков сверяется с объёмом самой оболочки: расхождение показывает, насколько модель груба для этого тела.\n\nОболочка должна быть замкнута: у незамкнутой внутренности нет.':
+        'Selects the features that fell into a closed shell and computes a summary over them.\n\nThat is how reserves are obtained: a block model, the shell of an ore body or of a mined-out zone, and out come the volume, the tonnage and the volume-weighted grade of the selection. Selecting the outside gives the remainder without building a difference of bodies.\n\nNot only points can be selected. Lines and polygons with height go the same way: holes that pierced the body, traces of workings, shells of other bodies.\n\nA point counts as inside by the parity rule: a ray is sent up from it, and if the shell is crossed an odd number of times the point is inside. No cells are needed for that, and the answer comes out exact rather than to within a cell, as with the boolean operations.\n\nFor lines and polygons the vertices are looked at. A segment that goes right through the body between two of its own vertices is not caught by vertices - the sampling step along is there for that.\n\nThe volume of the selected blocks is checked against the volume of the shell itself: the difference shows how coarse the model is for this body.\n\nThe shell must be closed: one that is not has no inside.',
+    'Сторона ячейки. Она и задаёт точность: ошибка идёт по площади поверхности и убывает вместе с ячейкой вдвое на каждую половину. На кубе в десять метров ячейка 0.5 м дала ошибку объёма 5 процентов, 0.25 м - два с половиной, 0.1 м - попала точно. Память растёт кубом, поэтому мельче нужного не берите.':
+        'The side of the cell. It sets the accuracy: the error follows the surface area and halves with every halving of the cell. On a ten-metre cube a cell of 0.5 m gave a volume error of 5 per cent, 0.25 m two and a half, 0.1 m landed exactly. The memory grows as a cube, so do not take it finer than needed.',
+
+    'Объём по оболочке %.1f м3, по блокам %.1f м3, расхождение %+.1f процента. Оболочка считается точно, блоки - целыми ячейками: краевой блок либо весь внутри, либо весь снаружи. Расхождение больше нескольких процентов значит, что блок крупноват для этой оболочки.':
+        'Volume over the shell %.1f m3, over the blocks %.1f m3, a difference of %+.1f per cent. The shell is computed exactly, the blocks as whole cells: a marginal block is either wholly inside or wholly outside. A difference of more than a few per cent means the block is too coarse for this shell.',
+    'Тот же запас по объёму оболочки: руды %.0f т, металла %.0f т. Содержание тут от блоков, объём от геометрии, и это ближе к правде, когда блок крупный.':
+        'The same reserve over the volume of the shell: %.0f t of ore, %.0f t of metal. The grade here comes from the blocks and the volume from the geometry, and that is closer to the truth when the block is coarse.',
+
+    '2.12 Блоки внутри оболочки':
+        '2.12 Blocks inside a shell',
+    'Блоков всего %d, отобрано %d (%.1f процента).':
+        'Blocks in all %d, selected %d (%.1f per cent).',
+    'Блочная модель (точки)':
+        'Block model (points)',
+    'Не удалось создать слой отобранных блоков.':
+        'The layer of selected blocks could not be created.',
+    'Оболочка':
+        'The shell',
+    'Оболочка (полигоны с Z)':
+        'The shell (polygons with Z)',
+    'Оболочка не замкнута, рваных рёбер %d. У незамкнутой внутренности нет.':
+        'The shell is not closed, %d torn edges. A shell that is not closed has no inside.',
+    'Оболочка: граней %d, объём %.1f м3.':
+        'The shell: %d faces, volume %.1f m3.',
+    'Объём отобранного: %.1f м3.':
+        'Volume of the selection: %.1f m3.',
+    'Оставить то, что снаружи':
+        'Keep what is outside',
+    'Отобранные блоки':
+        'Selected blocks',
+    'Отобранные блоки со всеми своими полями. Сводка идёт в журнал.':
+        'The selected blocks with all their own fields. The summary goes to the log.',
+    'Плотность, т/м3 (0 - без тоннажа)':
+        'Density, t/m3 (0 - no tonnage)',
+    'Поле объёма блока':
+        'Field of the block volume',
+    'Поле содержания':
+        'Field of the grade',
+    'Содержание, взвешенное по объёму: %.3f.':
+        'Grade weighted by volume: %.3f.',
+    'Тоннаж металла: %.0f т.':
+        'Tonnage of metal: %.0f t.',
+    'Тоннаж руды: %.0f т.':
+        'Tonnage of ore: %.0f t.',
+    'Точек с высотой не нашлось. Блочная модель должна быть трёхмерной.':
+        'No points with height were found. A block model must be three-dimensional.',
+    'Блочная модель: точки-центроиды блоков. Их даёт 2.03 по кубу и 1.03 по гриду пласта. Годится и любой другой слой точек с высотой.':
+        'A block model: the centroid points of the blocks. 2.03 gives them from a cube and 1.03 from a bed grid. Any other layer of points with height will do.',
+    'Замкнутая оболочка, которой отбираются блоки: рудное тело, зона отработки, контур подсчёта. Такие даёт кнопка оболочек в окне просмотра, 2.04 и 2.11.':
+        'A closed shell the blocks are selected by: an ore body, a mined-out zone, a block of reserves. The shells button in the viewer, 2.04 and 2.11 give such shells.',
+    'Оставить то, что СНАРУЖИ оболочки. Так получают остаток после отработки, не строя вычитания тел.':
+        'Keep what is OUTSIDE the shell. That is how the remainder after mining is obtained without building a difference of bodies.',
+    'Плотность руды. С ней объём переводится в тонны, а содержание - в тоннаж металла.':
+        'The density of the ore. With it the volume turns into tonnes and the grade into the tonnage of metal.',
+    'Поле объёма блока. Без него считается только число блоков: объём по точкам взяться неоткуда.':
+        'The field of the block volume. Without it only the number of blocks is counted: there is nowhere for a volume of points to come from.',
+    'Поле объёма не задано: объём и тоннаж не считаются. У блочной модели из 2.03 и 1.03 это поле vol.':
+        'The field of the volume is not set: the volume and the tonnage are not computed. In a block model from 2.03 and 1.03 that field is vol.',
+    'Поле содержания. Среднее по отобранным блокам считается взвешенным по объёму, а не простым: блоки бывают разного размера, и простое среднее завышает мелкие.':
+        'The field of the grade. The mean over the selected blocks is weighted by volume rather than plain: blocks come in different sizes, and a plain mean gives the small ones too much say.',
+    'Отбирает блоки модели, попавшие внутрь замкнутой оболочки, и считает по ним сводку.\n\nТак получают запас: блочная модель, оболочка рудного тела или зоны отработки, и на выходе объём, тоннаж и средневзвешенное содержание отобранного. Обратный отбор даёт остаток, не строя вычитания тел.\n\nТочка считается внутри по правилу чётности: из неё вверх пускается луч, и если оболочка пересекается нечётное число раз, точка внутри. Ячейки для этого не нужны, и ответ выходит точный, а не с точностью до ячейки, как у булевых операций.\n\nСреднее содержание считается взвешенным по объёму блока. Простое среднее завышает мелкие блоки, а они в модели обычно краевые.\n\nОболочка должна быть замкнута: у незамкнутой внутренности нет.':
+        'Selects the blocks of a model that fell inside a closed shell and computes a summary over them.\n\nThat is how reserves are obtained: a block model, the shell of an ore body or of a mined-out zone, and out come the volume, the tonnage and the volume-weighted grade of the selection. The reverse selection gives the remainder without building a difference of bodies.\n\nA point counts as inside by the parity rule: a ray is sent up from it, and if the shell is crossed an odd number of times the point is inside. No cells are needed for that, and the answer comes out exact rather than to within a cell, as with the boolean operations.\n\nThe mean grade is weighted by the volume of the block. A plain mean gives the small blocks too much say, and in a model those are usually the marginal ones.\n\nThe shell must be closed: one that is not has no inside.',
+
+    'Порядок показа.\n1. Слой зарисовок в 3D-просмотр: контуры висят в пространстве наклонно, плановое положение разрезов нигде не задавалось - оно в самой геометрии.\n2. Инструмент 2.08, поле номера пласта bed, в «Дополнительно» включить обрезку каждого пласта по своим разрезам. В журнале 2.08 остановиться на трёх местах: контакт КрII и АБ проведён одной линией и склеивается; контакт АБ и В склеиваться НЕ должен, там пропласток; у пласта АБ контуров больше, чем плоскостей разреза - это линза внутри него, и границу тела она не трогает.\n3. Грид в сцену, режим «Тело пласта». КрII и АБ сходятся без щели, между АБ и В зазор настоящий. Пласт В занимает меньшую площадь: он выклинивается и на дальнюю сбойку не выходит.\n4. Снять обрезку по своим разрезам и построить ещё раз: пласт В расползётся на всю площадь. Это и есть граница доверия к модели, показанная наглядно.\n5. Инструмент 1.02 по гриду: объёмы должны сойтись с истинными выше, до десятых долей процента. Объём оболочки из кнопки сцены выйдет примерно на процент меньше: она идёт по центрам ячеек, а 1.02 считает ячейки целиком.\n6. Содержания: поля kcl и no это замер с шумом, kcl_truth и no_truth - та же модель без шума. Дальше 2.07 по полю kcl и проверка 2.05 с полем скважины hole: исключение по скважине меряет умение попасть между скважинами, а по одной пробе льстит модели в разы.\nЕсли объёмы разошлись сильно - проверьте, что поле «Только этот пласт» в 2.08 пустое: разными прогонами у каждого пласта выйдет свой охват и свой шаг.':
+        'The order of the demonstration.\n1. The layer of drawings into the 3D viewer: the outlines hang in space at an angle, and the plan position of the sections was nowhere set - it is in the geometry itself.\n2. The tool 2.08, the field of the bed number bed, and in "Advanced" switch on the clipping of every bed by its own sections. In the log of 2.08 stop at three places: the contact of KrII and AB is drawn as one line and is glued; the contact of AB and V must NOT be glued, there is a parting there; bed AB has more outlines than section planes - that is a lens inside it, and it does not touch the boundary of the body.\n3. The grid into the scene, the "Bed body" mode. KrII and AB meet without a gap, between AB and V the gap is real. Bed V takes a smaller area: it pinches out and does not reach the far crosscut.\n4. Switch the clipping by own sections off and build again: bed V will spread over the whole area. That is the boundary of trust in the model, shown plainly.\n5. The tool 1.02 over the grid: the volumes must agree with the true ones above, to tenths of a per cent. The volume of the shell from the scene button will come out about one per cent smaller: it runs through the centres of the cells, while 1.02 counts whole cells.\n6. The grades: the fields kcl and no are the measurement with noise, kcl_truth and no_truth the same model without it. Then 2.07 over the field kcl and the check 2.05 with the hole field hole: leaving out a hole measures the ability to hit between the holes, while leaving out a single sample flatters the model several times over.\nIf the volumes differ a lot - check that the field "This bed only" in 2.08 is empty: in separate runs every bed gets its own extent and its own step.',
+
+    '%s: граней %d, объём %.1f м3.':
+        '%s: %d faces, volume %.1f m3.',
+    '2.11 Булевы операции с оболочками':
+        '2.11 Boolean operations on shells',
+    'Второе тело':
+        'The second body',
+    'Второе тело (полигоны с Z)':
+        'The second body (polygons with Z)',
+    'Вычитание (первое минус второе)':
+        'Difference (the first minus the second)',
+    'Граней вышло слишком много: укрупните ячейку.':
+        'Too many faces came out: use a coarser cell.',
+    'Действие':
+        'Action',
+    'Занято ячеек: %d, объём по ним %.1f м3.':
+        'Cells occupied: %d, their volume %.1f m3.',
+    'Куб %d x %d x %d, ячеек %d.':
+        'Cube %d by %d by %d, %d cells.',
+    'Не удалось создать слой результата.':
+        'The result layer could not be created.',
+    'Объединение':
+        'Union',
+    'Первое тело':
+        'The first body',
+    'Первое тело (полигоны с Z)':
+        'The first body (polygons with Z)',
+    'Пересечение':
+        'Intersection',
+    'Результат (тела)':
+        'The result (bodies)',
+    'Сторона ячейки, м':
+        'Side of the cell, m',
+    'Ячеек слишком много: %d. Память растёт кубом, укрупните ячейку.':
+        'Too many cells: %d. The memory grows as a cube, use a coarser cell.',
+    '%s: оболочка не замкнута, рваных рёбер %d. У незамкнутой внутренности нет, и определить, что внутри, нечем.':
+        '%s: the shell is not closed, %d torn edges. A shell that is not closed has no inside, and there is nothing to tell what is within.',
+    '%s: треугольников не нашлось. Нужен слой полигонов с высотой, какой даёт кнопка оболочек в окне просмотра.':
+        '%s: no triangles were found. A layer of polygons with height is needed, of the kind the shells button in the viewer gives.',
+    'Второе тело. Для вычитания это то, что вырезают из первого: отработанная камера, зона обводнения.':
+        'The second body. For a difference this is what is cut out of the first: a mined-out chamber, a flooded zone.',
+    'Вычитание оставляет от первого тела то, чего нет во втором. Объединение берёт оба, пересечение - только общую часть.':
+        'A difference leaves of the first body what the second does not hold. A union takes both, an intersection only the common part.',
+    'От результата не осталось ни одной ячейки. Для пересечения это значит, что тела не перекрываются, для вычитания - что второе поглотило первое.':
+        'Not one cell is left of the result. For an intersection that means the bodies do not overlap, for a difference that the second swallowed the first.',
+    'Первое тело: замкнутая оболочка из слоя полигонов с Z. Такие даёт кнопка оболочек в окне просмотра и инструмент 2.04.':
+        'The first body: a closed shell from a layer of polygons with Z. The shells button in the viewer and the tool 2.04 give such layers.',
+    'Сторона ячейки. Она и задаёт точность: ошибка идёт по площади поверхности и убывает вместе с ячейкой вдвое на каждую половину. На кубе в десять метров ячейка 0.5 м дала ошибку объёма 4 процента, 0.1 м - один процент. Память растёт кубом, поэтому мельче нужного не берите.':
+        'The side of the cell. It sets the accuracy: the error follows the surface area and halves with every halving of the cell. On a ten-metre cube a cell of 0.5 m gave a volume error of 4 per cent, 0.1 m one per cent. The memory grows as a cube, so do not take it finer than needed.',
+    'Тел: %d, объём по оболочкам %.1f м3. Точность ограничена ячейкой: ошибка идёт по площади поверхности и убывает вместе с ячейкой.':
+        'Bodies: %d, volume over the shells %.1f m3. The accuracy is limited by the cell: the error follows the surface area and falls with the cell.',
+    'Тела результата: полигоны с Z, объём каждого в атрибутах. Оболочка замкнута всегда, поэтому объём по ней считается.':
+        'The bodies of the result: polygons with Z, the volume of each in the attributes. The shell is always closed, so the volume can be computed from it.',
+    'Вычитает, объединяет и пересекает два тела.\n\nТак считают отработку: из оболочки рудного тела вычитают оболочку отработанной камеры и получают остаток запасов. Пересечение даёт то, что попало в зону, объединение - два тела как одно.\n\nРабота идёт не по сеткам, а по ячейкам: обе оболочки переводятся в занятость общего куба, операция выполняется над занятостью, и результат снова превращается в тело. Точная операция над сетками режет треугольники друг о друга и на касаниях регулярно даёт незамкнутый результат, по которому объём уже не взять.\n\nЦена этого решения: тело выходит ступенчатым, а точность ограничена ячейкой. Ошибка идёт по площади поверхности и убывает вместе с ячейкой: на кубе в десять метров ячейка 0.5 м дала ошибку объёма четыре процента, 0.1 м - один процент. Память при этом растёт кубом.\n\nОболочки на входе должны быть замкнуты: у незамкнутой внутренности нет, и определить, что внутри, нечем. Незамкнутая на входе - отказ с указанием объекта.':
+        'Subtracts, unites and intersects two bodies.\n\nThis is how mining is accounted for: the shell of a mined-out chamber is subtracted from the shell of an ore body and the remaining reserves come out. An intersection gives what fell inside a zone, a union takes two bodies as one.\n\nThe work goes not over meshes but over cells: both shells are turned into the occupancy of a common cube, the operation is done over the occupancy, and the result is turned back into a body. An exact operation over meshes cuts triangles against each other and on touches regularly gives a result that is not closed, and no volume can be taken from it.\n\nThe price of this decision: the body comes out stepped, and the accuracy is limited by the cell. The error follows the surface area and falls with the cell: on a ten-metre cube a cell of 0.5 m gave a volume error of four per cent, 0.1 m one per cent. The memory meanwhile grows as a cube.\n\nThe shells on input must be closed: one that is not has no inside, and there is nothing to tell what is within. A shell that is not closed on input is refused with the object named.',
+
+    '2.10 Поверхности по сечениям':
+        '2.10 Surfaces from cross sections',
+    'Грид %d x %d, ячейка %.2f м, уровней %d.':
+        'Grid %d by %d, cell %.2f m, %d levels.',
+    'Имя поверхности, если нужна одна. Пусто - все.':
+        'The name of the surface if only one is wanted. Empty - all of them.',
+    'Линии на разрезах (с Z)':
+        'Lines on sections (with Z)',
+    'Линий с высотой не нашлось.':
+        'No lines with height were found.',
+    'Линий: %d, поверхностей: %d.':
+        'Lines: %d, surfaces: %d.',
+    'Обрезать каждую поверхность по своим сечениям':
+        'Clip every surface by its own sections',
+    'Поверхности (грид)':
+        'Surfaces (grid)',
+    'Поверхность %s на гриде: %.2f .. %.2f м.':
+        'Surface %s on the grid: %.2f .. %.2f m.',
+    'Поверхность %s: маска не накрыла ни одной ячейки грида.':
+        'Surface %s: the mask covered no cell of the grid.',
+    'Поверхность %s: обрезано маской, осталось %.1f процента ячеек.':
+        'Surface %s: clipped by the mask, %.1f percent of the cells are left.',
+    'Поверхность %s: сечений %d, точек %d, отметки %.2f .. %.2f м.':
+        'Surface %s: %d sections, %d points, marks %.2f .. %.2f m.',
+    'Поле имени поверхности':
+        'Field of the surface name',
+    'Поле имени поверхности в маске (пусто - маска общая)':
+        'Field of the surface name in the mask (empty - one mask for all)',
+    'Поле, по которому полигон маски привязан к поверхности. Полигон с пустым значением обрезает все.':
+        'The field that ties a mask polygon to a surface. A polygon with an empty value clips them all.',
+    'Только эта поверхность (пусто - все)':
+        'This surface only (empty - all)',
+    'Шаг грида от данных: %.2f м.':
+        'Grid cell from the data: %.2f m.',
+    'поверхность':
+        'surface',
+    'Уровней в мультисеточном приближении. Мало уровней - гладкая поверхность, много - она ближе к отметкам на сечениях.':
+        'Levels in the multilevel approximation. Few levels give a smooth surface, many bring it closer to the marks on the sections.',
+    'Запас наружу от маски. Поверхность обычно продолжается за крайнее сечение, и обрезка ровно по нему срезала бы то, что в данных есть.':
+        'A margin outwards from the mask. A surface usually continues beyond the outermost section, and clipping exactly along it would cut away what the data do hold.',
+    'Каналов: %d, по одному на поверхность. Разность двух каналов и есть объём работ: где пересыпали, где недосыпали.':
+        'Bands: %d, one per surface. The difference of two bands is the volume of the works: where too much was filled and where too little.',
+    'Линий без высоты: %d, они пропущены. Разрез должен быть трёхмерным: у чертёжного разреза настоящих отметок нет.':
+        'Lines without height: %d, they are skipped. A section must be three-dimensional: a drawn section has no real marks.',
+    'Многоканальный грид: канал на поверхность, в порядке имён. Разность двух каналов и есть объём работ: где пересыпали, где недосыпали.':
+        'A multiband grid: a band per surface, in the order of the names. The difference of two bands is the volume of the works: where too much was filled and where too little.',
+    'Обрезать каждую поверхность по площади её СОБСТВЕННЫХ сечений: выпуклая оболочка её точек плюс запас. Проектная насыпь за последним профилем не задана, и продолжать её туда - выдумка.':
+        'Clip every surface by the area of its OWN sections: the convex hull of its points plus the margin. The designed embankment is not defined beyond the last profile, and continuing it there is invention.',
+    'Поверхность %s: сечения сошлись не меньше чем в %d местах, отметки расходятся до %.2f м, наибольшее в точке %.2f, %.2f.':
+        'Surface %s: the sections meet in at least %d places, the marks disagree by up to %.2f m, the largest at the point %.2f, %.2f.',
+    'Поле имени поверхности. Каждая поверхность даёт свой канал в гриде: так одним прогоном собираются кровля и подошва, проект и факт, несколько горизонтов сразу. Пусто - все линии считаются одной поверхностью.':
+        'Field of the surface name. Every surface gives its own band in the grid: that way a roof and a floor, a design and a survey, or several horizons are built in one run. Empty - all the lines count as one surface.',
+    'Слой линий на разрезах: линии с настоящими Z. Поперечный профиль насыпи, след разлома, граница пачки - всё, что нарисовано на разрезе одной линией, а не кольцом. Положение разрезов берётся из самой геометрии, по вершинам, и нигде не спрашивается. Плоский чертёжный разрез не годится: у него X и Y это координаты на листе, а отметок нет вовсе.':
+        'A layer of lines on sections: lines with real Z. A cross profile of an embankment, the trace of a fault, the boundary of a member - anything drawn on a section as one line rather than a ring. The position of the sections is taken from the geometry itself, from the vertices, and is asked for nowhere. A flat drawn section is no good: its X and Y are coordinates on the sheet, and there are no marks at all.',
+    'Слой полигонов, которым обрезается результат. Между сечениями данных нет, и поверхность там идёт туда, куда её провела интерполяция: маской задаётся, докуда этому верить.':
+        'A polygon layer the result is clipped by. Between the sections there is no data, and the surface goes where the interpolation drew it: the mask says how far to trust that.',
+    'Строит поверхности по линиям, нарисованным на разрезах.\n\nЛиния на разрезе это одна поверхность, а не тело: разбирать её на кровлю и подошву не надо, каждая вершина уже готовая точка в пространстве. Кольцами и телами занимается 2.08.\n\nТак собирают проектную поверхность по поперечным профилям, плоскость разлома по его следам на серии разрезов, горизонт по границе пачки. Разность двух каналов даёт объём работ: где пересыпали, где недосыпали.\n\nПоложение сечений в пространстве берётся из самой геометрии, по вершинам линий. Задавать их отдельно не надо. Плоский чертёжный разрез не годится: у него нет настоящих отметок.\n\nПеред подгонкой снимается плоский тренд: без этого ошибка метода растёт вместе с самой отметкой, а не с её разбросом.\n\nГде сечения пересекаются, отметки на них должны сойтись. Расхождение считается и печатается в журнал вместе с координатами места, где оно наибольшее.':
+        'Builds surfaces from the lines drawn on sections.\n\nA line on a section is one surface, not a body: it need not be split into a roof and a floor, every vertex is already a point in space. Rings and bodies are the business of 2.08.\n\nThis is how a designed surface is put together from cross profiles, a fault plane from its traces on a series of sections, a horizon from the boundary of a member. The difference of two bands gives the volume of the works: where too much was filled and where too little.\n\nThe position of the sections is taken from the geometry itself, from the vertices of the lines. They need not be given separately. A flat drawn section is no good: it has no real marks.\n\nBefore the fitting a flat trend is removed: without it the error of the method grows with the mark itself rather than with its spread.\n\nWhere the sections cross, the marks on them must agree. The disagreement is counted and goes to the log together with the coordinates of the place where it is largest.',
+
+    '2.09 Демонстрационная выработка (демо)':
+        '2.09 A demonstration drift (demo)',
+    'Борозды по мощности':
+        'Grooves across the thickness',
+    'Борозды по мощности (демо)':
+        'Grooves across the thickness (demo)',
+    'Борозды по мощности пласта на бортах: интервалы с содержаниями.':
+        'Grooves across the thickness of a bed on the walls: intervals with grades.',
+    'Выработка положена от начала координат: задайте охват, чтобы поставить её на своё место.':
+        'The drift is placed from the origin: set the extent to put it where it belongs.',
+    'Длина пробы в скважине и шаг борозды по мощности. Проба длиннее мощности пласта пропустит его между замерами.':
+        'The length of a sample in a hole and the step of a groove across the thickness. A sample longer than the bed will miss it between the measurements.',
+    'Длина штрека, м':
+        'Length of the drift, m',
+    'Длина штрека. От неё зависит, сколько площади остаётся между бортами и сбойками - то самое место, где данных нет и работает интерполяция.':
+        'The length of the drift. It decides how much area is left between the walls and the crosscuts - the very place where there is no data and the interpolation works.',
+    'Доля логнормального шума опробования. Ноль даёт данные без шума: на них видна сама модель, а не разброс.':
+        'The share of lognormal sampling noise. Zero gives data without noise: on them the model itself is visible rather than the scatter.',
+    'Зарисовки бортов':
+        'Wall drawings',
+    'Зарисовки бортов (полигоны с Z)':
+        'Wall drawings (polygons with Z)',
+    'Зарисовки бортов: полигоны с настоящими Z, вход для 2.08.':
+        'Wall drawings: polygons with real Z, the input for 2.08.',
+    'Зарисовок: %d, бортов %d. Проб в скважинах: %d. Интервалов в бороздах: %d.':
+        'Drawings: %d on %d walls. Samples in the holes: %d. Intervals in the grooves: %d.',
+    'Истинный объём пласта %s на площади %.0f x %.0f м: %.0f м3.':
+        'The true volume of bed %s over an area of %.0f by %.0f m: %.0f m3.',
+    'Куда положить выработку. Пусто означает взять охват окна вида: пример ляжет туда, куда вы смотрите.':
+        'Where to put the drift. Empty means the extent of the map view: the example lands where you are looking.',
+    'Нарисовать внутри пласта АБ линзу тем же номером пласта. Границу тела она трогать не должна, и это как раз проверяется.':
+        'Draw a lens inside bed AB under the same bed number. It must not touch the boundary of the body, and that is exactly what is being checked.',
+    'Нарисовать линзу внутри пласта АБ':
+        'Draw a lens inside bed AB',
+    'Не удалось создать слой зарисовок.':
+        'The layer of drawings could not be created.',
+    'Одно и то же зерно даёт один и тот же набор. С ним сравнивают методы на неизменных данных.':
+        'The same seed gives the same set. With it the methods are compared on unchanged data.',
+    'Охват (куда положить выработку)':
+        'Extent (where to put the drift)',
+    'Пласт %s на борт «%s» не выходит: выклинился.':
+        'Bed %s does not reach the wall "%s": it has pinched out.',
+    'Постройте тело инструментом 2.08 по слою зарисовок и сравните объём из 1.02 с этими числами. Содержания проверяются полями kcl_truth и no_truth: это модель без шума.':
+        'Build the body with 2.08 from the layer of drawings and compare the volume from 1.02 with these numbers. The grades are checked against the kcl_truth and no_truth fields: that is the model without noise.',
+    'Пробы скважин':
+        'Samples of the holes',
+    'Пробы скважин веера: точки с содержаниями, вход для 2.06 и 2.07.':
+        'Samples of the fan holes: points with grades, the input for 2.06 and 2.07.',
+    'Сбоек поперёк':
+        'Crosscuts across',
+    'Сбоек поперёк штрека. Каждая даёт ещё пару бортов, и на их пересечениях с бортами штрека отметки обязаны сойтись. Без сбоек проверять сходимость не на чем.':
+        'Crosscuts across the drift. Each gives another pair of walls, and where they cross the walls of the drift the elevations must agree. Without crosscuts there is nothing to check that on.',
+    'Ширина выработки, м':
+        'Width of the working, m',
+    'Ширина выработки: расстояние между бортами. Два борта дают параллельные разрезы в двух метрах друг от друга.':
+        'The width of the working: the distance between the walls. Two walls give parallel sections a couple of metres apart.',
+    'линза':
+        'lens',
+    'пласт':
+        'bed',
+    'Допуск, в пределах которого подошва верхнего пласта и кровля нижнего считаются одной поверхностью и строятся один раз. Две независимо построенные поверхности между разрезами расходятся, и в модели встаёт щель или нахлёст, которых на разрезе нет. Пять сантиметров по умолчанию не от скромности: пробы двух пластов ложатся вдоль борта в разные места, и на падающем пласте одно это даёт полтора сантиметра расхождения. Это ниже любого пропластка и выше шума опробования. Ноль отключает склейку: тогда каждая поверхность своя.':
+        'The tolerance within which the floor of the upper bed and the roof of the lower one count as one surface and are built once. Two surfaces built independently drift apart between the sections, and the model gets a gap or an overlap that the section does not have. Five centimetres by default is not modesty: the samples of two beds land in different places along the wall, and on a dipping bed that alone gives a centimetre and a half of disagreement. That is below any parting and above the sampling noise. Zero switches the gluing off: then every surface is its own.',
+    'Создаёт калийную выработку с зарисовками бортов, скважинами веера и бороздами.\n\nПласты и содержания заданы формулами, шум опробования добавляется отдельно, поэтому у набора есть известный ответ. Истинные объёмы пластов печатаются в журнал: постройте тело инструментом 2.08 и сравните.\n\nВыработка - штрек со сбойками поперёк. Два борта штрека дают параллельные разрезы, сбойки дают пересечения, где отметки обязаны сойтись, а между ними остаётся площадь, которую заполняет интерполяция.\n\nПластов три: КрII, АБ и В. В набор нарочно заложены случаи, на которых модель и спотыкается. Подошва КрII и кровля АБ проведены одной линией - склейка контактов должна узнать их и построить одной поверхностью. Между АБ и В лежит пропласток, и контакта там нет. Внутри АБ нарисована линза тем же номером пласта - границу тела она трогать не должна. Пласт В выклинивается и на дальнюю сбойку не выходит вовсе, поэтому без обрезки по своим разрезам его растянет на всю площадь.\n\nСодержаний два, KCl и нерастворимый остаток. Они связаны обратно: где сильвина больше, остатка меньше. На паре каналов видно, как в гриде живут несколько параметров сразу.':
+        'Creates a potash working with drawings of the walls, fan holes and grooves.\n\nThe beds and the grades are set by formulas, the sampling noise is added separately, so the set has a known answer. The true volumes of the beds are printed to the log: build the body with 2.08 and compare.\n\nThe working is a drift with crosscuts across it. Two walls of the drift give parallel sections, the crosscuts give intersections where the elevations must agree, and between them an area is left for the interpolation to fill.\n\nThere are three beds: KrII, AB and V. The set deliberately holds the cases the model stumbles on. The floor of KrII and the roof of AB are drawn as one line - the contact gluing must recognise them and build one surface. Between AB and V there is a parting, and no contact there. Inside AB a lens is drawn under the same bed number - it must not touch the boundary of the body. Bed V pinches out and does not reach the far crosscut at all, so without clipping by its own sections it will be stretched over the whole area.\n\nThere are two grades, KCl and the insoluble residue. They are tied in reverse: where there is more sylvite there is less residue. On a pair of bands it is visible how several parameters live in one grid at once.',
+
     'Система координат местная (%s), пересчёт не делается: '
     'у неё нет привязки к земле. Задайте слою и проекту одну '
     'систему, если они в разных.':
@@ -229,6 +615,32 @@ TRANSLATIONS = {
         'The contact of beds %s and %s exceeds the tolerance of %.3f m, the '
         'surfaces are built separately. Between the sections they will drift '
         'apart, and the model will get a gap or an overlap.',
+    'Поле номера пласта в маске (пусто - маска общая)':
+        'Field of the bed number in the mask (empty - one mask for all)',
+    'Обрезать каждый пласт по своим разрезам':
+        'Clip every bed by its own sections',
+    'Поле, по которому полигон маски привязан к пласту. Пригодится, когда '
+    'у одного пласта разрезы короче, чем у соседних, и обрезать его надо '
+    'иначе. Полигон с пустым значением обрезает все пласты.':
+        'The field that ties a mask polygon to a bed. It helps when one bed '
+        'has shorter sections than its neighbours and has to be clipped '
+        'differently. A polygon with an empty value clips every bed.',
+    'Обрезать каждый пласт по площади его СОБСТВЕННЫХ разрезов: выпуклая '
+    'оболочка его проб плюс запас. За её пределами пласт не наблюдали, '
+    'и рисовать его там - выдумка. Пласт, встреченный на трёх стенках '
+    'из четырёх, перестанет растягиваться на всю площадь.':
+        'Clip every bed by the area of its OWN sections: the convex hull of '
+        'its samples plus the margin. Beyond it the bed was not observed, '
+        'and drawing it there is invention. A bed met on three walls out of '
+        'four will stop stretching over the whole area.',
+    'Пласт %s: обрезано маской, осталось %.1f процента ячеек.':
+        'Bed %s: clipped by the mask, %.1f percent of the cells are left.',
+    'Пласт %s: маска не накрыла ни одной ячейки грида. Обычно это разные '
+    'системы координат у маски и у контуров либо маска в стороне '
+    'от участка.':
+        'Bed %s: the mask covered no cell of the grid. Usually the mask and '
+        'the contours are in different coordinate systems, or the mask lies '
+        'away from the area.',
     'Маска области (полигоны, необязательно)':
         'Area mask (polygons, optional)',
     'Запас наружу от маски, м':
@@ -795,6 +1207,11 @@ TRANSLATIONS = {
     'в режиме тела.':
         'Pick a layer in the list: a cube in isosurface mode or a bed grid '
         'in body mode.',
+    ' Сетка прорежена в %d раза: полная не влезает в предел вершин сцены. '
+    'Объём посчитан по прореженной, предел меняется в свойствах сцены.':
+        ' The mesh is thinned %d times over: the full one does not fit the '
+        'vertex limit of the scene. The volume is computed on the thinned '
+        'one, and the limit is changed in the scene properties.',
     'Слой не в режиме изоповерхности или тела пласта.':
         'The layer is not in isosurface or bed body mode.',
     'Слой не в режиме изоповерхности.':
@@ -2559,8 +2976,6 @@ TRANSLATIONS = {
     'Отметка залегания (подошва), ед. карты':
         'Base elevation (floor), map units',
     'Отметка из поля': 'Elevation from a field',
-    'Отметьте слой на вкладке «Слои» или «Векторы».':
-        'Tick a layer on the «Layers» or the «Vectors» tab.',
     'Отсечка: внутрь тела попадает всё, что не меньше этого значения. Каналы '
     'грида считаются уровнями куба.':
         'The cutoff: everything not less than this value goes inside the '

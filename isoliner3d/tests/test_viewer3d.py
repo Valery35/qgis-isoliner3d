@@ -78,6 +78,30 @@ def test_window_is_shown_before_layers_are_read():
     assert body.index(".raise_()") < body.index(".activateWindow()")
 
 
+def test_bed_pairs_reads_the_band_as_a_place_in_the_stack():
+    """Кровля - этот пласт и ниже, подошва - этот пласт и выше.
+
+    Канал у грида пластов не «высота», а место в стопке: нечётный это
+    кровля пласта, чётный - его подошва. Одним списком выбирается
+    и «что под этой границей», и «что над ней», без второго поля.
+    """
+    from isoliner3d.viewer_core import bed_pairs
+    assert bed_pairs(8, 1) == [1, 3, 5, 7]
+    assert bed_pairs(8, 5) == [5, 7]
+    assert bed_pairs(8, 6) == [1, 3, 5]
+    assert bed_pairs(8, 2) == [1]
+    assert bed_pairs(8, 8) == [1, 3, 5, 7]
+
+
+def test_bed_pairs_survives_junk():
+    """Ноль, единственный канал и пустое значение не должны ронять."""
+    from isoliner3d.viewer_core import bed_pairs
+    assert bed_pairs(0, 1) == []
+    assert bed_pairs(1, 1) == []
+    assert bed_pairs(4, 0) == [1, 3]
+    assert bed_pairs(4, None) == [1, 3]
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
