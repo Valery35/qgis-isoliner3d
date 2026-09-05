@@ -81,6 +81,27 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'Линий: %d, отдельных точек: %d, поверхностей: %d.':
+        'Lines: %d, separate points: %d, surfaces: %d.',
+    'Отдельные замеры в дополнение к сечениям: отметки скважин, точки вскрытия разлома, реперы. Их берут туда, где сечений нет, и там точка держит поверхность одна - спорить с ней некому. Рядом с сечением спор возможен, и его величина печатается в журнал.':
+        'Separate measurements in addition to the sections: hole elevations, points where a fault was met, benchmarks. They are taken where there are no sections, and there a point holds the surface alone - it has nobody to argue with. Next to a section an argument is possible, and its size goes to the log.',
+    'Поверхность %s: отклонение от отдельных замеров %.3f м в среднем, наибольшее %.3f м в точке %.2f, %.2f.':
+        'Surface %s: the departure from the separate measurements is %.3f m on average, the largest %.3f m at the point %.2f, %.2f.',
+    'Поверхность %s: сечений %d, точек %d (из них отдельных замеров %d), отметки %.2f .. %.2f м.':
+        'Surface %s: %d sections, %d points (%d of them separate measurements), marks %.2f .. %.2f m.',
+    'Поле имени поверхности у точек':
+        'Field of the surface name on the points',
+    'Поле имени поверхности у точек. Пусто - все точки идут в ту же поверхность, что и линии без имени.':
+        'Field of the surface name on the points. Empty - all the points go into the same surface as the lines without a name.',
+    'Поле отметки у точек':
+        'Field of the elevation on the points',
+    'Поле отметки у точек. Нужно, когда у точек нет высоты в самой геометрии: у плоского слоя её взять неоткуда, и молча ставить ноль нельзя.':
+        'Field of the elevation on the points. It is needed when the points have no height in the geometry itself: a flat layer has nowhere to take it from, and putting a zero in silence is not allowed.',
+    'Точек без отметки: %d, они пропущены. У плоского слоя отметку взять неоткуда: задайте поле отметки.':
+        'Points without an elevation: %d, they are skipped. A flat layer has nowhere to take it from: give the field of the elevation.',
+    'Точки с отметками (необязательно)':
+        'Points with elevations (optional)',
+
     'Ни один объект не записан: слой отказался принять геометрию %s. Выберите другой тип геометрии или другой формат выходного слоя.':
         'Not a single feature was written: the layer refused the %s geometry. Choose another geometry type or another format for the output layer.',
 

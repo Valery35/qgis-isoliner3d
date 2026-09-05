@@ -5028,6 +5028,16 @@ HINTS_2_10 = {
              "по вершинам, и нигде не спрашивается. Плоский чертёжный "
              "разрез не годится: у него X и Y это координаты на листе, "
              "а отметок нет вовсе.",
+    "POINTS": "Отдельные замеры в дополнение к сечениям: отметки "
+              "скважин, точки вскрытия разлома, реперы. Их берут туда, "
+              "где сечений нет, и там точка держит поверхность одна - "
+              "спорить с ней некому. Рядом с сечением спор возможен, "
+              "и его величина печатается в журнал.",
+    "PT_Z": "Поле отметки у точек. Нужно, когда у точек нет высоты "
+            "в самой геометрии: у плоского слоя её взять неоткуда, "
+            "и молча ставить ноль нельзя.",
+    "PT_FIELD": "Поле имени поверхности у точек. Пусто - все точки "
+                "идут в ту же поверхность, что и линии без имени.",
     "FIELD": "Поле имени поверхности. Каждая поверхность даёт свой "
              "канал в гриде: так одним прогоном собираются кровля "
              "и подошва, проект и факт, несколько горизонтов сразу. "
@@ -5122,6 +5132,16 @@ class SectionLinesToSurfaceAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterString(
             "ONLY", self.tr("Только эта поверхность (пусто - все)"),
             optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "POINTS", self.tr("Точки с отметками (необязательно)"),
+            [QgsProcessing.SourceType.TypeVectorPoint], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            "PT_Z", self.tr("Поле отметки у точек"),
+            parentLayerParameterName="POINTS", optional=True,
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterField(
+            "PT_FIELD", self.tr("Поле имени поверхности у точек"),
+            parentLayerParameterName="POINTS", optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             "CELL", self.tr("Шаг грида, м (0 - от данных)"),
             QgsProcessingParameterNumber.Type.Double,
@@ -5200,9 +5220,51 @@ class SectionLinesToSurfaceAlgorithm(IsolinerAlgorithm):
                 "отметок нет.") % n_flat)
         return out
 
+    def _points(self, src, zfield, field, only, feedback):
+        """Отдельные замеры: имя поверхности и точка с отметкой.
+
+        Отметка берётся из геометрии, если она трёхмерная. У плоского
+        слоя её взять неоткуда, и ставить ноль молча нельзя - тогда
+        нужно поле отметки, и об этом говорится прямо.
+        """
+        if src is None:
+            return []
+        out, n_flat = [], 0
+        for ft in src.getFeatures():
+            if feedback.isCanceled():
+                break
+            name = ""
+            if field:
+                try:
+                    name = str(ft[field])
+                except (KeyError, IndexError):
+                    name = ""
+            if only and name != only:
+                continue
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            pt = g.constGet()
+            z = float(getattr(pt, "z", lambda: float("nan"))())
+            if z != z:
+                if not zfield:
+                    n_flat += 1
+                    continue
+                z = _num(ft, zfield, float("nan"))
+                if z != z:
+                    n_flat += 1
+                    continue
+            out.append((name, float(pt.x()), float(pt.y()), z))
+        if n_flat:
+            feedback.pushWarning(self.tr(
+                "Точек без отметки: %d, они пропущены. У плоского слоя "
+                "отметку взять неоткуда: задайте поле отметки.")
+                % n_flat)
+        return out
+
     def _process(self, parameters, context, feedback):
         from . import mba, section3d
-        from .mesh3d import polygon_mask
+        from .mesh3d import polygon_mask, sample_bilinear
 
         src = self.parameterAsSource(parameters, "INPUT", context)
         field = self.parameterAsString(parameters, "FIELD", context)
@@ -5221,14 +5283,24 @@ class SectionLinesToSurfaceAlgorithm(IsolinerAlgorithm):
         crs_in = src.sourceCrs()
 
         lines = self._lines(src, field, only, feedback)
-        if not lines:
+        pts_src = self.parameterAsSource(parameters, "POINTS", context)
+        pt_z = self.parameterAsString(parameters, "PT_Z", context)
+        pt_field = self.parameterAsString(parameters, "PT_FIELD", context)
+        extra = self._points(pts_src, pt_z, pt_field, only, feedback)
+        if not lines and not extra:
             raise QgsProcessingException(self.tr(
                 "Линий с высотой не нашлось."))
-        names = sorted({nm for nm, _fi, _p in lines})
-        feedback.pushInfo(self.tr("Линий: %d, поверхностей: %d.")
-                          % (len(lines), len(names)))
+        names = sorted({nm for nm, _fi, _p in lines}
+                       | {nm for nm, _x, _y, _z in extra})
+        feedback.pushInfo(self.tr(
+            "Линий: %d, отдельных точек: %d, поверхностей: %d.")
+            % (len(lines), len(extra), len(names)))
 
-        allp = np.vstack([p for _n, _f, p in lines])
+        allp = [p for _n, _f, p in lines]
+        if extra:
+            allp.append(np.array([[x, y, z] for _n, x, y, z in extra],
+                                 dtype=float))
+        allp = np.vstack(allp)
         x0, x1 = float(allp[:, 0].min()), float(allp[:, 0].max())
         y0, y1 = float(allp[:, 1].min()), float(allp[:, 1].max())
         span = max(x1 - x0, y1 - y0, 1.0)
@@ -5248,14 +5320,26 @@ class SectionLinesToSurfaceAlgorithm(IsolinerAlgorithm):
             if feedback.isCanceled():
                 break
             own = [(fi, p) for nm, fi, p in lines if nm == name]
-            pts = np.vstack([p for _fi, p in own])
-            whose = np.concatenate([np.full(len(p), fi, dtype=np.int64)
-                                    for fi, p in own])
+            mine = [(x, y, z) for nm2, x, y, z in extra if nm2 == name]
+            parts = [p for _fi, p in own]
+            whose_parts = [np.full(len(p), fi, dtype=np.int64)
+                           for fi, p in own]
+            if mine:
+                # Отдельные замеры идут в то же облако наравне
+                # с вершинами сечений. Взвешивать их незачем: там,
+                # где сечений нет, точка держит поверхность одна,
+                # а рядом с сечением спор разбирается ниже, числом.
+                pm = np.array(mine, dtype=float)
+                parts.append(pm)
+                whose_parts.append(np.full(len(pm), -1, dtype=np.int64))
+            pts = np.vstack(parts)
+            whose = np.concatenate(whose_parts)
             feedback.pushInfo(self.tr(
-                "Поверхность %s: сечений %d, точек %d, отметки "
-                "%.2f .. %.2f м.")
+                "Поверхность %s: сечений %d, точек %d (из них "
+                "отдельных замеров %d), отметки %.2f .. %.2f м.")
                 % (name or "-", len({fi for fi, _p in own}), len(pts),
-                   float(pts[:, 2].min()), float(pts[:, 2].max())))
+                   len(mine), float(pts[:, 2].min()),
+                   float(pts[:, 2].max())))
 
             # Схождение сечений: если два разных сечения дали в одной
             # точке плана разные отметки, это данные, и молчать нельзя.
@@ -5300,6 +5384,24 @@ class SectionLinesToSurfaceAlgorithm(IsolinerAlgorithm):
                     "процента ячеек.")
                     % (name or "-", 100.0 * n_keep / float(nx * ny)))
 
+            if mine:
+                # Замер добавили - надо сказать, послушалась ли его
+                # поверхность. Там, где сечений нет, отклонение выйдет
+                # около нуля само собой. Рядом с сечением, спорящим
+                # с замером, сотня вершин профиля перевесит одну точку,
+                # и человек должен увидеть это числом, а не гадать.
+                pm = np.array(mine, dtype=float)
+                got = sample_bilinear(surf, gt, pm[:, 0], pm[:, 1])
+                dev = np.abs(got - pm[:, 2])
+                ok = np.isfinite(dev)
+                if ok.any():
+                    k = int(np.argmax(np.where(ok, dev, -np.inf)))
+                    feedback.pushInfo(self.tr(
+                        "Поверхность %s: отклонение от отдельных "
+                        "замеров %.3f м в среднем, наибольшее %.3f м "
+                        "в точке %.2f, %.2f.")
+                        % (name or "-", float(dev[ok].mean()),
+                           float(dev[k]), pm[k, 0], pm[k, 1]))
             fin = surf[np.isfinite(surf)]
             if fin.size:
                 feedback.pushInfo(self.tr(

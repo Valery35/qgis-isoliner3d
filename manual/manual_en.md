@@ -643,6 +643,9 @@ Where the sections cross, the marks on them must agree. The disagreement is coun
 | **Lines on sections (with Z)** | A layer of lines on sections: lines with real Z. A cross profile of an embankment, the trace of a fault, the boundary of a member - anything drawn on a section as one line rather than a ring. The position of the sections is taken from the geometry itself, from the vertices, and is asked for nowhere. A flat drawn section is no good: its X and Y are coordinates on the sheet, and there are no marks at all. |
 | **Field of the surface name** | Field of the surface name. Every surface gives its own band in the grid: that way a roof and a floor, a design and a survey, or several horizons are built in one run. Empty - all the lines count as one surface. |
 | **This surface only (empty - all)** | The name of the surface if only one is wanted. Empty - all of them. |
+| **Points with elevations (optional)** | Separate measurements in addition to the sections: hole elevations, points where a fault was met, benchmarks. They are taken where there are no sections, and there a point holds the surface alone - it has nobody to argue with. Next to a section an argument is possible, and its size goes to the log. |
+| **Field of the elevation on the points** | Field of the elevation on the points. It is needed when the points have no height in the geometry itself: a flat layer has nowhere to take it from, and putting a zero in silence is not allowed. |
+| **Field of the surface name on the points** | Field of the surface name on the points. Empty - all the points go into the same surface as the lines without a name. |
 | **Grid step, m (0 means from the data)** | The step of the grid over the area. Zero takes a two-hundredth of the extent. |
 | **Area mask (polygons, optional)** | A polygon layer the result is clipped by. Between the sections there is no data, and the surface goes where the interpolation drew it: the mask says how far to trust that. |
 | **Field of the surface name in the mask (empty - one mask for all)** | The field that ties a mask polygon to a surface. A polygon with an empty value clips them all. |
@@ -650,7 +653,6 @@ Where the sections cross, the marks on them must agree. The disagreement is coun
 | **Levels** | Levels in the multilevel approximation. Few levels give a smooth surface, many bring it closer to the marks on the sections. |
 | **Clip every surface by its own sections** | Clip every surface by the area of its OWN sections: the convex hull of its points plus the margin. The designed embankment is not defined beyond the last profile, and continuing it there is invention. |
 | **Margin outwards from the mask, m** | A margin outwards from the mask. A surface usually continues beyond the outermost section, and clipping exactly along it would cut away what the data do hold. |
-
 
 ### What it is for
 
@@ -662,6 +664,29 @@ Hence the uses. Cross profiles of an embankment every hundred metres
 give the designed surface, and its difference with the survey is the
 volume of the works. The trace of a fault on a series of sections gives
 its plane; the boundary of a member gives a horizon.
+
+### Separate measurements
+
+Besides the lines of sections the tool takes **points with
+elevations**: holes, points where a fault was met, benchmarks. They are
+used where there are no sections.
+
+The elevation is read from the geometry when it is three-dimensional. A
+flat layer has nowhere to take it from, so a field of the elevation is
+given; the tool will not put a zero in silence.
+
+There is no weighting, and none is needed. Where there are no sections
+a point holds the surface alone: on a test embankment with one profile
+missing a measurement raised by a metre and a half raised the surface,
+and the departure came to 0.06 m. Next to a section it is different: a
+hundred vertices of the profile outweigh one point, and the departure
+there was 1.09 m. That is right - a hundred measurements are more
+reliable than one - but it has to be known.
+
+That is why the departure from the measurements is always printed, the
+mean and the largest, with coordinates. A measurement ignored in
+silence looks like a fault of the tool, while a number shows at once
+who argues with whom.
 
 ### What accuracy to expect
 

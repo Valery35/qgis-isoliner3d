@@ -6,7 +6,7 @@ description=Standalone 3D viewer and bed/block-model toolset: surfaces, watertig
 about=A standalone 3D viewer for geological surfaces and bodies in QGIS, independent of the built-in 3D map. Renders project rasters as triangular-mesh surfaces (each horizon in its own colour, with vertical exaggeration and Z spacing), builds watertight bed bodies from multiband grids (band 1 roof, band 2 bottom), draws boreholes as coloured stems with collar masts and labels, shows a section plane with a bright section trace, and displays polyhedral / TIN / MultiPolygon Z bodies. Click-query prints layer name, coordinates, all band values and thickness. Colouring by palette, custom colour, own band, an external raster or a real map texture with shading: an orthophoto, a basemap or a styled geological map. A section drawing is draped onto the section ribbon, several sections at once. Sixteen Processing tools in two groups: the bed and block model computes thickness, volume and reserves from a bed grid, and the interpolation in volume builds cubes by kriging and multilevel B-splines and a bed grid from the outlines drawn on sections, with the contact of neighbouring beds built as one surface. PNG snapshot for reports. A companion to the Isoliner kriging and contouring toolset (plugins.qgis.org/plugins/grid_isolines) and to Topoliner, topology cleaning (plugins.qgis.org/plugins/topoliner). pyqtgraph and PyOpenGL are bundled - nothing to install. Companion to the Isoliner kriging toolset. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Автономный 3D-просмотр геологических поверхностей и тел в QGIS, не зависящий от штатного 3D-вида. Растры проекта рисуются треугольными мешами (каждый горизонт своим цветом, с вертикальным преувеличением и разносом по Z), из многоканальных гридов строятся водонепроницаемые тела пластов (канал 1 - кровля, канал 2 - подошва), скважины показываются цветными стволами с мачтами и подписями, плоскость разреза даёт яркий след сечения, а полиэдры / TIN / MultiPolygon Z отображаются объёмными телами. Клик по сцене печатает имя слоя, координаты, значения всех каналов и мощность. Окраска палитрой, своим цветом, собственным каналом, внешним растром или настоящей текстурой карты с затенением: ортофото, подложка, геологическая карта со своей символикой. На ленту разреза накладывается чертёж, несколько разрезов сразу. Шестнадцать инструментов Processing в двух группах: пласт и блочная модель считают мощность, объём и запасы по гриду пласта, а объёмная интерполяция строит кубы кригингом и мультисеточными B-сплайнами и грид пластов по зарисовкам на разрезах, склеивая контакт соседних пластов в одну поверхность. Снимок PNG для отчётов. Спутник набора кригинга и изолиний Isoliner (plugins.qgis.org/plugins/grid_isolines) и чистки топологии Topoliner (plugins.qgis.org/plugins/topoliner). pyqtgraph и PyOpenGL идут в комплекте - устанавливать ничего не нужно. Спутник набора кригинга Isoliner. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=1.0.0
+version=1.1.0
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner3d
@@ -18,7 +18,25 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=1.0.0
+changelog=1.1.0
+    - 2.10 принимает отдельные замеры в дополнение к сечениям: отметки
+      скважин, точки вскрытия разлома, реперы. Их берут туда, где
+      сечений нет, и раньше приходилось городить из точек фиктивные
+      линии, чтобы инструмент их взял.
+    - Отметка берётся из геометрии, если она трёхмерная. У плоского
+      слоя её взять неоткуда, поэтому нужно поле отметки, и об этом
+      говорится прямо, а не подставляется ноль.
+    - Замеры идут в интерполяцию наравне с вершинами сечений, без
+      всякого взвешивания. Там, где сечений нет, точка держит
+      поверхность одна: на проверочной насыпи с пропущенным профилем
+      замер, поднятый на полтора метра, поверхность подняла, отклонение
+      0.06 м. Рядом с сечением сотня вершин профиля перевешивает одну
+      точку, и там отклонение вышло 1.09 м.
+    - Поэтому отклонение от замеров печатается всегда: среднее
+      и наибольшее с координатами. Молчаливо проигнорированный замер
+      выглядит как ошибка инструмента, а число сразу показывает, кто
+      с кем спорит.
+    1.0.0
     - Найдено живым прогоном в QGIS 4.0.3, после того как всё уже было
       собрано. Блочная модель падала на первом же блоке: имя QgsPoint
       звалось без импорта. Тесты этого не видели - без QGIS модуль

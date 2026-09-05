@@ -514,6 +514,56 @@ def test_own_hull_cannot_make_a_dent():
     assert abs(area - 2400.0) < 1e-6, area
 
 
+def test_a_lone_point_holds_the_surface():
+    """Одиночный замер в пустом месте поверхность держит.
+
+    Взвешивать его не надо: там, где сечений нет, спорить с ним
+    некому, и мультисеточная подгонка идёт по нему. А рядом с сечением
+    сотня вершин профиля перевешивает одну точку - это и правильно,
+    но человеку надо об этом СКАЗАТЬ, потому что молчаливое
+    игнорирование замера выглядит как ошибка.
+    """
+    from isoliner3d import mba
+    from isoliner3d.mesh3d import sample_bilinear
+
+    def design(x, y):
+        d = np.abs(np.asarray(y) - 100.0)
+        return np.where(d <= 8.0, 6.0 - 0.002 * np.asarray(x),
+                        np.maximum(6.0 - 0.002 * np.asarray(x)
+                                   - (d - 8.0) / 2.0, 0.0))
+
+    prof = []
+    for k in range(11):
+        if k == 5:                      # в середине профиля нет
+            continue
+        ys = np.linspace(80.0, 120.0, 41)
+        xs = np.full_like(ys, k * 100.0)
+        prof.append(np.column_stack([xs, ys, design(xs, ys)]))
+    pts = np.vstack(prof)
+    x0, x1, y0, y1, cell = 0.0, 1000.0, 80.0, 120.0, 1.0
+    nx, ny = int((x1 - x0) / cell), int((y1 - y0) / cell)
+    gt = (x0, cell, 0.0, y0 + ny * cell, 0.0, -cell)
+
+    def build(p):
+        lat = mba.fit(p[:, :2], p[:, 2], lo=[x0, y0], hi=[x1, y1],
+                      grid=(2, 2), levels=7, center="plane")
+        return mba.surface_on_grid(lat, gt, nx, ny)
+
+    px, py = 500.0, 100.0
+    shot = float(design(px, py)) + 1.5
+    s = build(np.vstack([pts, [[px, py, shot]]]))
+    got = float(sample_bilinear(s, gt, np.array([px]), np.array([py]))[0])
+    assert abs(got - shot) < 0.15, (got, shot)
+
+    # а у профиля тот же замер перевешен, и это надо мерить
+    px2, py2 = 300.0, 100.0
+    shot2 = float(design(px2, py2)) + 1.5
+    s2 = build(np.vstack([pts, [[px2, py2, shot2]]]))
+    got2 = float(sample_bilinear(s2, gt, np.array([px2]),
+                                 np.array([py2]))[0])
+    assert abs(got2 - shot2) > 0.5, (got2, shot2)
+
+
 def test_contact_of_two_beds_is_recognised():
     """Подошва верхнего и кровля нижнего опознаются как один контакт.
 

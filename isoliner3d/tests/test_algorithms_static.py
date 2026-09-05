@@ -1036,6 +1036,27 @@ def test_algorithms_import_the_names_they_use():
         assert name in head, name
 
 
+def test_surface_tool_takes_separate_points():
+    """2.10 принимает отдельные замеры и говорит, послушалась ли их.
+
+    Замер берут туда, где сечений нет. Молчаливое игнорирование такой
+    точки выглядит как ошибка инструмента, поэтому отклонение
+    печатается с адресом худшего места.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    i = src.index("class SectionLinesToSurfaceAlgorithm")
+    seg = src[i:src.index("\nclass ", i + 10)]
+    assert '"POINTS"' in seg and '"PT_Z"' in seg
+    # отметка из геометрии, а у плоского слоя - из поля, но не ноль
+    assert 'getattr(pt, "z"' in seg
+    assert "Точек без отметки" in seg
+    # замеры идут наравне с вершинами сечений
+    assert "np.full(len(pm), -1, dtype=np.int64)" in seg
+    # и проверяются по готовой поверхности
+    assert "sample_bilinear(surf, gt, pm[:, 0], pm[:, 1])" in seg
+
+
 if __name__ == "__main__":
     ok = 0
     for nm, fn in sorted(globals().items()):
