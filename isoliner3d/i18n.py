@@ -3451,4 +3451,6 @@ TRANSLATIONS = {
     'точки': 'points',
     'уровень %d': 'level %d',
     'чтение': 'reading',
+    'Зарисовки бортов это вертикальные полигоны. Штатная проверка геометрии считает площадь в плане, а у вертикальной стенки она нулевая, поэтому такие зарисовки она называет некорректными. Это свойство вертикальной геометрии, а не порча слоя: кольца замкнуты, отметки на месте, 2.08 и 2.10 их принимают.':
+        'Wall sketches are vertical polygons. The standard geometry check measures the area in plan, and for a vertical wall that area is zero, so it calls such sketches invalid. This is a property of vertical geometry rather than a damaged layer: the rings are closed, the elevations are in place, and 2.08 and 2.10 accept them.',
 }
