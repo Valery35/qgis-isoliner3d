@@ -81,6 +81,11 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    'Контур в другой системе координат (%s), пересчитан в систему грида (%s).':
+        'The contour is in another coordinate system (%s), it has been converted into the system of the grid (%s).',
+    'Грид в географической системе координат (%s): шаг ячейки там в градусах, и площадь с объёмом посчитать нельзя. Перепроецируйте грид в метрическую систему.':
+        'The grid is in a geographic coordinate system (%s): the cell step there is in degrees, and no area or volume can be computed. Reproject the grid into a metric system.',
+
     'Линий: %d, отдельных точек: %d, поверхностей: %d.':
         'Lines: %d, separate points: %d, surfaces: %d.',
     'Отдельные замеры в дополнение к сечениям: отметки скважин, точки вскрытия разлома, реперы. Их берут туда, где сечений нет, и там точка держит поверхность одна - спорить с ней некому. Рядом с сечением спор возможен, и его величина печатается в журнал.':

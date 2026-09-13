@@ -882,6 +882,7 @@ class BedCalculatorAlgorithm(IsolinerAlgorithm):
         feedback.pushInfo(_version_line())
         _saved = dict(parameters)
         bed_l = self.parameterAsRasterLayer(parameters, self.BED, context)
+        r_crs = bed_l.crs() if bed_l is not None else None
         rband = max(self.parameterAsInt(parameters, self.ROOF_BAND,
                                         context), 1)
         cband = self.parameterAsInt(parameters, self.CONTENT_BAND, context)
@@ -931,11 +932,30 @@ class BedCalculatorAlgorithm(IsolinerAlgorithm):
         cell = abs(gt[1] * gt[5])
         mask = np.isfinite(thick)
         if contour is not None:
+            # Система координат контура СВОЯ. Слой человек берёт какой
+            # есть, и градусы, принятые за метры, кладут маску мимо
+            # грида: объём выходит неверным без единого слова.
+            tr_ = None
+            c_crs = contour.sourceCrs()
+            if (c_crs is not None and r_crs is not None
+                    and c_crs.isValid() and r_crs.isValid()
+                    and c_crs != r_crs):
+                from qgis.core import QgsCoordinateTransform, QgsProject
+                tr_ = QgsCoordinateTransform(c_crs, r_crs,
+                                             QgsProject.instance())
+                feedback.pushInfo(self.tr(
+                    "Контур в другой системе координат (%s), пересчитан "
+                    "в систему грида (%s).")
+                    % (c_crs.authid() or "?", r_crs.authid() or "?"))
             rings = []
             for ft in contour.getFeatures():
                 g = ft.geometry()
                 if g is None or g.isEmpty():
                     continue
+                if tr_ is not None:
+                    g = QgsGeometry(g)
+                    if g.transform(tr_) != 0:
+                        continue
                 try:
                     polys = g.asMultiPolygon()
                 except Exception:
@@ -952,6 +972,15 @@ class BedCalculatorAlgorithm(IsolinerAlgorithm):
             if rings:
                 mask &= polygon_mask(rings, gt, (ny, nx))
 
+        if r_crs is not None and r_crs.isGeographic():
+            # Площадь ячейки здесь - произведение шагов грида. У
+            # географической системы это квадратные градусы, и выдавать
+            # их за квадратные метры нельзя: тоннаж уедет на порядки.
+            raise QgsProcessingException(self.tr(
+                "Грид в географической системе координат (%s): шаг "
+                "ячейки там в градусах, и площадь с объёмом посчитать "
+                "нельзя. Перепроецируйте грид в метрическую систему.")
+                % (r_crs.authid() or "?"))
         area = float(mask.sum()) * cell
         vol = float(np.nansum(np.where(mask, thick, 0.0))) * cell
         ore_t = vol * dens

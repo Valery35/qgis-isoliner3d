@@ -6,7 +6,7 @@ description=Standalone 3D viewer and bed/block-model toolset: surfaces, watertig
 about=A standalone 3D viewer for geological surfaces and bodies in QGIS, independent of the built-in 3D map. Renders project rasters as triangular-mesh surfaces (each horizon in its own colour, with vertical exaggeration and Z spacing), builds watertight bed bodies from multiband grids (band 1 roof, band 2 bottom), draws boreholes as coloured stems with collar masts and labels, shows a section plane with a bright section trace, and displays polyhedral / TIN / MultiPolygon Z bodies. Click-query prints layer name, coordinates, all band values and thickness. Colouring by palette, custom colour, own band, an external raster or a real map texture with shading: an orthophoto, a basemap or a styled geological map. A section drawing is draped onto the section ribbon, several sections at once. Sixteen Processing tools in two groups: the bed and block model computes thickness, volume and reserves from a bed grid, and the interpolation in volume builds cubes by kriging and multilevel B-splines and a bed grid from the outlines drawn on sections, with the contact of neighbouring beds built as one surface. PNG snapshot for reports. A companion to the Isoliner kriging and contouring toolset (plugins.qgis.org/plugins/grid_isolines) and to Topoliner, topology cleaning (plugins.qgis.org/plugins/topoliner). pyqtgraph and PyOpenGL are bundled - nothing to install. Companion to the Isoliner kriging toolset. Developed with the support of Inform++ LLC (www.informpp.ru).
     .
     Автономный 3D-просмотр геологических поверхностей и тел в QGIS, не зависящий от штатного 3D-вида. Растры проекта рисуются треугольными мешами (каждый горизонт своим цветом, с вертикальным преувеличением и разносом по Z), из многоканальных гридов строятся водонепроницаемые тела пластов (канал 1 - кровля, канал 2 - подошва), скважины показываются цветными стволами с мачтами и подписями, плоскость разреза даёт яркий след сечения, а полиэдры / TIN / MultiPolygon Z отображаются объёмными телами. Клик по сцене печатает имя слоя, координаты, значения всех каналов и мощность. Окраска палитрой, своим цветом, собственным каналом, внешним растром или настоящей текстурой карты с затенением: ортофото, подложка, геологическая карта со своей символикой. На ленту разреза накладывается чертёж, несколько разрезов сразу. Шестнадцать инструментов Processing в двух группах: пласт и блочная модель считают мощность, объём и запасы по гриду пласта, а объёмная интерполяция строит кубы кригингом и мультисеточными B-сплайнами и грид пластов по зарисовкам на разрезах, склеивая контакт соседних пластов в одну поверхность. Снимок PNG для отчётов. Спутник набора кригинга и изолиний Isoliner (plugins.qgis.org/plugins/grid_isolines) и чистки топологии Topoliner (plugins.qgis.org/plugins/topoliner). pyqtgraph и PyOpenGL идут в комплекте - устанавливать ничего не нужно. Спутник набора кригинга Isoliner. Разработано при поддержке ООО «Информ++» (www.informpp.ru).
-version=1.1.0
+version=1.1.2
 author=ООО «Информ++»
 email=xbbster@gmail.com
 homepage=https://github.com/Valery35/qgis-isoliner3d
@@ -18,7 +18,54 @@ icon=icon.svg
 experimental=False
 deprecated=False
 hasProcessingProvider=yes
-changelog=1.1.0
+changelog=1.1.2
+    - Забраны две проверки, написанные в другом редакторе: булевы
+      операции тела с самим собой (пустой результат при вычитании -
+      не ошибка, а вычитание по умолчанию) и зарисовки бортов
+      (кольцо замкнуто, полигон вертикален, площадь в плане нулевая).
+    - 2.09 объясняет, почему штатная проверка геометрии ругается
+      на зарисовки бортов: это вертикальные полигоны, площадь в плане
+      у них нулевая, и проверка считает их некорректными. Кольца при
+      этом замкнуты, и 2.08 с 2.10 их принимают. Правка пришла
+      со стороны, из работы в другом редакторе, и забрана целиком.
+    - AGENTS.md перестал быть рассказом о прошлом. Два сторонних разбора
+      кода подряд поймали его на устаревших числах: версия 0.1.0 при
+      живой 1.1.0, «кригинга здесь нет» при двух работающих
+      инструментах кригинга, десять тестов при тридцати четырёх.
+      Документ читается как договор, и поверивший ему начинал
+      с неверной картины.
+    - Числа состояния больше не пишутся руками: версия, признак
+      experimental, состав инструментов, число тестов и размеры файлов
+      собираются из репозитория скриптом tools/state_snapshot.py
+      и вставляются в файл между метками.
+    - Появилась таблица правил, где у каждого правила стоит имя теста,
+      который его стережёт. Три теста следят за самим договором:
+      снимок не устарел, названные сторожа существуют, числа не
+      продублированы прозой мимо снимка.
+    - Правила без сторожей вынесены в честный отдельный список: рендер
+      сцены headless не проверяется, совместимость с Qt6 держится
+      на живом прогоне, стиль проверяется вручную.
+    1.1.1
+    - Исправлено по стороннему разбору кода: контур подсчёта в 1.02
+      брался как есть, без пересчёта системы координат. Слой в градусах
+      клал маску мимо грида, и объём выходил неверным молча. Теперь
+      контур пересчитывается в систему грида, а факт пересчёта
+      печатается.
+    - Там же отказ на географической системе координат: шаг ячейки
+      в градусах, и площадь с объёмом по нему считать нельзя.
+      Квадратные градусы, выданные за квадратные метры, уводят тоннаж
+      на порядки.
+    - AGENTS.md обещал «объёмная интерполяция 2.01-2.06», когда
+      инструментов там уже тринадцать. Описание исправлено, и теперь
+      его сверяет тест: расхождение с составом инструментов роняет
+      прогон.
+    - Проверены и остальные замечания разбора. Граница плотного
+      и клеточного путей интерполяции на двадцати тысячах точек:
+      расхождение 9e-13, то есть пути дают одно и то же; на это
+      добавлены два сторожа. Автоматический радиус на вытянутом наборе
+      10000 на 300 м даёт ту же точность, что и вчетверо меньший:
+      выбор соседей ограничен их числом, а не радиусом.
+    1.1.0
     - 2.10 принимает отдельные замеры в дополнение к сечениям: отметки
       скважин, точки вскрытия разлома, реперы. Их берут туда, где
       сечений нет, и раньше приходилось городить из точек фиктивные
