@@ -42,6 +42,7 @@ EXPECTED = {
     "BooleanShellsAlgorithm": ("boolean_shells", "2.11"),
     "SelectByShellAlgorithm": ("select_by_shell", "2.12"),
     "GridToShellAlgorithm": ("grid_to_shell", "2.13"),
+    "ZonalShellStatsAlgorithm": ("zonal_shell_stats", "2.14"),
 }
 
 
@@ -337,7 +338,8 @@ def test_every_tool_has_field_hints():
              ("SectionLinesToSurfaceAlgorithm", "HINTS_2_10"),
              ("BooleanShellsAlgorithm", "HINTS_2_11"),
              ("SelectByShellAlgorithm", "HINTS_2_12"),
-             ("GridToShellAlgorithm", "HINTS_2_13"))
+             ("GridToShellAlgorithm", "HINTS_2_13"),
+             ("ZonalShellStatsAlgorithm", "HINTS_2_14"))
     tree = ast.parse(src)
     dicts = {}
     for node in tree.body:
@@ -964,8 +966,7 @@ def test_grid_to_shell_repeats_the_scene_button():
     src = open(os.path.join(PKG, "algorithms.py"),
                encoding="utf-8").read()
     i = src.index("class GridToShellAlgorithm")
-    # это последний класс в файле, дальше идёт список инструментов
-    seg = src[i:src.index("\nALGORITHMS = [", i)]
+    seg = src[i:src.index("\nclass ", i + 10)]
     assert "bed_to_mesh_arrays(" in seg and "zscale=1.0" in seg
     assert "split_bodies(" in seg and "mesh_volume(" in seg
     # незамкнутое тело называется прямо: его не примут 2.11 и 2.12
@@ -1055,6 +1056,28 @@ def test_surface_tool_takes_separate_points():
     assert "np.full(len(pm), -1, dtype=np.int64)" in seg
     # и проверяются по готовой поверхности
     assert "sample_bilinear(surf, gt, pm[:, 0], pm[:, 1])" in seg
+
+
+def test_agents_md_matches_the_tool_numbers():
+    """Описание в AGENTS.md не должно врать про состав инструментов.
+
+    Оно писано для того, кто придёт в проект и поверит на слово.
+    Уже расходилось: там стояло «2.01-2.06», когда во второй группе
+    было тринадцать инструментов. Найдено сторонним разбором кода,
+    и поэтому проверяется тестом, а не памятью.
+    """
+    root = os.path.dirname(PKG)
+    p = os.path.join(root, "AGENTS.md")
+    if not os.path.isfile(p):
+        return                      # в архиве модуля файла нет
+    text = open(p, encoding="utf-8").read()
+    nums = sorted(num for _n, num in EXPECTED.values())
+    first = [n for n in nums if n.startswith("1.")]
+    second = [n for n in nums if n.startswith("2.")]
+    want = "(%s-%s)" % (first[0], first[-1])
+    assert want in text, "первая группа: ожидалось %s" % want
+    want2 = "(%s-%s)" % (second[0], second[-1])
+    assert want2 in text, "вторая группа: ожидалось %s" % want2
 
 
 if __name__ == "__main__":

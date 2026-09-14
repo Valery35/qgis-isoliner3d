@@ -167,6 +167,90 @@ def points_inside(verts, faces, pts):
     return res
 
 
+def tri_bbox(verts, faces):
+    """Охват каждого треугольника: отсечка перед точным пересечением."""
+    t = np.asarray(verts, dtype=float)[np.asarray(faces, dtype=np.int64)]
+    return t.min(axis=1), t.max(axis=1)
+
+
+def _segment_hits(verts, faces, a, b, bbox):
+    """Параметры t в (0, 1), где отрезок a-b пересекает оболочку.
+
+    Мёллер-Трумбор векторно по треугольникам, чей охват задевает
+    охват отрезка. Точки на общем ребре двух треугольников приходят
+    парами - они сливаются, иначе чётность ломается.
+    """
+    v = np.asarray(verts, dtype=float)
+    f = np.asarray(faces, dtype=np.int64)
+    lo, hi = bbox
+    d = b - a
+    s_lo, s_hi = np.minimum(a, b), np.maximum(a, b)
+    near = np.all(hi >= s_lo, axis=1) & np.all(lo <= s_hi, axis=1)
+    if not near.any():
+        return np.zeros(0)
+    tri = v[f[near]]
+    p0, p1, p2 = tri[:, 0], tri[:, 1], tri[:, 2]
+    e1, e2 = p1 - p0, p2 - p0
+    h = np.cross(d, e2)
+    det = np.einsum("ij,ij->i", e1, h)
+    ok = np.abs(det) > 1e-14
+    if not ok.any():
+        return np.zeros(0)
+    inv = np.zeros_like(det)
+    inv[ok] = 1.0 / det[ok]
+    s = a - p0
+    u = np.einsum("ij,ij->i", s, h) * inv
+    q = np.cross(s, e1)
+    w = np.einsum("j,ij->i", d, q) * inv
+    t = np.einsum("ij,ij->i", e2, q) * inv
+    hit = ok & (u >= 0.0) & (w >= 0.0) & (u + w <= 1.0) \
+        & (t > 0.0) & (t < 1.0)
+    ts = np.sort(t[hit])
+    if not len(ts):
+        return ts
+    keep = np.r_[True, np.diff(ts) > 1e-9]
+    return ts[keep]
+
+
+def polyline_inside_length(verts, faces, pts, bbox=None):
+    """Длина ломаной внутри замкнутой оболочки.
+
+    Каждый отрезок режется поверхностью: находятся его пересечения
+    с треугольниками, точки сортируются вдоль отрезка, и дальше
+    работает та же чётность, что у луча в points_inside. Внутри или
+    снаружи начало ломаной, решает луч вверх один раз; дальше
+    состояние передаётся по цепочке отрезков, и у каждой вершины
+    не бывает своих шансов лечь на ребро.
+
+    Возвращает (длина внутри, длина всего).
+    """
+    v = np.asarray(verts, dtype=float)
+    f = np.asarray(faces, dtype=np.int64)
+    p = np.asarray(pts, dtype=float)
+    if len(p) < 2:
+        return 0.0, 0.0
+    if bbox is None:
+        bbox = tri_bbox(v, f)
+    inside = bool(points_inside(v, f, p[:1])[0])
+    got = total = 0.0
+    for k in range(len(p) - 1):
+        a, b = p[k], p[k + 1]
+        L = float(np.linalg.norm(b - a))
+        if L <= 0.0:
+            continue
+        total += L
+        ts = _segment_hits(v, f, a, b, bbox)
+        edges = np.r_[0.0, ts, 1.0]
+        for m in range(len(edges) - 1):
+            if inside:
+                got += (edges[m + 1] - edges[m]) * L
+            inside = not inside
+        # цикл выше переключил состояние на каждом краю, включая
+        # последний фиктивный: возвращаем его на место
+        inside = not inside
+    return got, total
+
+
 def combine(occ_a, occ_b, op):
     """Логическая операция над занятостью двух тел."""
     a = np.asarray(occ_a, dtype=bool)

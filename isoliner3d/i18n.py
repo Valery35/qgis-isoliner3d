@@ -81,6 +81,50 @@ def missing_keys(keys):
 
 # --- Таблица переводов RU -> EN (только 3D-просмотр) --------------------
 TRANSLATIONS = {
+    '2.14 Зональная статистика оболочек':
+        '2.14 Zonal statistics of shells',
+    'Атрибут для суммы':
+        'Attribute to sum',
+    'Длина линий: всего %.2f м, внутри тел %.2f м, снаружи %.2f м.':
+        'Length of the lines: %.2f m in all, %.2f m inside the bodies, %.2f m outside.',
+    'Имя полей результата (пусто - от слоя)':
+        'Name of the result fields (empty - from the layer)',
+    'Не удалось создать слой тел со статистикой.':
+        'The layer of bodies with statistics could not be created.',
+    'Незамкнутых тел %d: им записано пусто, а не ноль. У незамкнутого тела нет внутренности.':
+        'Bodies that are not closed: %d; they get empty, not zero. A body that is not closed has no inside.',
+    'Поля %s уже есть у слоя тел. Задайте другое имя или разрешите перезапись.':
+        'The fields %s already exist on the layer of bodies. Give another name or allow overwriting.',
+    'Попаданий по всем телам: %d.':
+        'Hits over all the bodies: %d.',
+    'Разрешить перезапись полей':
+        'Allow overwriting of fields',
+    'Тел: %d, незамкнутых %d.':
+        'Bodies: %d, not closed %d.',
+    'Тела (полигоны с Z)':
+        'Bodies (polygons with Z)',
+    'Тела со статистикой':
+        'Bodies with statistics',
+    'Что считать (объекты с Z)':
+        'What to count (features with Z)',
+    'Имя для полей результата. Пусто - от имени слоя, приведённого к латинице. К нему добавятся суффиксы: _n число объектов внутри, _len длина линий внутри, _sum сумма атрибута. Задавайте своё, когда гоняете инструмент по одному слою тел несколько раз с разными данными.':
+        'The name for the result fields. Empty - from the name of the layer, turned into Latin letters. Suffixes are added to it: _n the number of features inside, _len the length of lines inside, _sum the sum of the attribute. Give your own when you run the tool over one layer of bodies several times with different data.',
+    'Разрешить перезапись полей с тем же именем. Без этого повторный прогон с тем же именем - отказ: иначе второй результат тихо затёр бы первый.':
+        'Allow overwriting fields of the same name. Without it a repeated run with the same name is refused: otherwise the second result would silently wipe out the first.',
+    'Слой тел: замкнутые оболочки, по одной на объект. У каждого тела появятся свои поля со счётом. Незамкнутое тело получает пусто, а не ноль: у него нет внутренности, и считать там нечего.':
+        'A layer of bodies: closed shells, one per feature. Every body gets its own count fields. A body that is not closed gets empty rather than zero: it has no inside, and there is nothing to count.',
+    'Считает по каждому телу, сколько объектов в него попало, и записывает числа в атрибуты тела.\n\nТочки: число внутри и сумма атрибута. Линии: число линий, задевших тело, и длина их частей внутри. Полигоны: число полигонов, у которых хоть одна вершина внутри.\n\nЛиния режется телом: отрезок пересекается с поверхностью, точки сортируются вдоль него, и в длину идёт только часть внутри. Отрезок, прошивший тело насквозь между своими вершинами, не пропадает.\n\nНоль и пусто - разные вещи. Тело, внутри которого ничего нет, получает ноль: это измеренный факт. Незамкнутое тело получает пусто и попадает в предупреждение: у него нет внутренности.\n\nПовторные прогоны по одному слою тел складываются: результат предыдущего подаётся как слой тел следующему, и каждый прогон добавляет свои поля. Столкновение имён - отказ, если не разрешена перезапись.\n\nСумма по телам сходится: длина линий внутри всех тел плюс длина снаружи равна полной длине, и это печатается в журнал.':
+        'Counts for every body how many features fell into it and writes the numbers into the attributes of the body.\n\nPoints: the number inside and the sum of an attribute. Lines: the number of lines that touched the body and the length of their parts inside. Polygons: the number of polygons with at least one vertex inside.\n\nA line is cut by the body: a segment is intersected with the surface, the points are sorted along it, and only the part inside goes into the length. A segment that goes right through the body between its own vertices is not lost.\n\nZero and empty are different things. A body with nothing inside gets zero: that is a measured fact. A body that is not closed gets empty and goes into a warning: it has no inside.\n\nRepeated runs over one layer of bodies add up: the result of the previous run is given as the layer of bodies to the next, and every run adds its own fields. A clash of names is refused unless overwriting is allowed.\n\nThe sum over the bodies agrees: the length of lines inside all the bodies plus the length outside equals the total length, and that is printed to the log.',
+    'Тела со всеми прежними полями и новыми полями счёта. Чтобы накопить несколько прогонов, подавайте результат предыдущего как слой тел следующему.':
+        'The bodies with all their previous fields and the new count fields. To accumulate several runs, give the result of the previous run as the layer of bodies to the next.',
+    'Числовой атрибут для суммы: объём блока, мощность, содержание. Пусто - только счёт.':
+        'A numeric attribute to sum: the volume of a block, a thickness, a grade. Empty - count only.',
+    'Что считать: точки, линии или полигоны с высотой. Блочная модель, скважины, следы выработок, разломы.':
+        'What to count: points, lines or polygons with height. A block model, holes, traces of workings, faults.',
+
+    'Зарисовки бортов это вертикальные полигоны. Штатная проверка геометрии считает площадь в плане, а у вертикальной стенки она нулевая, поэтому такие зарисовки она называет некорректными. Это свойство вертикальной геометрии, а не порча слоя: кольца замкнуты, отметки на месте, 2.08 и 2.10 их принимают.':
+        'Wall sketches are vertical polygons. The standard geometry check measures the area in plan, and for a vertical wall that area is zero, so it calls such sketches invalid. This is a property of vertical geometry rather than a damaged layer: the rings are closed, the elevations are in place, and 2.08 and 2.10 accept them.',
+
     'Контур в другой системе координат (%s), пересчитан в систему грида (%s).':
         'The contour is in another coordinate system (%s), it has been converted into the system of the grid (%s).',
     'Грид в географической системе координат (%s): шаг ячейки там в градусах, и площадь с объёмом посчитать нельзя. Перепроецируйте грид в метрическую систему.':
@@ -110,16 +154,20 @@ TRANSLATIONS = {
     'Ни один объект не записан: слой отказался принять геометрию %s. Выберите другой тип геометрии или другой формат выходного слоя.':
         'Not a single feature was written: the layer refused the %s geometry. Choose another geometry type or another format for the output layer.',
 
-    'Каналов %d: грид многопластовый. Считается пласт по каналам %d и %d («%s»).':
-        '%d bands: the grid holds several beds. The bed computed is the one on bands %d and %d ("%s").',
-    'Канал %d - это «%s», то есть граница пласта, а не содержание. Укажите канал параметра или оставьте поле пустым.':
-        'Band %d is "%s", that is a boundary of a bed rather than a grade. Give the band of a parameter or leave the field empty.',
-    'Канал кровли. Подошвой считается следующий за ним: так устроен грид пласта. У многопластового грида это выбор пласта - раньше молча считался первый.':
-        'The roof band. The next one counts as the floor: that is how a bed grid is built. In a multi-bed grid this is the choice of bed - the first one used to be taken in silence.',
     'Канал содержания %d вне грида: в нём каналов %d. Грид пласта из кровли и подошвы содержит два канала, содержание появляется третьим только если оно было подано при сборке.':
         'The grade band %d is outside the grid: it holds %d bands. A bed grid of a roof and a floor holds two bands, and a grade appears as the third only if it was given at assembly.',
     'У проекта не задана система координат, поэтому её не будет и у демо-слоя. Инструменты, которым нужна СК, такой слой не возьмут. Задайте СК проекта и постройте пример заново.':
         'The project has no coordinate system set, so the demo layer will have none either. Tools that need one will not take such a layer. Set the project CRS and build the example again.',
+
+    'Канал кровли. Подошвой считается следующий за ним: так устроен грид пласта. У многопластового грида это выбор пласта - раньше молча считался первый.':
+        'The roof band. The next one counts as the floor: that is how a bed grid is built. In a multi-bed grid this is the choice of bed - the first one used to be taken in silence.',
+
+    'Канал кровли':
+        'Roof band',
+    'Каналов %d: грид многопластовый. Считается пласт по каналам %d и %d («%s»).':
+        '%d bands: the grid holds several beds. The bed computed is the one on bands %d and %d ("%s").',
+    'Канал %d - это «%s», то есть граница пласта, а не содержание. Укажите канал параметра или оставьте поле пустым.':
+        'Band %d is "%s", that is a boundary of a bed rather than a grade. Give the band of a parameter or leave the field empty.',
 
     'Мимо объекта: центр не изменён. Щелчок за пределами площадки вернёт центр на всю сцену.':
         'Missed the object: the centre is unchanged. A click beyond the area puts the centre back on the whole scene.',
@@ -3456,6 +3504,4 @@ TRANSLATIONS = {
     'точки': 'points',
     'уровень %d': 'level %d',
     'чтение': 'reading',
-    'Зарисовки бортов это вертикальные полигоны. Штатная проверка геометрии считает площадь в плане, а у вертикальной стенки она нулевая, поэтому такие зарисовки она называет некорректными. Это свойство вертикальной геометрии, а не порча слоя: кольца замкнуты, отметки на месте, 2.08 и 2.10 их принимают.':
-        'Wall sketches are vertical polygons. The standard geometry check measures the area in plan, and for a vertical wall that area is zero, so it calls such sketches invalid. This is a property of vertical geometry rather than a damaged layer: the rings are closed, the elevations are in place, and 2.08 and 2.10 accept them.',
 }

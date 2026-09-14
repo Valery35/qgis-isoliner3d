@@ -6178,6 +6178,347 @@ class GridToShellAlgorithm(IsolinerAlgorithm):
         return {"OUTPUT": dest}
 
 
+HINTS_2_14 = {
+    "SHELLS": "Слой тел: замкнутые оболочки, по одной на объект. У каждого "
+              "тела появятся свои поля со счётом. Незамкнутое тело "
+              "получает пусто, а не ноль: у него нет внутренности, "
+              "и считать там нечего.",
+    "INPUT": "Что считать: точки, линии или полигоны с высотой. Блочная "
+             "модель, скважины, следы выработок, разломы.",
+    "NAME": "Имя для полей результата. Пусто - от имени слоя, "
+            "приведённого к латинице. К нему добавятся суффиксы: _n "
+            "число объектов внутри, _len длина линий внутри, _sum "
+            "сумма атрибута. Задавайте своё, когда гоняете инструмент "
+            "по одному слою тел несколько раз с разными данными.",
+    "ATTR": "Числовой атрибут для суммы: объём блока, мощность, "
+            "содержание. Пусто - только счёт.",
+    "OVERWRITE": "Разрешить перезапись полей с тем же именем. Без этого "
+                 "повторный прогон с тем же именем - отказ: иначе "
+                 "второй результат тихо затёр бы первый.",
+    "OUTPUT": "Тела со всеми прежними полями и новыми полями счёта. "
+              "Чтобы накопить несколько прогонов, подавайте результат "
+              "предыдущего как слой тел следующему.",
+}
+
+
+class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
+    """Объёмная зональная статистика: счёт объектов внутри каждого тела.
+
+    Это 2.12 с другой стороны: там отбираются объекты по одному телу,
+    здесь по каждому телу записывается, сколько в него попало. Числа
+    ложатся в атрибуты тел, и по ним можно сортировать, красить
+    и отдавать дальше.
+
+    Точки считаются лучом вверх по чётности. Линии режутся телом:
+    отрезок пересекается с треугольниками, точки сортируются вдоль
+    него, и суммируется только часть внутри. Отрезок, прошивший тело
+    насквозь между своими вершинами, здесь тоже попадает в счёт.
+    """
+
+    def name(self):
+        return "zonal_shell_stats"
+
+    def displayName(self):
+        return self.tr("2.14 Зональная статистика оболочек")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def createInstance(self):
+        return ZonalShellStatsAlgorithm()
+
+    def shortHelpString(self):
+        return self.tr(
+            "Считает по каждому телу, сколько объектов в него попало, "
+            "и записывает числа в атрибуты тела.\n\n"
+            "Точки: число внутри и сумма атрибута. Линии: число линий, "
+            "задевших тело, и длина их частей внутри. Полигоны: число "
+            "полигонов, у которых хоть одна вершина внутри.\n\n"
+            "Линия режется телом: отрезок пересекается "
+            "с поверхностью, точки сортируются вдоль него, и в длину "
+            "идёт только часть внутри. "
+            "Отрезок, прошивший тело насквозь между своими вершинами, "
+            "не пропадает.\n\n"
+            "Ноль и пусто - разные вещи. Тело, внутри которого ничего "
+            "нет, получает ноль: это измеренный факт. Незамкнутое тело "
+            "получает пусто и попадает в предупреждение: у него нет "
+            "внутренности.\n\n"
+            "Повторные прогоны по одному слою тел складываются: "
+            "результат предыдущего подаётся как слой тел следующему, "
+            "и каждый прогон добавляет свои поля. Столкновение имён - "
+            "отказ, если не разрешена перезапись.\n\n"
+            "Сумма по телам сходится: длина линий внутри всех тел плюс "
+            "длина снаружи равна полной длине, и это печатается "
+            "в журнал.")
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "SHELLS", self.tr("Тела (полигоны с Z)"),
+            [QgsProcessing.SourceType.TypeVectorPolygon]))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "INPUT", self.tr("Что считать (объекты с Z)")))
+        self.addParameter(QgsProcessingParameterString(
+            "NAME", self.tr("Имя полей результата (пусто - от слоя)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            "ATTR", self.tr("Атрибут для суммы"),
+            parentLayerParameterName="INPUT", optional=True,
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterBoolean(
+            "OVERWRITE", self.tr("Разрешить перезапись полей"),
+            defaultValue=False))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            "OUTPUT", self.tr("Тела со статистикой"),
+            QgsProcessing.SourceType.TypeVectorPolygon))
+        _hints(self, HINTS_2_14)
+
+    @staticmethod
+    def _slug(name):
+        """Имя поля из имени слоя: латиница, подчёркивания, коротко."""
+        table = {
+            "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e",
+            "ё": "e", "ж": "zh", "з": "z", "и": "i", "й": "j", "к": "k",
+            "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r",
+            "с": "s", "т": "t", "у": "u", "ф": "f", "х": "h", "ц": "c",
+            "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y", "ь": "",
+            "э": "e", "ю": "yu", "я": "ya"}
+        out = []
+        for ch in name.lower():
+            if ch in table:
+                out.append(table[ch])
+            elif ch.isalnum() and ord(ch) < 128:
+                out.append(ch)
+            else:
+                out.append("_")
+        s = "".join(out).strip("_")
+        while "__" in s:
+            s = s.replace("__", "_")
+        if not s or s[0].isdigit():
+            s = "l_" + s
+        return s[:20]
+
+    def _shells(self, src, feedback):
+        """Каждое тело отдельным мешем: (объект, вершины, грани, замкнуто)."""
+        from qgis.core import QgsFeatureRequest
+        from .iso3d import weld
+        from .cleanup import shell_defects
+        no_check = getattr(
+            getattr(QgsFeatureRequest, "InvalidGeometryCheck",
+                    QgsFeatureRequest), "GeometryNoCheck", None)
+        setter = getattr(src, "setInvalidGeometryCheck", None)
+        if no_check is not None and setter is not None:
+            setter(no_check)
+        out = []
+        for ft in src.getFeatures():
+            if feedback.isCanceled():
+                break
+            g = ft.geometry()
+            verts, faces = [], []
+            if g is not None and not g.isEmpty():
+                root = g.constGet()
+                try:
+                    n_part = root.numGeometries()
+                except AttributeError:
+                    n_part = 1
+                for pi in range(n_part):
+                    try:
+                        cg = root.geometryN(pi) if n_part > 1 else root
+                    except AttributeError:
+                        cg = root
+                    ring = getattr(cg, "exteriorRing", lambda: None)()
+                    if ring is None:
+                        continue
+                    pts = np.array([(ring.xAt(k), ring.yAt(k), ring.zAt(k))
+                                    for k in range(ring.numPoints())],
+                                   dtype=float)
+                    if len(pts) > 1 and np.allclose(pts[0], pts[-1]):
+                        pts = pts[:-1]
+                    if len(pts) < 3 or not np.isfinite(pts).all():
+                        continue
+                    base = len(verts)
+                    verts.extend(pts.tolist())
+                    for k in range(1, len(pts) - 1):
+                        faces.append([base, base + k, base + k + 1])
+            if faces:
+                v, f = weld(np.asarray(verts, dtype=float),
+                            np.asarray(faces, dtype=np.int64))
+                closed = shell_defects(v, f)[0] == 0
+            else:
+                v, f, closed = None, None, False
+            out.append((ft, v, f, closed))
+        return out
+
+    def _process(self, parameters, context, feedback):
+        from qgis.core import QgsFields, QgsFeature, QgsWkbTypes
+        from . import boolean3d
+
+        shells_src = self.parameterAsSource(parameters, "SHELLS", context)
+        src = self.parameterAsSource(parameters, "INPUT", context)
+        name = (self.parameterAsString(parameters, "NAME", context)
+                or "").strip()
+        attr = self.parameterAsString(parameters, "ATTR", context)
+        overwrite = self.parameterAsBool(parameters, "OVERWRITE", context)
+        if not name:
+            name = self._slug(src.sourceName() or "layer")
+        # Род геометрии - по имени типа, а не по перечислению: имена
+        # одинаковы в Qt5 и Qt6, а перечисления там разные.
+        kind = QgsWkbTypes.displayString(src.wkbType())
+        is_pt = "Point" in kind
+        is_ln = "Line" in kind
+
+        # Поля результата. Столкновение имён - отказ, если не разрешено:
+        # иначе второй прогон тихо затирает первый.
+        new_fields = [(name + "_n", QVariant.Int)]
+        if is_ln:
+            new_fields.append((name + "_len", QVariant.Double))
+        if attr:
+            new_fields.append((name + "_sum", QVariant.Double))
+        fields = QgsFields(shells_src.fields())
+        have = {fld.name() for fld in fields}
+        clash = [nm for nm, _t in new_fields if nm in have]
+        if clash and not overwrite:
+            raise QgsProcessingException(self.tr(
+                "Поля %s уже есть у слоя тел. Задайте другое имя или "
+                "разрешите перезапись.") % ", ".join(clash))
+        for nm, typ in new_fields:
+            if nm not in have:
+                fields.append(_field(nm, typ))
+        idx = {nm: fields.indexOf(nm) for nm, _t in new_fields}
+
+        shells = self._shells(shells_src, feedback)
+        n_open = sum(1 for _ft, _v, _f, c in shells if not c)
+        feedback.pushInfo(self.tr("Тел: %d, незамкнутых %d.")
+                          % (len(shells), n_open))
+        if n_open:
+            feedback.pushWarning(self.tr(
+                "Незамкнутых тел %d: им записано пусто, а не ноль. "
+                "У незамкнутого тела нет внутренности.") % n_open)
+
+        # Объекты читаем один раз: точки, ломаные, значения атрибута.
+        # Проверку геометрии снимаем и здесь: вертикальная скважина
+        # в плане - две вершины в одной точке, и штатная проверка
+        # зовёт её некорректной, хотя в объёме это обычная линия.
+        from qgis.core import QgsFeatureRequest
+        no_check = getattr(
+            getattr(QgsFeatureRequest, "InvalidGeometryCheck",
+                    QgsFeatureRequest), "GeometryNoCheck", None)
+        setter = getattr(src, "setInvalidGeometryCheck", None)
+        if no_check is not None and setter is not None:
+            setter(no_check)
+        objs = []
+        for ft in src.getFeatures():
+            if feedback.isCanceled():
+                break
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            parts = []
+            for part in g.constParts():
+                n = getattr(part, "numPoints", lambda: 0)()
+                if n:
+                    pts = np.array([(part.xAt(k), part.yAt(k), part.zAt(k))
+                                    for k in range(n)], dtype=float)
+                else:
+                    ring = getattr(part, "exteriorRing", lambda: None)()
+                    if ring is None:
+                        z = float(getattr(part, "z",
+                                          lambda: float("nan"))())
+                        pts = np.array([[part.x(), part.y(), z]])
+                    else:
+                        pts = np.array([(ring.xAt(k), ring.yAt(k),
+                                         ring.zAt(k))
+                                        for k in range(ring.numPoints())],
+                                       dtype=float)
+                if len(pts) and np.isfinite(pts).all():
+                    parts.append(pts)
+            if not parts:
+                continue
+            val = _num(ft, attr, 0.0) if attr else 0.0
+            objs.append((parts, val))
+        if not objs:
+            raise QgsProcessingException(self.tr(
+                "Объектов с высотой не нашлось: у геометрии должна "
+                "быть Z."))
+        total_len = 0.0
+        if is_ln:
+            for parts, _v in objs:
+                for p in parts:
+                    total_len += float(np.sum(np.linalg.norm(
+                        np.diff(p, axis=0), axis=1)))
+        all_pts = np.vstack([p for parts, _v in objs for p in parts])
+        owner = np.concatenate([np.full(len(p), oi, dtype=np.int64)
+                                for oi, (parts, _v) in enumerate(objs)
+                                for p in parts])
+        feedback.pushInfo(self.tr("Объектов: %d.") % len(objs))
+
+        sink, dest = self.parameterAsSink(
+            parameters, "OUTPUT", context, fields,
+            shells_src.wkbType(), shells_src.sourceCrs())
+        if sink is None:
+            raise QgsProcessingException(self.tr(
+                "Не удалось создать слой тел со статистикой."))
+
+        grand_n = 0
+        grand_len = 0.0
+        for si, (ft, v, f, closed) in enumerate(shells):
+            out = QgsFeature(fields)
+            out.setGeometry(ft.geometry())
+            vals = list(ft.attributes())
+            vals += [None] * (len(fields) - len(vals))
+            if closed:
+                bbox = boolean3d.tri_bbox(v, f)
+                n_in = 0
+                len_in = 0.0
+                sum_in = 0.0
+                if is_ln:
+                    for parts, val in objs:
+                        hit = False
+                        for p in parts:
+                            got, _tot = boolean3d.polyline_inside_length(
+                                v, f, p, bbox=bbox)
+                            if got > 0.0:
+                                hit = True
+                                len_in += got
+                        if hit:
+                            n_in += 1
+                            sum_in += val
+                else:
+                    # Точки всех объектов - ОДНИМ пакетом. Опрос по
+                    # объекту за раз на двадцати тысячах блоков давал
+                    # двадцать тысяч проходов по оболочке и вешал QGIS.
+                    ins = boolean3d.points_inside(v, f, all_pts)
+                    for oi, (parts, val) in enumerate(objs):
+                        sel = ins[owner == oi]
+                        hit = bool(sel.all()) if is_pt else bool(sel.any())
+                        if hit:
+                            n_in += 1
+                            sum_in += val
+                vals[idx[name + "_n"]] = int(n_in)
+                if is_ln:
+                    vals[idx[name + "_len"]] = float(len_in)
+                    grand_len += len_in
+                if attr:
+                    vals[idx[name + "_sum"]] = float(sum_in)
+                grand_n += n_in
+            out.setAttributes(vals)
+            sink.addFeature(out)
+            feedback.setProgress(100.0 * (si + 1) / max(len(shells), 1))
+        _set_output_name(context, dest, self.tr("Тела со статистикой"))
+
+        feedback.pushInfo(self.tr("Попаданий по всем телам: %d.") % grand_n)
+        if is_ln:
+            feedback.pushInfo(self.tr(
+                "Длина линий: всего %.2f м, внутри тел %.2f м, снаружи "
+                "%.2f м.") % (total_len, grand_len, total_len - grand_len))
+        return {"OUTPUT": dest}
+
+
 ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
@@ -6200,4 +6541,5 @@ ALGORITHMS = [
     BooleanShellsAlgorithm,
     SelectByShellAlgorithm,
     GridToShellAlgorithm,
+    ZonalShellStatsAlgorithm,
 ]

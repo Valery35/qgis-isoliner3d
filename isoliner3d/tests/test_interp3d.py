@@ -551,5 +551,50 @@ def _run():
     print("all interp3d tests passed")
 
 
+def test_dense_and_sparse_paths_agree_at_the_limit():
+    """Оптимизация не должна превращаться в другой алгоритм.
+
+    До двадцати тысяч точек работает плотный путь, выше - клеточный
+    указатель. Это разный код на одной задаче, и разойтись он может
+    незаметно: числа останутся правдоподобными.
+
+    Проверяется по обе стороны границы на одном и том же наборе:
+    добавление одной пробы не должно менять ответ там, где она
+    далеко.
+    """
+    from isoliner3d import interp3d
+    rng = np.random.default_rng(7)
+    base = rng.uniform([0, 0, 0], [1000, 1000, 100], size=(20001, 3))
+    vals = (np.sin(base[:, 0] / 120.0) + np.cos(base[:, 1] / 90.0)
+            + base[:, 2] / 50.0)
+    gx, gy, gz = np.meshgrid(np.linspace(50, 950, 7),
+                             np.linspace(50, 950, 7),
+                             np.linspace(10, 90, 3), indexing="ij")
+    grid = np.column_stack([gx.ravel(), gy.ravel(), gz.ravel()])
+    a = interp3d.interpolate(base[:20000], vals[:20000], grid,
+                             method="idw", radius=300.0)
+    b = interp3d.interpolate(base[:20001], vals[:20001], grid,
+                             method="idw", radius=300.0)
+    ok = np.isfinite(a) & np.isfinite(b)
+    assert ok.any()
+    # одна лишняя проба на двадцать тысяч не может изменить узел
+    # заметно; разойдутся пути - разница будет не машинной
+    assert float(np.abs(a[ok] - b[ok]).max()) < 1e-6
+
+
+def test_neighbour_count_is_the_same_across_the_limit():
+    """Соседей у узла столько же, каким бы путём их ни искали."""
+    from isoliner3d import interp3d
+    rng = np.random.default_rng(11)
+    base = rng.uniform([0, 0, 0], [1000, 1000, 100], size=(20001, 3))
+    grid = np.array([[500.0, 500.0, 50.0], [123.0, 876.0, 10.0],
+                     [900.0, 100.0, 90.0]])
+    n1 = [len(i) for i in interp3d.neighbour_ids(base[:20000], grid,
+                                                 radius=300.0)]
+    n2 = [len(i) for i in interp3d.neighbour_ids(base[:20001], grid,
+                                                 radius=300.0)]
+    assert n1 == n2, (n1, n2)
+
+
 if __name__ == "__main__":
     _run()

@@ -108,6 +108,7 @@ values: a grid band is a horizontal level.
 | 2.11 Boolean operations on shells | Difference, union and intersection over cells: the reserves left after mining | Bodies with volumes |
 | 2.12 Selection by a shell | Points, lines and polygons inside a body: volume, tonnage and the weighted grade of the selection | The selected features |
 | 2.13 A shell from a bed grid | A closed body from a grid by a tool rather than a button: the chain to reserves fits a model | Bodies with volumes |
+| 2.14 Zonal statistics of shells | How many points, lines and their lengths fell into every body; numbers in the attributes, repeated runs add up | Bodies with count fields |
 
 A bed grid assembled by the first tool is read by the 3D window as a body:
 computed and looked at right away.

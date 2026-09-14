@@ -198,6 +198,59 @@ def test_the_cell_fill_survives_the_same_diagonal():
     assert occ.sum() > 900, int(occ.sum())
 
 
+def test_polyline_inside_length_on_known_cases():
+    """Резка отрезка телом: известные случаи, точные ответы."""
+    v, f = _box(0.0, 0.0, 0.0, 10.0)
+    cases = (([[2, 2, 2], [8, 8, 8]], 6.0 * np.sqrt(3.0)),   # целиком внутри
+             ([[-5, 5, 5], [15, 5, 5]], 10.0),               # насквозь
+             ([[5, 5, 5], [5, 5, 20]], 5.0),                 # наполовину
+             ([[-5, -5, -5], [-1, -1, -1]], 0.0),            # снаружи
+             ([[-5, 5, 5], [5, 5, 5], [-5, 5, 5]], 10.0),    # туда и обратно
+             ([[-2, 3, 3], [12, 3, 3], [12, 7, 7], [-2, 7, 7]], 20.0))
+    for pts, want in cases:
+        got, _tot = b3.polyline_inside_length(v, f, np.array(pts, float))
+        assert abs(got - want) < 1e-6, (pts, got, want)
+
+
+def test_polyline_inside_length_agrees_with_dense_sampling():
+    """Точная резка сходится с независимым счётом по точкам.
+
+    Независимость важна: точки проверяются лучом вверх, резка -
+    пересечением с треугольниками. Два разных пути к одному числу.
+    """
+    v, f = _box(0.0, 0.0, 0.0, 10.0)
+    rng = np.random.default_rng(5)
+    lines = [rng.uniform([-5, -5, -5], [15, 15, 15],
+                         size=(int(rng.integers(2, 6)), 3))
+             for _ in range(40)]
+    exact = sampled = 0.0
+    for l in lines:
+        exact += b3.polyline_inside_length(v, f, l)[0]
+        for k in range(len(l) - 1):
+            a, b = l[k], l[k + 1]
+            L = float(np.linalg.norm(b - a))
+            n = max(int(L / 0.02), 2)
+            ts = (np.arange(n) + 0.5) / n
+            pts = a + (b - a) * ts[:, None]
+            sampled += b3.points_inside(v, f, pts).sum() / n * L
+    assert abs(exact - sampled) / sampled < 1e-3, (exact, sampled)
+
+
+def test_splitting_a_segment_does_not_change_the_length():
+    """Разрезанная надвое ломаная даёт ту же длину внутри.
+
+    Состояние внутри-снаружи передаётся по цепочке отрезков; если бы
+    оно сбивалось на стыке, половинки не сошлись бы с целым.
+    """
+    v, f = _box(0.0, 0.0, 0.0, 10.0)
+    l = np.array([[-3, 4, 4], [13, 6, 6]], float)
+    full = b3.polyline_inside_length(v, f, l)[0]
+    mid = l[0] + (l[1] - l[0]) * 0.5
+    part = (b3.polyline_inside_length(v, f, np.vstack([l[0], mid]))[0]
+            + b3.polyline_inside_length(v, f, np.vstack([mid, l[1]]))[0])
+    assert abs(full - part) < 1e-9
+
+
 if __name__ == "__main__":
     for nm, fn in sorted(globals().items()):
         if nm.startswith("test_") and callable(fn):
