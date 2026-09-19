@@ -1080,6 +1080,79 @@ def test_agents_md_matches_the_tool_numbers():
     assert want2 in text, "вторая группа: ожидалось %s" % want2
 
 
+def _method_source(src, cls, method):
+    """Исходный текст метода класса или None, если метода нет."""
+    for node in cls.body:
+        if isinstance(node, ast.FunctionDef) and node.name == method:
+            return ast.get_source_segment(src, node) or ""
+    return None
+
+
+def test_metadata_counts_the_tools_right():
+    """Число инструментов в `about` совпадает с их числом в коде.
+
+    Текст `about` виден в каталоге и в менеджере модулей, и он обещал
+    шестнадцать инструментов, когда их стало двадцать два. Число
+    написано цифрами в обеих половинах описания, русской и английской,
+    и сверяется здесь.
+    """
+    import re
+    path = os.path.join(PKG, "metadata.txt")
+    text = open(path, encoding="utf-8").read()
+    want = len(EXPECTED)
+    got = re.findall(r"(\d+) (?:инструмент\w* Processing|Processing tools)",
+                     text)
+    assert len(got) == 2, "ожидались два места с числом, нашлось %s" % got
+    for num in got:
+        assert int(num) == want, (
+            "в metadata.txt %s инструментов, в коде %d" % (num, want))
+
+
+def test_every_tool_opens_the_manual():
+    """У каждого инструмента кнопка справки открывает руководство.
+
+    Кнопка есть в диалоге всегда, а ведёт она туда, куда скажет
+    `helpUrl`. Без него QGIS уходит в свою сетевую справку, где
+    страницы стороннего провайдера нет вовсе, и пользователь видит
+    пустоту вместо руководства в комплекте. Ровно так и было
+    у 2.02, 2.07 и 2.08: три инструмента из двадцати двух молча
+    оставались без справки.
+    """
+    with open(os.path.join(PKG, "algorithms.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    cls = _classes(ast.parse(src))
+    bad = []
+    for name, (_alg_id, number) in sorted(EXPECTED.items()):
+        body = _method_source(src, cls[name], "helpUrl")
+        if body is None or "_help_url()" not in body:
+            bad.append("%s %s" % (number, name))
+    assert not bad, "справка не открывается: %s" % ", ".join(bad)
+
+
+def test_every_help_carries_the_version_and_credit():
+    """Справка каждого инструмента несёт версию и подпись.
+
+    По номеру версии в справке понятно, какая сборка стоит у человека,
+    и на этот номер он ссылается в письме. Подпись про Информ++
+    и приглашение написать нам стоят там же. Обёртки давались руками,
+    поэтому девять инструментов из двадцати двух их не получили.
+    """
+    with open(os.path.join(PKG, "algorithms.py"), encoding="utf-8") as fh:
+        src = fh.read()
+    cls = _classes(ast.parse(src))
+    no_version, no_credit = [], []
+    for name, (_alg_id, number) in sorted(EXPECTED.items()):
+        body = _method_source(src, cls[name], "shortHelpString")
+        assert body, "%s: нет shortHelpString" % name
+        label = "%s %s" % (number, name)
+        if "_help_version(" not in body:
+            no_version.append(label)
+        if "_credit()" not in body:
+            no_credit.append(label)
+    assert not no_version, "справка без версии: %s" % ", ".join(no_version)
+    assert not no_credit, "справка без подписи: %s" % ", ".join(no_credit)
+
+
 if __name__ == "__main__":
     ok = 0
     for nm, fn in sorted(globals().items()):

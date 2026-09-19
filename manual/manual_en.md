@@ -32,9 +32,9 @@ Requirements: QGIS 3.16 or newer, Qt5 or Qt6.
 ## Where to start
 
 Without your own data: the tool **2.01 Demonstration boreholes in
-volume** puts samples into the project, then **2.02 Interpolation of
-points in volume** makes a cube out of them, and the viewer shows an
-isosurface over that cube.
+three dimensions** puts samples into the project, then **2.02
+Interpolating points in 3D** makes a cube out of them, and the viewer
+shows an isosurface over that cube.
 
 With your own: open the window from the toolbar, tick the layers in the
 list and press refresh. A raster shows as a surface, polygons with Z as
@@ -151,7 +151,7 @@ picture.
 
 A polygon the result of the interpolation is clipped by. Between the
 sections and beyond the data the surface goes where the interpolation
-drew it; the mask says how far to trust that. In 2.08 and 2.10 a mask
+drew it, and the mask says how far to trust that. In 2.08 and 2.10 a mask
 can be tied to a particular bed or surface, or the tool can be asked to
 take the area from the data themselves - the convex hull of their own
 samples.
@@ -159,8 +159,8 @@ samples.
 # The viewer
 
 The list of project layers with checkboxes is on the left, the scene on
-the right. A tick says what to show; the scene is built by the refresh
-button, not by the tick itself - on a large project a rebuild takes
+the right. A tick says what to show. The scene is built by the refresh
+button, not by the tick itself: on a large project a rebuild takes
 seconds, and doing it on every click is pointless.
 
 Mouse: the left button rotates, the wheel zooms, the middle one pans.
@@ -238,7 +238,7 @@ The right button on a row of the scene list offers **Fly to** and
 object: it takes up a pixel, and spinning about the common centre of
 the scene only leads away from it. Flying moves the centre of rotation
 onto the layer itself and takes the distance of the camera from its
-extent; orbiting aims at nothing: it turns about the current
+extent. Orbiting aims at nothing, it turns about the current
 centre. Were it to aim at the layer, the centre chosen by a click
 would be wiped out.
 
@@ -262,37 +262,96 @@ single colour for the whole layer.
 A cube of values is a multiband grid where a band is a horizontal level.
 Tools 2.02, 2.06 and 2.07 write such grids.
 
-Shells are set in a table: a row per level with its colour and opacity.
-**Cap where the body meets the cube edge** closes the shell where the
-body runs into the boundary; without it no volume can be computed.
+## Shells in a table
 
-The button on the toolbar puts the shells into a project layer, splitting
-them into connected bodies and computing the volume of each. The volume
-is computed by an exact formula over a watertight shell, not by summing
-cells: the shell cuts the edge cells in half.
+A row per level: the level, the colour, the opacity, the tick that
+shows it. An empty cell takes the automatic value, the colour from the
+number of the shell and the opacity growing outwards. An empty table
+means the cut-off and a single shell.
+
+The colour is chosen by a double click, a row is deleted by the right
+button, and a new one appears by itself once the last is filled in.
+
+The inner shells are drawn before the outer ones. What is drawn first
+hides whatever lies behind it.
+
+## The cap at the edge of the cube
+
+**Cap where the body meets the edge of the cube** puts a cap where the
+body runs into the boundary of the cube or into an area switched off by
+the clipping. Without it the shell is not closed, the body looks opened
+up, and no volume can be computed from it. Off by default.
+
+## Cleanup
+
+**Smoothing** settles the steps left by the cells of the cube, and
+**discard pieces smaller than** removes the small scraps. The scraps go
+before the smoothing, otherwise a scrap draws its neighbours towards
+itself and a dent is left where it was.
+
+Smoothing shrinks the body a little, so take the unsmoothed one to
+count a volume.
+
+## Shells into a project layer
+
+The button on the toolbar puts the shells of the selected layer into a
+project layer, taking the levels and the cleanup from the properties of
+the layer. The shell is split into connected bodies at once, and the
+volume of each is computed there and then.
 
 The button takes two modes: an isosurface over a cube and a bed body.
 For a bed body every pair of bands gives its own body, and the level
 field holds the number of the roof band. The body is built afresh
-rather than taken from the scene: what is shown has its vertical
+rather than taken from the scene. What is shown has its vertical
 stretched by the exaggeration, the layers spaced down Z and the mesh
 thinned to a vertex budget, so the volume of such a body is wrong by
 exactly the factor the vertical is stretched by. The clipping, however,
 is the one set in the scene.
 
-The **holes** field counts torn edges - with them the volume is
-meaningless. The **pinch** field counts self-touches, which do not
-affect the volume.
+A body per feature. The fields are the number, the level, the colour,
+the count of faces, the closedness, the volume, the range of
+elevations, and two more about the quality. **holes** counts torn
+edges, and with them the volume is meaningless and is not computed.
+**pinch** counts the places where the body touches itself, and there
+the volume is exact.
+
+The volume is computed by an exact formula over a closed shell, not by
+summing cells: the shell cuts the edge cells in half, and a sum over
+whole cells overstates the volume by some five per cent. For the same
+reason the volume of a bed body here and the volume from 1.02 will not
+agree exactly. The mesh runs through the centres of the cells, 1.02
+counts whole cells, and the difference is the half-cells around the
+perimeter.
+
+The layer is temporary. To keep it beyond the session, save it to a
+file.
 
 # Exporting the scene
 
-A button on the toolbar writes the scene to a file, the format chosen by
-the extension. **GLB** carries colour and transparency and is good for
-viewing; **STL** and **OBJ** are for CAD, where a watertight shell is
-needed to make a solid from.
+A button on the toolbar writes the scene to a file, the format chosen
+by the extension.
 
-The spin button walks the camera around the model; the capture button
-writes a full turn as PNG frames.
+**GLB** carries colour and transparency and suits viewing in a browser,
+in Blender and in Windows. The vertical exaggeration is asked for: the
+true heights are the ones to compute with, the model as it looks on the
+screen is the one to show. The coordinate box with its labels goes out
+together with the scene.
+
+**STL** and **OBJ** are for CAD, where a closed shell is needed to make
+a solid from. The box and the labels do not go there, and the
+elevations are the true ones. At the end the count of bodies that came
+out closed is reported: a shell that is not closed will show in CAD as
+a mesh, but no solid can be made from it.
+
+## Spin and capture
+
+The spin button walks the camera around the model, and pressing it
+again stops it. The scene is not rebuilt while it turns.
+
+The capture button writes a full turn as PNG frames into a chosen
+folder, thirty six frames of ten degrees each. Assembling them into a
+video is not something the module takes on, there are ready means for
+that.
 
 # The tools
 
@@ -305,7 +364,7 @@ block model** and **2. 3D interpolation**.
 
 | Field | What it sets |
 |---|---|
-| **Roof (raster)** | The grid of the bed roof. Elevations in metres; the step and extent must match the floor, or there is nothing to compute the thickness from. |
+| **Roof (raster)** | The grid of the bed roof. Elevations in metres, and the step and extent must match the floor, or there is nothing to compute the thickness from. |
 | **Floor (raster, optional)** | The grid of the floor. Where the floor is above the roof the thickness comes out negative and the cell becomes a gap. |
 | **Floor at the elevation, m** | Build the surface downwards to a constant elevation. That turns a DEM into a body that can be subtracted and intersected: mined-out parts of a pit, spoil heaps. Where the surface is NOT ABOVE the elevation there is no body, and such cells are cleared - otherwise the volume would be counted with a negative thickness. |
 | **Or a thickness downwards, m** | Build downwards by a constant thickness from the surface itself. It suits a layer of even thickness: overburden, topsoil, fill. |
@@ -313,6 +372,28 @@ block model** and **2. 3D interpolation**.
 | **Bed grid** | A multiband grid: band 1 the roof, band 2 the floor, then the parameters. Every other tool and the viewer read this order. |
 | **Roof band** | The roof band in the source grid. Needed when the roof is not the first band but sits inside a multiband one. |
 | **Bottom band** | The floor band in the source grid. Needed when the floor sits inside a multiband one. |
+
+### When there is no floor
+
+A survey gives a surface, and only bodies can be subtracted and
+intersected. That is why the floor need not be given as a raster: it is
+laid at a constant elevation or built downwards by a constant
+thickness.
+
+An elevation suits counting above a level: the wall of a pit, a spoil
+heap, the volume above a horizon. A constant thickness suits a layer of
+even thickness: overburden, topsoil, fill.
+
+Where the surface is **not above** the given elevation there is no body
+at all. Such cells are cleared and their count is printed to the log.
+Counting them with a negative thickness is not allowed, the volume
+would shrink from it, while in truth there is simply nothing there.
+
+### What to do with it next
+
+The assembled grid is taken by 1.02 for the volume and the reserves, by
+the scene in the **Bed body** mode, and by 2.13 for a closed shell for
+the boolean operations and the selection.
 
 ## 1.02 Bed calculator
 
@@ -336,6 +417,19 @@ block model** and **2. 3D interpolation**.
 | **Block model (centroids)** | A centroid point per block with its size, volume and mass. The usual QGIS vector machinery works from there. |
 | **Density band (empty - use the value above)** | The density band in the grid. Empty means taking the single value set above for the whole bed. |
 | **Vertical layers (column split)** | How many blocks to split the column into vertically. One block gives a model without vertical division, and the whole thickness then falls into a single layer. |
+
+### A multi-bed grid
+
+A grid from 2.08 carries as many pairs of bands as there are beds.
+Tools 1.02 and 1.03 count ONE bed, the one whose roof is chosen by the
+band. The first one used to be taken in silence: the numbers came out
+right, but about a different bed from the one the person had in mind.
+
+The grade band cannot be a roof or a floor. In a multi-bed grid the
+third band is the roof of the next bed, and the grade would come out
+equal to an elevation: minus two hundred and forty seven "per cent"
+and negative reserves of metal. Such a band is now refused with an
+explanation.
 
 ## 1.04 Surfaces to 3D (meshes)
 
@@ -609,12 +703,15 @@ A drift with two crosscuts. The two walls give parallel sections, the
 crosscuts give intersections where the elevations must agree, and
 between them an area is left for the interpolation to fill.
 
-Three beds, with the awkward cases planted on purpose: the floor of
-KrII and the roof of AB are drawn as **one line** and must be glued;
-between AB and V there is a parting of about a metre and no contact at
-all; inside AB a **lens** is drawn under the same bed number and must
-not touch the boundary; bed V **pinches out** and does not reach the
-far crosscut.
+Three beds, with the awkward cases planted on purpose:
+
+- the floor of KrII and the roof of AB are drawn as **one line**, and
+  the gluing of contacts must recognise them and build one surface,
+- between AB and V there is a parting of about a metre and no contact
+  at all, so there must be no gluing,
+- inside AB a **lens** is drawn under the same bed number, and it must
+  not touch the boundary of the body,
+- bed V **pinches out** and does not reach the far crosscut.
 
 ### The numbers to expect
 
@@ -663,7 +760,19 @@ vertex is already a point in space.
 Hence the uses. Cross profiles of an embankment every hundred metres
 give the designed surface, and its difference with the survey is the
 volume of the works. The trace of a fault on a series of sections gives
-its plane; the boundary of a member gives a horizon.
+its plane, and the boundary of a member gives a horizon.
+
+### How it counts
+
+The vertices of the lines go into the interpolation as they are, with a
+flat trend removed. The field of the surface name sorts the lines into
+bands: the design and the survey, a roof and a floor, several horizons,
+all in one run. The difference of two bands is the volume of the works.
+
+Where the sections cross, the elevations on them must agree. The
+disagreement is counted and printed with the coordinates of the place
+where it is largest, because a single number gives nowhere to go and
+look.
 
 ### Separate measurements
 
@@ -673,7 +782,7 @@ used where there are no sections.
 
 The elevation is read from the geometry when it is three-dimensional. A
 flat layer has nowhere to take it from, so a field of the elevation is
-given; the tool will not put a zero in silence.
+given. The tool will not put a zero in silence.
 
 There is no weighting, and none is needed. Where there are no sections
 a point holds the surface alone: on a test embankment with one profile
@@ -690,10 +799,10 @@ who argues with whom.
 
 ### What accuracy to expect
 
-On a test embankment - a crest of six metres, slopes of one in two,
-profiles every hundred metres - the restored surface departed from the
-designed one by 0.18 m at the worst place and by 0.03 m on average, and
-the volume of the fill agreed with the true one to three per cent.
+The test embankment: a crest of six metres, slopes of one in two,
+profiles every hundred metres. The restored surface departed from the
+designed one by 0.18 m at the worst place and by 0.03 m on average. The
+volume of the fill agreed with the true one to three per cent.
 
 The accuracy is decided by how often the sections are spaced, and no
 computation mends that. Beyond the outermost section the surface is not
@@ -720,6 +829,12 @@ The shells on input must be closed: one that is not has no inside, and there is 
 | **Side of the cell, m** | The side of the cell. It sets the accuracy: the error follows the surface area and halves with every halving of the cell. On a ten-metre cube a cell of 0.5 m gave a volume error of 5 per cent, 0.25 m two and a half, 0.1 m landed exactly. The memory grows as a cube, so do not take it finer than needed. |
 | **The result (bodies)** | The bodies of the result: polygons with Z, the volume of each in the attributes. The shell is always closed, so the volume can be computed from it. |
 
+### What it is for
+
+This is how mining is accounted for: the shell of a mined-out chamber
+is subtracted from the shell of an ore body and the remaining reserves
+come out. An intersection gives what fell inside a zone, and a union
+takes two bodies as one.
 
 ### Why over cells
 
@@ -783,6 +898,17 @@ mining without building a difference of bodies.
 Not only points can be selected: lines and polygons with height go the
 same way.
 
+### How it counts
+
+A point is inside if a ray sent up from it crosses the shell an odd
+number of times. No cells are needed for that, and the answer is
+**exact**, unlike the boolean operations, where the accuracy runs into
+the cell.
+
+The mean grade is weighted by the volume of the block. A plain mean
+overstates the small blocks, and in a model those usually lie along the
+edge.
+
 ### The check worth attention
 
 The volume of the selected blocks is compared with the volume of the
@@ -812,30 +938,115 @@ The volume here and the volume from 1.02 differ by about one per cent: the shell
 | **Bed grid** | A bed grid: a roof band and a floor band. 1.01 gives one from two surfaces or from a single one built downwards, and 2.08 from the drawings on sections. |
 | **Roof band** | The roof band. The next one counts as the floor: that is how a bed grid is built. In a multi-bed grid this is the choice of bed. |
 | **Bodies of the bed** | The bodies of the bed: polygons with Z, the volume of each in the attributes. 2.11 and 2.12 take them next. |
-| **Thinning of the mesh** | Thinning of the mesh. One means as it is; two takes every second cell and gives four times fewer triangles. The volume changes little, but fine detail is cut away. |
+| **Thinning of the mesh** | Thinning of the mesh. One means as it is, two takes every second cell and gives four times fewer triangles. The volume changes little, but fine detail is cut away. |
 
-# From drawings on sections to a body
+### What comes out
+
+A closed shell of the body: the roof, the floor and the skirt between
+them. The bodies are split into connected parts, each with its own
+volume in the attributes. Closedness is checked there and then, bodies
+that are not closed are counted separately and named in the log,
+because 2.11 and 2.12 will not take them.
+
+### About the volume
+
+On a test DEM of 101 by 101 with a cut-off elevation the shell came to
+39524 cubic metres against 40309 over the cells. The difference came to
+two per cent, and all of it is around the edge.
+
+## 2.14 Zonal statistics of shells
+
+Counts for every body how many features fell into it and writes the numbers into the attributes of the body.
+
+Points: the number inside and the sum of an attribute. Lines: the number of lines that touched the body and the length of their parts inside. Polygons: the number of polygons with at least one vertex inside.
+
+A line is cut by the body: a segment is intersected with the surface, the points are sorted along it, and only the part inside goes into the length. A segment that goes right through the body between its own vertices is not lost.
+
+Zero and empty are different things. A body with nothing inside gets zero: that is a measured fact. A body that is not closed gets empty and goes into a warning: it has no inside.
+
+Repeated runs over one layer of bodies add up: the result of the previous run is given as the layer of bodies to the next, and every run adds its own fields. A clash of names is refused unless overwriting is allowed.
+
+The sum over the bodies agrees: the length of lines inside all the bodies plus the length outside equals the total length, and that is printed to the log.
+
+| Field | What it sets |
+|---|---|
+| **Bodies (polygons with Z)** | A layer of bodies: closed shells, one per feature. Every body gets its own count fields. A body that is not closed gets empty rather than zero: it has no inside, and there is nothing to count. |
+| **What to count (features with Z)** | What to count: points, lines or polygons with height. A block model, holes, traces of workings, faults. |
+| **Name of the result fields (empty - from the layer)** | The name for the result fields. Empty - from the name of the layer, turned into Latin letters. Suffixes are added to it: _n the number of features inside, _len the length of lines inside, _sum the sum of the attribute. Give your own when you run the tool over one layer of bodies several times with different data. |
+| **Attribute to sum** | A numeric attribute to sum: the volume of a block, a thickness, a grade. Empty - count only. |
+| **Allow overwriting of fields** | Allow overwriting fields of the same name. Without it a repeated run with the same name is refused: otherwise the second result would silently wipe out the first. |
+| **Bodies with statistics** | The bodies with all their previous fields and the new count fields. To accumulate several runs, give the result of the previous run as the layer of bodies to the next. |
+
+### What it is for
+
+This is 2.12 from the other side. There the features are selected by
+one body. Here every body gets written how many features fell into it,
+and the numbers go into the attributes.
+
+### How it counts
+
+Points - by the parity of an upward ray, as in 2.12. Lines are cut by
+the body: a segment is intersected with the triangles of the shell, the
+points are sorted along it, and only the part inside goes into the
+length. A segment that goes right through the body between its own
+vertices is not lost here, unlike the vertex-based selection of 2.12.
+
+Checked by two independent routes: the exact cut and a dense sampling
+of points along the same lines differed by 0.002 per cent.
+
+### Repeated runs
+
+The tool is meant to accumulate: blocks of a model, then faults, then
+workings, all in one layer of bodies. The result of a run is given as
+the layer of bodies to the next, and every run adds its own fields. A
+clash of names is refused unless overwriting is allowed.
+
+Zero and empty are different things. A body with nothing inside gets
+zero. A body that is not closed gets empty: it has no inside.
+
+# Typical tasks
+
+Ten chains that come round again and again in the work. Numbers with a
+dot are Isoliner3D tools, names without a number are the neighbouring
+Isoliner.
+
+## From boreholes to reserves
+
+1. Samples with grades in a point layer, the elevation in the geometry
+   or in a field.
+2. **2.05 Check of the interpolation** to choose the parameters. Leave
+   out a
+   whole hole, not a single sample: a neighbouring sample in the same
+   hole almost repeats the one left out, and the error comes out lower
+   than the real one.
+3. **2.02 Interpolating points in 3D** or **2.07 MBA in volume** for
+   the cube of values.
+4. The cube into the scene, isosurface mode. Clipping by the terrain
+   and by the licence outline is in the scene properties.
+5. The **shells into a project layer** button: bodies with the volume
+   of each.
+
+## From horizons to a bed
+
+1. In Isoliner the **roof** and the **floor** are interpolated in plan.
+2. **1.01 Assemble a bed grid** - a multiband grid.
+3. **1.03 Bed grid to a block model** - blocks with volume and mass.
+4. The same grid shows in the scene as a bed body, without any
+   conversion.
+
+## A section on the drawing and in volume
+
+The section fence built by Isoliner is polygons with real Z, and it
+goes into the scene as it is, and the colour of the beds comes from
+the `color` field. The point is a check by eye: the fence lies on the
+surfaces it was built from.
+## From drawings on sections to a body
 
 The tool **2.08 Beds from sections**, for when the holes are few and
 the sections are drawn.
 
 
-### What it is for
-
-The shells button in the viewer does the same, but there it is a manual
-step: a processing model will not repeat it. As a tool the chain
-"surface - body - subtract what is mined out - count the reserves" runs
-as a whole.
-
-### About the volume
-
-The volume here and the volume from 1.02 differ by about one per cent:
-the shell runs through the centres of the cells, while 1.02 counts
-whole cells. On a test DEM of 101 by 101 with a cut-off elevation it
-came to 39524 cubic metres over the shell against 40309 over the cells
-- two per cent, all of it around the edge.
-
-## Where the coordinates come from
+### Where the coordinates come from
 
 From the geometry of the outlines, and from nowhere else. An outline on
 a three-dimensional section is a polygon whose every vertex has X, Y
@@ -849,7 +1060,7 @@ A flat drawn section is no good: its X and Y are coordinates on the
 sheet, not on the ground, and there are no elevations at all. The
 geometry type must be `PolygonZ` or `MultiPolygonZ`.
 
-## How the roof and the floor are taken
+### How the roof and the floor are taken
 
 The ring of the outline is sampled across, along the line of the
 section: at every step the upper point of the ring and the lower one.
@@ -863,11 +1074,11 @@ them has a solution for any layout of sections.
 
 Before the fitting a flat trend is removed from the elevations. Without
 that the error of the method grows with the elevation itself rather
-than with its spread: on a roof around minus two hundred and fifty
+than with its spread. On a roof around minus two hundred and fifty
 metres with a spread of eighty centimetres the surface went off by
-fourteen metres, and no number of levels mended it.
+fourteen metres, and no number of levels removed that defect.
 
-## The contact of neighbouring beds
+### The contact of neighbouring beds
 
 The floor of the upper bed and the roof of the lower one are one and
 the same boundary if the geologist drew them as one line. Built
@@ -887,7 +1098,7 @@ For this the beds are ordered by their bedding, from the top down,
 rather than by the name of the field: numbers come as text, and then
 "10" stands between "1" and "2".
 
-## A lens inside a bed
+### A lens inside a bed
 
 The outlines of one section plane are taken together, by their outer
 boundary: the roof follows the topmost of them, the floor the lowest.
@@ -903,7 +1114,7 @@ Outlines of different sections are never merged this way. A
 disagreement at one place in plan between two sections is data, and it
 must be seen rather than hidden by taking the outermost.
 
-## How far to trust the surface
+### How far to trust the surface
 
 The grid is built over the whole extent of the outlines, and beyond the
 sections the surface goes where the interpolation put it. The **area
@@ -913,7 +1124,7 @@ outwards from the mask** is left because the bed continues beyond the
 outline of a working, and clipping exactly along it would cut away what
 the data do hold.
 
-## A mask for one bed
+### A mask for one bed
 
 The mask need not be common to all. If a **field of the bed number** is
 set on the mask layer, a polygon clips the bed whose number it carries,
@@ -923,14 +1134,14 @@ when one bed has shorter sections than its neighbours.
 The checkbox **clip every bed by its own sections** does the same
 without drawing: the convex hull of the bed's own samples plus the
 margin. In a pit with four walls a bed met on three of them used to
-take the whole area; with its own hull it takes 39 per cent against 64
+take the whole area. With its own hull it takes 39 per cent against 64
 for its neighbours.
 
 A hull is convex, and no dent can come out of it: for a bed on three
 walls of a rectangular pit it covers the whole rectangle, because the
 middle lies inside. That is what the per-bed mask polygon is for.
 
-## The order of the work
+### The order of the work
 
 1. Outlines of the beds on sections: polygons with real Z.
 2. **2.08 Beds from sections**. Set the field of the bed number and
@@ -956,51 +1167,96 @@ will not agree exactly. The mesh runs through the centres of the cells,
 the perimeter: about one per cent on a grid of two hundred cells, and
 noticeably more on a coarse one.
 
-# Typical tasks
 
-Six chains that come round again and again in the work. Numbers with a
-dot are Isoliner3D tools, names without a number are the neighbouring
-Isoliner.
+## A surface from cross sections
 
-## From boreholes to reserves
+The designers send cross profiles every hundred metres. A designed
+surface has to be built and compared with the survey, to see where too
+much was filled and where too little.
 
-1. Samples with grades in a point layer, the elevation in the geometry
-   or in a field.
-2. **2.05 Cross-validation** to choose the parameters. Leave out a
-   whole hole, not a single sample: a neighbouring sample in the same
-   hole almost repeats the one left out, and the error comes out lower
-   than the real one.
-3. **2.02 Interpolation of points in volume** or **2.07 MBA in
-   volume** for the cube of values.
-4. The cube into the scene, isosurface mode. Clipping by the terrain
-   and by the licence outline is in the scene properties.
-5. The **shells into a project layer** button: bodies with the volume
-   of each.
+1. Digitise the profiles as lines with real Z and put them on the
+   alignment. Every line is one section.
+2. **2.10 Surfaces from cross sections**. Set the field of the surface
+   name if the design and the survey lie in one layer, and each will
+   then go into its own band.
+3. The difference of the bands is the volume of the works. It is
+   computed by the raster calculator, or by **1.02** if the surfaces
+   lie as the roof and the floor of one grid.
 
-## From horizons to a bed
+The accuracy is decided by how often the sections are spaced, and
+beyond the last profile the surface is not defined. The measurement on
+the test embankment and the clipping by a surface's own sections are
+described in the section of tool 2.10.
 
-1. In Isoliner the **roof** and the **floor** are interpolated in plan.
-2. **1.01 Assemble a bed grid** - a multiband grid.
-3. **1.03 Bed into a block model** - blocks with volume and mass.
-4. The same grid shows in the scene as a bed body, without any
-   conversion.
+## From a DEM to a body: a pit and spoil heaps
 
-## A section on the drawing and in volume
+A survey gives a surface, and only bodies can be subtracted and
+intersected. Building downwards is what turns one into the other.
 
-The section fence built by Isoliner is polygons with real Z, and it
-goes into the scene as it is; the colour of the beds comes from the
-`color` field. The point is a check by eye: the fence lies on the
-surfaces it was built from.
+1. **1.01 Assemble a bed grid**: the roof is the DEM, the floor is set
+   by an elevation, which is the level to count from, or by a thickness
+   downwards for a layer of even thickness such as overburden or fill.
+2. **2.13 A shell from a bed grid** gives a closed body in a project
+   layer.
+3. The same for the second surface, the mined-out part or the spoil
+   heap.
+4. **2.11 Boolean operations on shells**: subtract what is mined out,
+   add the heap, intersect with a zone. Or **2.12 Selection by a
+   shell** when the counting has to go over a block model.
+
+Where the surface is not above the given elevation there is no body at
+all. Such cells are cleared and their count is printed to the log,
+because counting them with a negative thickness is not allowed, the
+volume would shrink from it.
+
+One reservation about accuracy. The difference of two surfaces is
+computed over the cells of the grid and carries no error from voxels. A
+boolean operation over bodies goes over the cells of a cube, and a thin
+layer of half a metre will come out badly with a cell of a metre. For
+thin layers take the difference of the surfaces through 1.01 and 1.02,
+and for a complicated shape take the boolean operations.
+
+## Reserves left after mining
+
+There is the shell of an ore body and the shell of what was mined out
+over a month. The remainder and its volume have to be obtained.
+
+1. Both shells must be closed. The shells button in the viewer and tool
+   2.04 give closed ones, and the **closed** field in the attributes
+   shows it.
+2. **2.11 Boolean operations on shells**, the action "subtraction",
+   the first body the ore, the second the mining.
+3. The volume of every body of the result lies in the attributes. There
+   can be several bodies, because the mining may have cut the deposit
+   into parts.
+
+The same result comes without subtracting bodies: with **2.12
+Selection by a shell** select the blocks of the model that lie outside
+the shell of the mining. The selection is exact, without cells, and the
+volume and the grade are computed at once. There is a way to check
+yourself. The volume of the selected blocks is compared with the volume
+of the shell itself, and the difference is printed to the log, and that
+difference is the coarseness of the block model for this body.
+
+The side of the cell sets the accuracy. The error follows the surface
+area and falls with the cell: on the test cubes of ten metres a cell of
+0.5 m gave four per cent and 0.1 m gave one. The memory meanwhile grows
+as a cube, so there is no sense in taking it finer than needed.
+
+The result is stepped, because these are cells and not a smooth shell.
+In exchange it is always closed and a volume can be computed from it,
+while an exact operation over meshes regularly gives broken geometry on
+touches, and no volume can be taken from that.
 
 ## What has changed between surveys
 
 Two models of the same area from different times, then **1.06 Reserve
-difference**.
+difference (write-off)**.
 
 ## Showing it to someone who is not a geologist
 
-**GLB** for a browser, Blender or Windows; PNG frames of a turn for a
-video; **STL** or **OBJ** for CAD. For CAD switch on the cap at the
+**GLB** for a browser, Blender or Windows, PNG frames of a turn for a
+video, **STL** or **OBJ** for CAD. For CAD switch on the cap at the
 cube edge: an open shell will show as a mesh but will not become a
 solid.
 
@@ -1016,8 +1272,22 @@ grid - a neighbour down the hole is always close by. The error per hole
 grows with the distance between the holes, and that one is the real
 one.
 
-The figures are for the demonstration data; yours will differ. What
+The figures are for the demonstration data, and yours will differ. What
 matters is the ratio and how it changes as the grid gets denser.
+
+# Typical situations
+
+| What is seen | Why | What to do |
+|---|---|---|
+| The scene is empty | No layer is ticked, or refresh was not pressed | Tick a layer and refresh |
+| A layer does not show | The layer has no height: flat geometry and no source of elevation set | Set the source of height in the properties of the layer |
+| Only part of the features shows | The vertex limit of the scene came into play | Raise the limit in the scene properties or untick the layers not needed |
+| The body is opened up at a cut | The shell is not closed | Switch on the cap at the edge of the cube |
+| The volume is not computed | The body has holes, the holes field is above zero | Switch on the cap, and reduce the count of levels if need be |
+| The cut-off built nothing | The cut-off lies outside the range of the values of the cube | Take a value inside the range, which is shown in the legend |
+| Stars and rays across the field of interpolation | The split into sectors on samples that lie in plan | Leave zero in the field of sectors, it is taken from the data |
+| The shell came out coarse | The cube has few levels down the vertical | Set the vertical step in 2.02 by hand |
+| The layer is refused at the input of a tool | A mesh of triangles is never a valid multipolygon | Nothing, the tools of the module do not require that check |
 
 # Neighbouring plugins
 
@@ -1028,13 +1298,13 @@ borehole graphics. Isoliner3D reads what it builds.
 
 # Licence and developer
 
-Isoliner3D is developed by **Inform++ LLC**, Perm —
+Isoliner3D is developed by **Inform++ LLC**, Perm -
 [www.informpp.ru](https://www.informpp.ru/).
 
 The module is distributed under the **GNU General Public License,
 version 2 or, at your option, any later version** (GPL-2.0-or-later).
-You are free to use, study, modify and pass it on; when passing on a
-modified version you must keep the same licence and open the source. The
+You are free to use, study, modify and pass it on. Passing on a
+modified version, you must keep the same licence and open the source. The
 full text of the licence is in the `LICENSE` file inside the module.
 
 The program is distributed in the hope that it will be useful, but

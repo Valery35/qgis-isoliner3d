@@ -170,8 +170,9 @@ def _help_version(text):
 def _help_url():
     """file:// ссылка на руководство в комплекте (для кнопки «Справка»).
 
-    На английской локали открывается Isoliner_en.pdf, если он есть; иначе -
-    русское Isoliner.pdf. Так одна кнопка даёт справку на языке интерфейса."""
+    На английской локали открывается Isoliner3D_en.pdf, если он есть,
+    иначе русское Isoliner3D.pdf. Так одна кнопка даёт справку
+    на языке интерфейса."""
     from .i18n import language as _lang  # текущий язык интерфейса
     doc = os.path.join(os.path.dirname(__file__), "doc")
     candidates = []
@@ -2489,8 +2490,11 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
     def groupId(self):
         return GROUP5_ID
 
+    def helpUrl(self):
+        return _help_url()
+
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Считает значение в узлах объёмной сетки по точкам "
             "с высотой.\n\n"
             "Анизотропия это отношение вертикального масштаба "
@@ -2513,7 +2517,7 @@ class Interp3DAlgorithm(IsolinerAlgorithm):
             "нужна пробам, где записана глубина, а не отметка. Точка, "
             "для которой отметку получить не удалось, в расчёт не идёт, "
             "и число таких пишется в журнал."
-        )
+        ) + _credit())
 
     def createInstance(self):
         return Interp3DAlgorithm()
@@ -3380,8 +3384,11 @@ class Mba3DAlgorithm(IsolinerAlgorithm):
     def createInstance(self):
         return Mba3DAlgorithm()
 
+    def helpUrl(self):
+        return _help_url()
+
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Строит куб значений по разбросанным точкам "
             "мультисеточными B-сплайнами.\n\n"
             "Грубая решётка приближает данные, остаток приближается "
@@ -3395,7 +3402,7 @@ class Mba3DAlgorithm(IsolinerAlgorithm):
             "остатков.\n\n"
             "За пределами облака точек поверхность уходит куда угодно: "
             "у краевых коэффициентов нет данных. Обрезайте результат "
-            "контуром или поверхностями.")
+            "контуром или поверхностями.") + _credit())
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterFeatureSource(
@@ -3585,8 +3592,11 @@ class SectionsToBedAlgorithm(IsolinerAlgorithm):
     def createInstance(self):
         return SectionsToBedAlgorithm()
 
+    def helpUrl(self):
+        return _help_url()
+
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Строит грид пластов по контурам, нарисованным "
             "на разрезах.\n\n"
             "Каждое кольцо идёт по кровле вперёд и по подошве назад, "
@@ -3614,7 +3624,7 @@ class SectionsToBedAlgorithm(IsolinerAlgorithm):
             "отметки на них должны сойтись. Расхождения считаются "
             "и печатаются в журнал вместе с координатами места, где "
             "они наибольшие: с одним числом искать съехавшую вершину "
-            "негде.")
+            "негде.") + _credit())
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterFeatureSource(
@@ -3744,7 +3754,6 @@ class SectionsToBedAlgorithm(IsolinerAlgorithm):
         allp = np.vstack([p for _b, p in rings])
         x0, x1 = float(allp[:, 0].min()), float(allp[:, 0].max())
         y0, y1 = float(allp[:, 1].min()), float(allp[:, 1].max())
-        span = max(x1 - x0, y1 - y0, 1.0)
         if cell <= 0:
             cell = _auto_cell(x0, x1, y0, y1)
             feedback.pushInfo(self.tr("Шаг грида от данных: %.1f м.")
@@ -4794,7 +4803,7 @@ class DemoDriftAlgorithm(IsolinerAlgorithm):
     def groupId(self): return GROUP5_ID
 
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Создаёт калийную выработку с зарисовками бортов, "
             "скважинами веера и бороздами.\n\n"
             "Пласты и содержания заданы формулами, шум опробования "
@@ -4817,7 +4826,7 @@ class DemoDriftAlgorithm(IsolinerAlgorithm):
             "Содержаний два, KCl и нерастворимый остаток. Они связаны "
             "обратно: где сильвина больше, остатка меньше. На паре "
             "каналов видно, как в гриде живут несколько параметров "
-            "сразу.")
+            "сразу.") + _credit())
 
     def initAlgorithm(self, config=None):
         self._defaults = _load_defaults(self)
@@ -4866,8 +4875,7 @@ class DemoDriftAlgorithm(IsolinerAlgorithm):
 
     def _process(self, parameters, context, feedback):
         from qgis.core import (QgsFields, QgsFeature, QgsGeometry,
-                               QgsPoint, QgsLineString, QgsPolygon,
-                               QgsWkbTypes)
+                               QgsPoint, QgsWkbTypes)
         from . import demo_drift as dd
 
         feedback.pushInfo(_version_line())
@@ -5143,7 +5151,7 @@ class SectionLinesToSurfaceAlgorithm(IsolinerAlgorithm):
         return SectionLinesToSurfaceAlgorithm()
 
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Строит поверхности по линиям, нарисованным на разрезах.\n\n"
             "Линия на разрезе это одна поверхность, а не тело: "
             "разбирать её на кровлю и подошву не надо, каждая вершина "
@@ -5162,7 +5170,7 @@ class SectionLinesToSurfaceAlgorithm(IsolinerAlgorithm):
             "разбросом.\n\n"
             "Где сечения пересекаются, отметки на них должны сойтись. "
             "Расхождение считается и печатается в журнал вместе "
-            "с координатами места, где оно наибольшее.")
+            "с координатами места, где оно наибольшее.") + _credit())
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterFeatureSource(
@@ -5345,7 +5353,6 @@ class SectionLinesToSurfaceAlgorithm(IsolinerAlgorithm):
         allp = np.vstack(allp)
         x0, x1 = float(allp[:, 0].min()), float(allp[:, 0].max())
         y0, y1 = float(allp[:, 1].min()), float(allp[:, 1].max())
-        span = max(x1 - x0, y1 - y0, 1.0)
         if cell <= 0:
             cell = _auto_cell(x0, x1, y0, y1)
             feedback.pushInfo(self.tr("Шаг грида от данных: %.2f м.")
@@ -5516,7 +5523,7 @@ class BooleanShellsAlgorithm(IsolinerAlgorithm):
         return BooleanShellsAlgorithm()
 
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Вычитает, объединяет и пересекает два тела.\n\n"
             "Так считают отработку: из оболочки рудного тела вычитают "
             "оболочку отработанной камеры и получают остаток запасов. "
@@ -5536,7 +5543,7 @@ class BooleanShellsAlgorithm(IsolinerAlgorithm):
             "при этом растёт кубом.\n\n"
             "Оболочки на входе должны быть замкнуты: у незамкнутой "
             "внутренности нет, и определить, что внутри, нечем. "
-            "Незамкнутая на входе - отказ с указанием объекта.")
+            "Незамкнутая на входе - отказ с указанием объекта.") + _credit())
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterFeatureSource(
@@ -5793,7 +5800,7 @@ class SelectByShellAlgorithm(IsolinerAlgorithm):
         return SelectByShellAlgorithm()
 
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Отбирает объекты, попавшие в замкнутую оболочку, "
             "и считает по ним сводку.\n\n"
             "Так получают запас: блочная модель, оболочка рудного "
@@ -5816,7 +5823,7 @@ class SelectByShellAlgorithm(IsolinerAlgorithm):
             "оболочки: расхождение показывает, насколько модель "
             "груба для этого тела.\n\n"
             "Оболочка должна быть замкнута: у незамкнутой "
-            "внутренности нет.")
+            "внутренности нет.") + _credit())
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterFeatureSource(
@@ -6048,7 +6055,7 @@ class GridToShellAlgorithm(IsolinerAlgorithm):
         return GridToShellAlgorithm()
 
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Строит замкнутую оболочку тела пласта по гриду: кровля, "
             "подошва и бортик между ними.\n\n"
             "То же самое делает кнопка оболочек в окне просмотра, "
@@ -6061,7 +6068,7 @@ class GridToShellAlgorithm(IsolinerAlgorithm):
             "Объём здесь и объём из 1.02 расходятся примерно "
             "на процент: оболочка идёт по центрам ячеек, а 1.02 "
             "считает ячейки целиком. Это разные границы одной области, "
-            "а не спор методов.")
+            "а не спор методов.") + _credit())
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterRasterLayer(
@@ -6234,7 +6241,7 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
         return ZonalShellStatsAlgorithm()
 
     def shortHelpString(self):
-        return self.tr(
+        return _help_version(self.tr(
             "Считает по каждому телу, сколько объектов в него попало, "
             "и записывает числа в атрибуты тела.\n\n"
             "Точки: число внутри и сумма атрибута. Линии: число линий, "
@@ -6255,7 +6262,7 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
             "отказ, если не разрешена перезапись.\n\n"
             "Сумма по телам сходится: длина линий внутри всех тел плюс "
             "длина снаружи равна полной длине, и это печатается "
-            "в журнал.")
+            "в журнал.") + _credit())
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterFeatureSource(

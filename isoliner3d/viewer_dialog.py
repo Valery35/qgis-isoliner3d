@@ -1267,13 +1267,6 @@ class ViewerDialog(QDialog):
         self.info.setText(tr("Камера у слоя %s, охват %.0f м.")
                           % (self._title(lyr), span))
 
-    def _current_layer(self):
-        """Слой выделенной строки списка сцены."""
-        it = self.layer_list.currentItem()
-        if it is None:
-            return None
-        return QgsProject.instance().mapLayer(it.data(_USER_ROLE))
-
     def _open_props(self, *_a):
         """Открыть окно свойств для выделенной строки."""
         if self._props is None:
@@ -3041,7 +3034,7 @@ class ViewerDialog(QDialog):
             k = 0
             tr_ = self._xform(lyr)
             surf_z = self._zsurf_of(o)
-            n_empty = n_style = n_cut = 0
+            n_empty = n_style = 0
             for ft in feats:
                 g = ft.geometry()
                 if g is None or g.isEmpty():

@@ -174,7 +174,7 @@ def render(tools, lang="ru"):
             out.append("| %s | %s |" % head)
             out.append("|---|---|")
             for _k, lab, _kind, hint in t["params"]:
-                out.append("| **%s** | %s |" % (lab, hint or "—"))
+                out.append("| **%s** | %s |" % (lab, hint or "-"))
             out.append("")
     return "\n".join(out)
 

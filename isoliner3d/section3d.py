@@ -551,6 +551,7 @@ def roof_and_floor(rings, step=None, with_ring=False):
             continue
         # Ведущее кольцо группы - самое протяжённое в плане: по нему
         # идёт линия опробования, к нему приводятся остальные.
+
         def _span(q):
             u = unfold(q[0], q[1], q[2])
             return float(u.max() - u.min())

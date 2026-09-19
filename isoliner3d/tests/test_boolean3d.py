@@ -224,10 +224,10 @@ def test_polyline_inside_length_agrees_with_dense_sampling():
                          size=(int(rng.integers(2, 6)), 3))
              for _ in range(40)]
     exact = sampled = 0.0
-    for l in lines:
-        exact += b3.polyline_inside_length(v, f, l)[0]
-        for k in range(len(l) - 1):
-            a, b = l[k], l[k + 1]
+    for ln in lines:
+        exact += b3.polyline_inside_length(v, f, ln)[0]
+        for k in range(len(ln) - 1):
+            a, b = ln[k], ln[k + 1]
             L = float(np.linalg.norm(b - a))
             n = max(int(L / 0.02), 2)
             ts = (np.arange(n) + 0.5) / n
@@ -243,11 +243,11 @@ def test_splitting_a_segment_does_not_change_the_length():
     оно сбивалось на стыке, половинки не сошлись бы с целым.
     """
     v, f = _box(0.0, 0.0, 0.0, 10.0)
-    l = np.array([[-3, 4, 4], [13, 6, 6]], float)
-    full = b3.polyline_inside_length(v, f, l)[0]
-    mid = l[0] + (l[1] - l[0]) * 0.5
-    part = (b3.polyline_inside_length(v, f, np.vstack([l[0], mid]))[0]
-            + b3.polyline_inside_length(v, f, np.vstack([mid, l[1]]))[0])
+    ln = np.array([[-3, 4, 4], [13, 6, 6]], float)
+    full = b3.polyline_inside_length(v, f, ln)[0]
+    mid = ln[0] + (ln[1] - ln[0]) * 0.5
+    part = (b3.polyline_inside_length(v, f, np.vstack([ln[0], mid]))[0]
+            + b3.polyline_inside_length(v, f, np.vstack([mid, ln[1]]))[0])
     assert abs(full - part) < 1e-9
 
 
