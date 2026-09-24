@@ -1389,7 +1389,8 @@ class ViewerDialog(QDialog):
         объект на интервал.
         """
         from qgis.PyQt.QtCore import QVariant
-        from .algorithms import _field
+        from .algorithms import _field, _label_layer
+        from .fields import round_value
         from qgis.core import (QgsVectorLayer, QgsFeature, QgsFields,
                                QgsGeometry, QgsProject)
         it = self.layer_list.currentItem()
@@ -1439,6 +1440,8 @@ class ViewerDialog(QDialog):
             tr("Оболочки: %s") % lyr.name(), "memory")
         mem.dataProvider().addAttributes(fields)
         mem.updateFields()
+        _label_layer(mem)
+        names = [fields.at(i).name() for i in range(fields.count())]
 
         # Оболочка сразу разбирается на связные тела, и объём
         # считается тут же: разбирать её потом отдельным инструментом
@@ -1492,12 +1495,14 @@ class ViewerDialog(QDialog):
                 ft = QgsFeature(mem.fields())
                 ft.setGeometry(geom)
                 made += 1
-                ft.setAttributes([made, float(lev), hexc, int(len(pf)),
-                                  1 if closed else 0,
-                                  int(holes), int(pinch),
-                                  (float(q) if closed else None),
-                                  float(pv[:, 2].min()),
-                                  float(pv[:, 2].max())])
+                row = [made, float(lev), hexc, int(len(pf)),
+                       1 if closed else 0,
+                       int(holes), int(pinch),
+                       (float(q) if closed else None),
+                       float(pv[:, 2].min()),
+                       float(pv[:, 2].max())]
+                ft.setAttributes([round_value(n, v)
+                                  for n, v in zip(names, row)])
                 mem.dataProvider().addFeature(ft)
                 tris += len(pf)
         mem.updateExtents()

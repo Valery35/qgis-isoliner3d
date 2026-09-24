@@ -1088,6 +1088,33 @@ def _method_source(src, cls, method):
     return None
 
 
+def test_every_output_goes_through_the_base_sink():
+    """Округление и подписи полей стоят в базовом классе, в одном месте.
+
+    Они достаются инструменту, пока тот наследует IsolinerAlgorithm
+    и не переопределяет parameterAsSink и postProcessAlgorithm. Своя
+    версия любого из двух тихо лишила бы инструмент и подписей,
+    и округления, и в таблице снова пошла бы латиница с хвостом
+    в десяток знаков.
+    """
+    tree = _tree("algorithms.py")
+    cls = _classes(tree)
+    base = cls["IsolinerAlgorithm"]
+    own = {n.name for n in base.body if isinstance(n, ast.FunctionDef)}
+    assert {"parameterAsSink", "postProcessAlgorithm"} <= own, own
+    bad = []
+    for name in EXPECTED:
+        node = cls[name]
+        bases = [getattr(b, "id", "") for b in node.bases]
+        if "IsolinerAlgorithm" not in bases:
+            bad.append("%s не наследует IsolinerAlgorithm" % name)
+        for fn in node.body:
+            if isinstance(fn, ast.FunctionDef) and fn.name in (
+                    "parameterAsSink", "postProcessAlgorithm"):
+                bad.append("%s переопределяет %s" % (name, fn.name))
+    assert not bad, "; ".join(bad)
+
+
 def test_metadata_counts_the_tools_right():
     """Число инструментов в `about` совпадает с их числом в коде.
 

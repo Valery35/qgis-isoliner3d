@@ -3504,4 +3504,109 @@ TRANSLATIONS = {
     'точки': 'points',
     'уровень %d': 'level %d',
     'чтение': 'reading',
+    'Подписи полей в файл не записаны: %s':
+        'Field captions were not written to the file: %s',
+    # подписи полей результатов (fields.py)
+    '%s: длина внутри, м':
+        '%s: length inside, m',
+    '%s: объектов внутри':
+        '%s: features inside',
+    '%s: сумма атрибута':
+        '%s: sum of the attribute',
+    'KCl без шума, %':
+        'KCl without noise, %',
+    'Борозда':
+        'Groove',
+    'Борт':
+        'Wall',
+    'Было':
+        'Before',
+    'В рудном теле':
+        'Inside the ore body',
+    'Верх блока, м':
+        'Block top, m',
+    'Граней':
+        'Faces',
+    'До, м':
+        'To, m',
+    'Дыр':
+        'Holes',
+    'Замер':
+        'Measured',
+    'Замкнуто':
+        'Closed',
+    'Защипов':
+        'Pinches',
+    'Значение':
+        'Value',
+    'Значение до':
+        'Value to',
+    'Значение от':
+        'Value from',
+    'Интервал окраски':
+        'Colour interval',
+    'Кровля пласта, м':
+        'Bed roof, m',
+    'Мощность, м':
+        'Thickness, m',
+    'Н.о. без шума, %':
+        'Insoluble residue without noise, %',
+    'Н.о., %':
+        'Insoluble residue, %',
+    'Название':
+        'Name',
+    'Невязка':
+        'Residual',
+    'Невязка по модулю':
+        'Absolute residual',
+    'Низ блока, м':
+        'Block bottom, m',
+    'Номер блока':
+        'Block number',
+    'Объём, м³':
+        'Volume, m³',
+    'Операция':
+        'Operation',
+    'От, м':
+        'From, m',
+    'Отметка верха, м':
+        'Top elevation, m',
+    'Отметка низа, м':
+        'Bottom elevation, m',
+    'Оценка':
+        'Estimate',
+    'Пласт':
+        'Bed',
+    'Плотность, т/м³':
+        'Density, t/m³',
+    'Подошва пласта, м':
+        'Bed floor, m',
+    'Размер по X, м':
+        'Size along X, m',
+    'Размер по Y, м':
+        'Size along Y, m',
+    'Размер по Z, м':
+        'Size along Z, m',
+    'Разность':
+        'Difference',
+    'Руда, т':
+        'Ore, t',
+    'Скважина':
+        'Hole',
+    'Слой по вертикали':
+        'Vertical layer',
+    'Содержание':
+        'Grade',
+    'Содержание без шума':
+        'Grade without noise',
+    'Стало':
+        'After',
+    'Столбец сетки':
+        'Grid column',
+    'Строка сетки':
+        'Grid row',
+    'Тело':
+        'Body',
+    'Уровень куба':
+        'Cube level',
 }

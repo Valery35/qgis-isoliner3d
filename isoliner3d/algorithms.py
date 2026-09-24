@@ -33,6 +33,7 @@ from osgeo import gdal
 from qgis.PyQt.QtCore import QUrl, QVariant
 
 from .i18n import tr as _tr   # нужен до констант уровня модуля
+from . import fields as _fields
 
 from qgis.core import (
     QgsProcessing,
@@ -240,6 +241,196 @@ def _set_output_name(context, path, name):
             context.layerToLoadOnCompletionDetails(path).name = name
     except Exception:  # nosec
         pass
+
+
+# --- Подписи и округление полей результата --------------------------------
+#
+# Словарь подписей и правило округления лежат в fields.py и проверяются
+# без QGIS. Здесь их работа со слоем: приёмник округляет поля, которые
+# создал модуль, подпись ставится на загруженный слой и пишется в сам
+# GeoPackage, чтобы пережить открытие файла без проекта.
+
+def _label_text(name):
+    """Подпись поля на языке интерфейса или None, если поле не наше."""
+    src = _fields.label_for(name)
+    if src is None:
+        return None
+    text = _tr(src)
+    prefix = _fields.label_prefix(name)
+    return text % prefix if prefix is not None else text
+
+
+def _label_layer(layer):
+    """Подписать поля слоя, целиком созданного модулем.
+
+    Нужен там, где слой собирается в памяти и кладётся в проект мимо
+    Processing: оболочки из окна просмотра, свита пластов из 1.07.
+    """
+    try:
+        for i, fld in enumerate(layer.fields()):
+            text = _label_text(fld.name())
+            if text:
+                layer.setFieldAlias(i, text)
+    except (AttributeError, RuntimeError):  # nosec - слой уже удалён
+        return
+
+
+def _input_fields(alg, parameters, context):
+    """Поля векторных входов прогона: имя -> подпись (пусто, если нет).
+
+    Поле с именем, как у входного, модуль своей подписью не подписывает
+    и не округляет: это поле человека, или оно пришло транзитом из
+    другого слоя. Если у входа подпись есть, выход получает ту же,
+    и подпись идёт за полем по цепочке 2.13 -> 2.14 -> 2.14. Так же
+    устроено в Isoliner.
+    """
+    names = {}
+
+    def _take(layer_like):
+        flds = layer_like.fields()
+        for i in range(flds.count()):
+            nm = flds.at(i).name()
+            try:
+                alias = layer_like.attributeAlias(i) or ""
+            except (AttributeError, RuntimeError):
+                alias = flds.at(i).alias() or ""
+            if alias or nm not in names:
+                names[nm] = alias
+
+    for pdef in alg.parameterDefinitions():
+        if pdef.isDestination():
+            continue
+        kind = pdef.type()
+        try:
+            if kind in ("source", "vector"):
+                lyr = alg.parameterAsVectorLayer(parameters, pdef.name(),
+                                                 context)
+                if lyr is None and kind == "source":
+                    lyr = alg.parameterAsSource(parameters, pdef.name(),
+                                                context)
+                if lyr is not None:
+                    _take(lyr)
+            elif kind == "multilayer":
+                for lyr in alg.parameterAsLayerList(parameters, pdef.name(),
+                                                    context) or []:
+                    if hasattr(lyr, "fields"):
+                        _take(lyr)
+        except Exception:  # nosec - вход без полей или недоступен
+            continue
+    return names
+
+
+class _RoundingSink:
+    """Приёмник, который округляет поля, созданные модулем.
+
+    Округление стоит в одном месте, на выходе, а не в каждом из
+    двадцати инструментов: иначе первый же новый инструмент
+    забыл бы его сделать. Поля, пришедшие со входа, не трогаются.
+    Всё, чего здесь нет, уходит настоящему приёмнику как есть.
+    """
+
+    def __init__(self, sink, targets):
+        self._sink = sink
+        self._targets = targets        # [(номер поля, имя)]
+
+    def _round(self, ft):
+        attrs = ft.attributes()
+        changed = False
+        for i, name in self._targets:
+            if i < len(attrs):
+                v = attrs[i]
+                r = _fields.round_value(name, v)
+                if r is not v:
+                    attrs[i] = r
+                    changed = True
+        if changed:
+            ft.setAttributes(attrs)
+
+    def addFeature(self, ft, *args):
+        self._round(ft)
+        return self._sink.addFeature(ft, *args)
+
+    def addFeatures(self, feats, *args):
+        for ft in feats:
+            self._round(ft)
+        return self._sink.addFeatures(feats, *args)
+
+    def __getattr__(self, name):
+        return getattr(self._sink, name)
+
+
+class _LabelPostProcessor(QgsProcessingLayerPostProcessorInterface):
+    """Ставит подписи полей на загруженный слой, затем отдаёт слой
+    прежнему пост-процессору, если он был."""
+
+    def __init__(self, table, inner=None):
+        super().__init__()
+        self.table = table            # имя поля -> подпись
+        self.inner = inner
+
+    def postProcessLayer(self, layer, context, feedback):
+        if self.inner is not None:
+            self.inner.postProcessLayer(layer, context, feedback)
+        try:
+            flds = layer.fields()
+            for name, text in self.table.items():
+                i = flds.indexOf(name)
+                if i >= 0 and text:
+                    layer.setFieldAlias(i, text)
+        except (AttributeError, RuntimeError):  # nosec - слой удалён
+            return
+
+
+def _pick_gpkg_layer(ds, path, layer_name):
+    """Слой GeoPackage по имени, а без имени - по имени файла.
+
+    Приёмник результата отдаёт один путь без имени слоя. QGIS называет
+    такой слой по файлу. Если файл несёт единственный слой, берём его.
+    """
+    if layer_name:
+        return ds.GetLayerByName(layer_name)
+    stem = os.path.splitext(os.path.basename(path))[0]
+    lyr = ds.GetLayerByName(stem)
+    if lyr is not None:
+        return lyr
+    return ds.GetLayer(0) if ds.GetLayerCount() == 1 else None
+
+
+def _bake_labels(path, layer_name, table):
+    """Записать подписи в сам GeoPackage. Возвращает число полей.
+
+    Подпись, поставленная на слой, живёт в проекте. Файл, открытый сам
+    по себе, снова показывал латиницу. GDAL кладёт подпись в
+    gpkg_data_columns, и QGIS читает её оттуда при любом открытии.
+
+    Подпись, совпадающая с именем поля без учёта регистра, GDAL при
+    чтении выбрасывает: у поля x подписи «X» в файле не будет, и в
+    таблице видно то же самое x. Вреда в этом нет.
+    """
+    from osgeo import ogr
+    ds = gdal.OpenEx(path, gdal.OF_UPDATE | gdal.OF_VECTOR)
+    if ds is None:
+        return 0
+    lyr = _pick_gpkg_layer(ds, path, layer_name)
+    if lyr is None:
+        return 0
+    defn = lyr.GetLayerDefn()
+    done = 0
+    for i in range(defn.GetFieldCount()):
+        old = defn.GetFieldDefn(i)
+        text = table.get(old.GetName())
+        if not text:
+            continue
+        if old.GetAlternativeName() == text:
+            done += 1
+            continue
+        nd = ogr.FieldDefn(old.GetName(), old.GetType())
+        nd.SetSubType(old.GetSubType())
+        nd.SetAlternativeName(text)
+        if lyr.AlterFieldDefn(i, nd, ogr.ALTER_ALTERNATIVE_NAME_FLAG) == 0:
+            done += 1
+    ds = None
+    return done
 
 
 def _read_surface(lyr, band=1):
@@ -539,6 +730,11 @@ class IsolinerAlgorithm(QgsProcessingAlgorithm):
         trace.data("Параметры: %s" % self._short_params(parameters))
         started = time.time()
         feedback = _JournalFeedback(feedback, trace)
+        # Выходы этого прогона: сюда их записывает parameterAsSink, а
+        # postProcessAlgorithm ставит им подписи. Сброс в начале прогона,
+        # иначе повторный запуск унаследует выходы прошлого.
+        self._outputs = []
+        self._inputs = None
         try:
             result = self._process(parameters, context, feedback)
             trace.step("Готово за %.1f с" % (time.time() - started))
@@ -560,6 +756,68 @@ class IsolinerAlgorithm(QgsProcessingAlgorithm):
         а им пользуются все инструменты, поэтому держим свой.
         """
         return _tr(text)
+
+    def _input_names(self, parameters, context):
+        """Поля входов прогона, считаются один раз на прогон."""
+        if getattr(self, "_inputs", None) is None:
+            self._inputs = _input_fields(self, parameters, context)
+        return self._inputs
+
+    def parameterAsSink(self, parameters, name, context, fields,
+                        *args, **kwargs):
+        """Приёмник, который округляет поля модуля и помнит, куда лёг.
+
+        Все инструменты берут приёмник отсюда, поэтому округление и
+        подписи достаются каждому, в том числе будущему, без правки
+        самого инструмента.
+        """
+        sink, dest = super().parameterAsSink(parameters, name, context,
+                                             fields, *args, **kwargs)
+        if sink is None:
+            return sink, dest
+        inputs = self._input_names(parameters, context)
+        names = [fields.at(i).name() for i in range(fields.count())]
+        table = {}
+        for nm in names:
+            if nm in inputs:
+                if inputs[nm]:
+                    table[nm] = inputs[nm]
+            else:
+                text = _label_text(nm)
+                if text:
+                    table[nm] = text
+        if not hasattr(self, "_outputs") or self._outputs is None:
+            self._outputs = []
+        self._outputs.append((dest, table))
+        targets = [(i, nm) for i, nm in enumerate(names) if nm not in inputs]
+        return (_RoundingSink(sink, targets) if targets else sink), dest
+
+    def postProcessAlgorithm(self, context, feedback):
+        """Подписи полей на загруженные выходы и в файлы GeoPackage."""
+        for dest, table in getattr(self, "_outputs", None) or []:
+            if not table or not dest:
+                continue
+            try:
+                if context.willLoadLayerOnCompletion(dest):
+                    det = context.layerToLoadOnCompletionDetails(dest)
+                    pp = _LabelPostProcessor(table, det.postProcessor())
+                    _KEEP_ALIVE.append(pp)
+                    det.setPostProcessor(pp)
+            except (AttributeError, RuntimeError, TypeError):  # nosec
+                pass
+            target = _fields.split_gpkg_ref(dest)
+            if target is None:
+                continue
+            try:
+                _bake_labels(target[0], target[1], table)
+            except Exception as exc:  # запись подписей не роняет инструмент
+                try:
+                    feedback.pushDebugInfo(
+                        self.tr("Подписи полей в файл не записаны: %s")
+                        % exc)
+                except Exception:  # nosec
+                    pass
+        return {}
 
     def _process(self, parameters, context, feedback):
         raise NotImplementedError
@@ -1741,6 +1999,7 @@ class PolyhedralDemoAlgorithm(IsolinerAlgorithm):
                 pr.addAttributes([_field("bed", QVariant.Int),
                                   _field("watertight", QVariant.Int)])
                 lyr.updateFields()
+                _label_layer(lyr)
                 _ne, n_open = poly.edge_audit(bp)
                 ft = QgsFeature(lyr.fields())
                 ft.setGeometry(g)

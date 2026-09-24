@@ -156,6 +156,30 @@ can be tied to a particular bed or surface, or the tool can be asked to
 take the area from the data themselves - the convex hull of their own
 samples.
 
+## Result fields
+
+The fields of the layers the module creates have Latin names that do
+not depend on the language. Expressions, labels and styles refer to
+them, and a project made in a Russian QGIS opens in an English one.
+The attribute table, the forms and the identify window show field
+captions in the interface language: **Volume, m³**, **Bed roof, m**,
+**Grade**.
+
+The captions are written into the GeoPackage itself as well. A result
+file opened on its own, without a project, shows the same captions. The
+file keeps the language it was made in.
+
+A field that came from the input is neither captioned nor changed by
+the module. If the input field has a caption, the result gets the same
+one.
+
+Numbers in the fields the module creates are rounded. Coordinates,
+elevations, lengths and sizes go to the centimetre. Volumes, masses,
+grades and residuals keep four significant digits, and the integer part
+is never rounded: a shell volume of 39524.12 m³ is written as 39524, a
+grade of 25.3745 as 25.37, a grade of 0.0045678 as 0.004568. The fields
+of the input layer are not rounded.
+
 # The viewer
 
 The list of project layers with checkboxes is on the left, the scene on
