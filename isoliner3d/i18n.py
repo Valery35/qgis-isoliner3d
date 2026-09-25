@@ -810,7 +810,10 @@ TRANSLATIONS = {
     'расходятся, и в модели встаёт щель или нахлёст, которых на разрезе нет. '
     'Порог склейки задаётся допуском.\n\nМаска области обрезает результат: '
     'между разрезами данных нет, и ею задаётся, докуда поверхностям '
-    'верить.\n\nМежду разрезами поверхность идёт так, как её провела '
+    'верить.\n\nЕсли граница пласта на плане известна вместе с отметками, '
+    'её подают контуром на плане. На нём кровля и подошва сходятся, и пласт '
+    'к нему выклинивается. Маска так не умеет: у её края тело уходит вниз '
+    'отвесной стенкой.\n\nМежду разрезами поверхность идёт так, как её провела '
     'интерполяция: данных там нет. Где разрезы пересекаются, отметки на них '
     'должны сойтись. Расхождения считаются и печатаются в журнал вместе '
     'с координатами места, где они наибольшие: с одним числом искать '
@@ -832,7 +835,11 @@ TRANSLATIONS = {
         'gets a gap or an overlap that the section does not have. The '
         'threshold of the gluing is set by the tolerance.\n\nThe area mask '
         'clips the result: between the sections there is no data, and the '
-        'mask says how far to trust the surfaces.\n\nBetween the sections '
+        'mask says how far to trust the surfaces.\n\nIf the boundary of '
+        'the bed on the plan is known together with its elevations, it is '
+        'given as the outline on the plan. The roof and the floor meet on '
+        'it, and the bed pinches out towards it. The mask cannot do that: '
+        'at its edge the body drops down as a vertical wall.\n\nBetween the sections '
         'the surface goes where the interpolation put it: there is no data '
         'there. Where the sections cross, the elevations on them must agree. '
         'The disagreements are counted and go to the log together with the '
@@ -3609,4 +3616,43 @@ TRANSLATIONS = {
         'Body',
     'Уровень куба':
         'Cube level',
+    # 2.08: контур пласта на плане, выклинивание
+    'Граница пласта на плане: линии или полигоны с настоящими Z. На ней '
+    'кровля и подошва сходятся, и пласт к ней выклинивается. Маска так не '
+    'умеет: она обрезает готовые поверхности, и у её края тело уходит вниз '
+    'отвесной стенкой. За контур пласт не выходит, отдельная маска для этого'
+    ' не нужна. Контур без отметок работает только маской. Где контур '
+    'пересекает разрез, отметки обязаны сойтись, расхождение печатается '
+    'в журнал.':
+        'The boundary of the bed on the plan: lines or polygons with real Z.'
+        ' The roof and the floor meet on it, and the bed pinches out towards'
+        ' it. The mask cannot do that: it clips the finished surfaces, and '
+        'at its edge the body drops down as a vertical wall. The bed does '
+        'not go beyond the outline, no separate mask is needed for that. An '
+        'outline without elevations works as a mask only. Where the outline '
+        'crosses a section, the elevations must agree, the disagreement goes'
+        ' to the log.',
+    'Контур пласта на плане (линии или полигоны с Z, необязательно)':
+        'Outline of the bed on the plan (lines or polygons with Z, optional)',
+    'Контур пласта на плане пуст, выклинивания не будет.':
+        'The outline of the bed on the plan is empty, there will be no '
+        'pinch-out.',
+    'Пласт %s: контур на плане, точек %d, отметки %.2f .. %.2f м. Кровля и '
+    'подошва сходятся на нём, пласт к нему выклинивается.':
+        'Bed %s: outline on the plan, %d points, elevations %.2f .. %.2f m. '
+        'The roof and the floor meet on it, the bed pinches out towards it.',
+    'Пласт %s: контуров на плане без отметок %d. Они только обрезают пласт, '
+    'выклинивания к ним не будет.':
+        'Bed %s: outlines on the plan without elevations: %d. They only clip'
+        ' the bed, there will be no pinch-out towards them.',
+    'Пласт %s: у контура выклинивания подошва местами вышла выше кровли, '
+    'ячеек %d. Там мощность принята нулевой.':
+        'Bed %s: near the pinch-out outline the floor rose above the roof in'
+        ' places, %d cells. The thickness there is taken as zero.',
+    'Поле номера пласта в контуре (пусто - контур общий)':
+        'Field of the bed number in the outline (empty - one outline for all)',
+    'Поле, по которому контур привязан к пласту. Контур с пустым значением '
+    'относится ко всем пластам.':
+        'The field that ties an outline to a bed. An outline with an empty '
+        'value applies to all beds.',
 }

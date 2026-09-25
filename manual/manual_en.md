@@ -156,6 +156,11 @@ can be tied to a particular bed or surface, or the tool can be asked to
 take the area from the data themselves - the convex hull of their own
 samples.
 
+A mask only clips the surface, and at its edge the body of the bed drops
+down as a vertical wall. If the bed has to pinch out towards a boundary
+known on the plan together with its elevations, 2.08 takes it as the
+outline on the plan.
+
 ## Result fields
 
 The fields of the layers the module creates have Latin names that do
@@ -670,6 +675,8 @@ The floor of the upper bed and the roof of the lower one are one and the same bo
 
 The area mask clips the result: between the sections there is no data, and the mask says how far to trust the surfaces.
 
+If the boundary of the bed on the plan is known together with its elevations, it is given as the outline on the plan. The roof and the floor meet on it, and the bed pinches out towards it. The mask cannot do that: at its edge the body drops down as a vertical wall.
+
 Between the sections the surface goes where the interpolation put it: there is no data there. Where the sections cross, the elevations on them must agree. The disagreements are counted and go to the log together with the coordinates of the place where they are largest: with a number alone there is nowhere to look for the vertex that slipped.
 
 | Field | What it sets |
@@ -679,9 +686,13 @@ Between the sections the surface goes where the interpolation put it: there is n
 | **This bed only (empty means all)** | The number of the bed, if only one is wanted. Empty means all. |
 | **Grid step, m (0 means from the data)** | The step of the grid over the area. Zero takes a two-hundredth of the extent. |
 | **Area mask (polygons, optional)** | A polygon layer the result is clipped by. Outside it there is no grid at all. Between the sections there are no data, and the surface goes where the interpolation drew it: the mask says how far to trust that. Usually it is the outline of a working, a pit or a block. Empty - the grid covers the whole extent of the contours. |
+| **Field of the bed number in the mask (empty - one mask for all)** | The field that ties a mask polygon to a bed. It helps when one bed has shorter sections than its neighbours and has to be clipped differently. A polygon with an empty value clips every bed. |
+| **Outline of the bed on the plan (lines or polygons with Z, optional)** | The boundary of the bed on the plan: lines or polygons with real Z. The roof and the floor meet on it, and the bed pinches out towards it. The mask cannot do that: it clips the finished surfaces, and at its edge the body drops down as a vertical wall. The bed does not go beyond the outline, no separate mask is needed for that. An outline without elevations works as a mask only. Where the outline crosses a section, the elevations must agree, the disagreement goes to the log. |
+| **Field of the bed number in the outline (empty - one outline for all)** | The field that ties an outline to a bed. An outline with an empty value applies to all beds. |
 | **Grid of the beds** | A multiband grid: a roof and a floor per bed, in order of the numbers. The scene shows such a grid as a bed body, 1.02 computes the thickness from it and 1.03 the blocks and the volumes. |
 | **Levels** | Levels in the multilevel approximation. Few levels give a smooth surface, many bring it closer to the elevations on the sections. |
-| **Contact gluing tolerance, m** | The tolerance within which the floor of the upper bed and the roof of the lower one count as one surface and are built once. Two surfaces built independently drift apart between the sections, and the model gets a gap or an overlap that the section does not have. Zero switches the gluing off: then every surface is its own. |
+| **Contact gluing tolerance, m** | The tolerance within which the floor of the upper bed and the roof of the lower one count as one surface and are built once. Two surfaces built independently drift apart between the sections, and the model gets a gap or an overlap that the section does not have. Five centimetres by default is not modesty: the samples of two beds land in different places along the wall, and on a dipping bed that alone gives a centimetre and a half of disagreement. That is below any parting and above the sampling noise. Zero switches the gluing off: then every surface is its own. |
+| **Clip every bed by its own sections** | Clip every bed by the area of its OWN sections: the convex hull of its samples plus the margin. Beyond it the bed was not observed, and drawing it there is invention. A bed met on three walls out of four will stop stretching over the whole area. |
 | **Margin outwards from the mask, m** | A margin outwards from the mask. The bed usually continues beyond the outline of a working, and clipping exactly along it would cut away what the data do hold. |
 
 ## 2.09 A demonstration drift (demo)

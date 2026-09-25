@@ -634,3 +634,81 @@ def _cut_extreme(poly_s, poly_z, cuts, high=True):
         pick = np.maximum(cur, z) if high else np.minimum(cur, z)
         out[m] = np.where(np.isfinite(cur), pick, z)
     return out
+
+
+def outline_points(lines, step):
+    """Точки по контуру пласта на плане, с шагом вдоль рёбер.
+
+    Контур рисуют редкими вершинами, а разрезы опробованы густо.
+    Подав одни вершины, получаешь между ними ребро без единой точки,
+    и интерполяция проводит край пласта где придётся. Поэтому рёбра
+    нарезаются с шагом опробования, отметка по ребру идёт линейно.
+
+    Контур без отметок (у двухмерного слоя они NaN) в выклинивание
+    не идёт: подставить ноль значит положить границу пласта на уровень
+    моря. Такие контуры считаются и возвращаются числом, чтобы
+    инструмент сказал о них, а не промолчал.
+
+    Возвращает (точки (N, 3), число контуров без отметок).
+    """
+    step = max(float(step), 1e-6)
+    out, n_flat = [], 0
+    for ln in lines:
+        p = np.asarray(ln, dtype=float)
+        if p.ndim != 2 or len(p) < 2 or p.shape[1] < 3:
+            continue
+        if not np.isfinite(p[:, 2]).all():
+            n_flat += 1
+            continue
+        for a, b in zip(p[:-1], p[1:]):
+            d = float(np.hypot(b[0] - a[0], b[1] - a[1]))
+            n = max(int(np.ceil(d / step)), 1)
+            t = np.arange(n, dtype=float)[:, None] / n
+            out.append(a[None, :3] + t * (b[None, :3] - a[None, :3]))
+        # последняя вершина: у разомкнутой линии её иначе не будет,
+        # у кольца она совпадает с первой и ничего не портит
+        out.append(p[-1:, :3])
+    if not out:
+        return np.zeros((0, 3)), n_flat
+    return np.vstack(out), n_flat
+
+
+def pinch_to_outline(top, bot, whose, edge):
+    """Контур пласта на плане становится местом, где мощность ноль.
+
+    Маска только обрезает готовые кровлю и подошву, и у её края тело
+    уходит вниз отвесной стенкой. На контуре пласта кровля и подошва
+    сходятся, поэтому его точки идут в обе поверхности с одной
+    отметкой, и тело к контуру выклинивается само.
+
+    Номер плоскости у точек контура -1: он отличен от номеров
+    разрезов, и проверка схождения сверяет контур с разрезами там,
+    где они встретились в плане.
+    """
+    e = np.asarray(edge, dtype=float).reshape(-1, 3)
+    if not len(e):
+        return top, bot, whose
+    w = np.full(len(e), -1, dtype=np.int64)
+    return (np.vstack([top, e]), np.vstack([bot, e]),
+            np.concatenate([np.asarray(whose, dtype=np.int64), w]))
+
+
+def close_negative(top, bot):
+    """Где подошва вышла выше кровли, мощность ноль.
+
+    У контура выклинивания кровля и подошва подходят друг к другу
+    вплотную, и интерполяция местами проводит их крест-накрест на
+    сантиметры. Отрицательная мощность смысла не имеет, а объём
+    по ней вычитается. Там обе поверхности сводятся к средней.
+
+    Возвращает (кровля, подошва, число исправленных ячеек).
+    """
+    t = np.array(top, dtype=float)
+    b = np.array(bot, dtype=float)
+    with np.errstate(invalid="ignore"):
+        bad = np.isfinite(t) & np.isfinite(b) & (b > t)
+    if bad.any():
+        mid = 0.5 * (t[bad] + b[bad])
+        t[bad] = mid
+        b[bad] = mid
+    return t, b, int(bad.sum())

@@ -3607,6 +3607,17 @@ HINTS_2_08 = {
     "MASK_BUFFER": "Запас наружу от маски. Пласт обычно продолжается "
                    "за контур выработки, и обрезка ровно по нему "
                    "срезала бы то, что есть в данных.",
+    "OUTLINE": "Граница пласта на плане: линии или полигоны с настоящими "
+               "Z. На ней кровля и подошва сходятся, и пласт к ней "
+               "выклинивается. Маска так не умеет: она обрезает готовые "
+               "поверхности, и у её края тело уходит вниз отвесной "
+               "стенкой. За контур пласт не выходит, отдельная маска "
+               "для этого не нужна. Контур без отметок работает только "
+               "маской. Где контур пересекает разрез, отметки обязаны "
+               "сойтись, расхождение печатается в журнал.",
+    "OUTLINE_FIELD": "Поле, по которому контур привязан к пласту. "
+                     "Контур с пустым значением относится ко всем "
+                     "пластам.",
     "OUTPUT": "Многоканальный грид: на каждый пласт кровля и подошва, "
               "в порядке номеров. Сцена показывает такой грид телом "
               "пласта, 1.02 считает по нему мощность, 1.03 - блоки "
@@ -3878,6 +3889,10 @@ class SectionsToBedAlgorithm(IsolinerAlgorithm):
             "нет. Порог склейки задаётся допуском.\n\n"
             "Маска области обрезает результат: между разрезами "
             "данных нет, и ею задаётся, докуда поверхностям верить.\n\n"
+            "Если граница пласта на плане известна вместе с отметками, "
+            "её подают контуром на плане. На нём кровля и подошва "
+            "сходятся, и пласт к нему выклинивается. Маска так не "
+            "умеет: у её края тело уходит вниз отвесной стенкой.\n\n"
             "Между разрезами поверхность идёт так, как её провела "
             "интерполяция: данных там нет. Где разрезы пересекаются, "
             "отметки на них должны сойтись. Расхождения считаются "
@@ -3922,9 +3937,76 @@ class SectionsToBedAlgorithm(IsolinerAlgorithm):
             "MASK_BUFFER", self.tr("Запас наружу от маски, м"),
             QgsProcessingParameterNumber.Type.Double,
             defaultValue=0.0, minValue=0.0)))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "OUTLINE", self.tr("Контур пласта на плане (линии или "
+                               "полигоны с Z, необязательно)"),
+            [QgsProcessing.SourceType.TypeVectorLine,
+             QgsProcessing.SourceType.TypeVectorPolygon],
+            optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            "OUTLINE_FIELD", self.tr("Поле номера пласта в контуре "
+                                     "(пусто - контур общий)"),
+            parentLayerParameterName="OUTLINE", optional=True))
         self.addParameter(QgsProcessingParameterRasterDestination(
             "OUTPUT", self.tr("Грид пластов")))
         _hints(self, HINTS_2_08)
+
+    def _outline_lines(self, src, crs, field, feedback):
+        """Контуры пласта на плане: (номер пласта, вершины (N, 3)).
+
+        Линия берётся как есть, у полигона внешнее кольцо. Система
+        координат приводится к системе разрезов, как у маски: слой
+        контуров человек берёт какой есть. Отметки при пересчёте
+        сохраняются. У двухмерного слоя они NaN, и такой контур
+        дальше пойдёт только маской.
+        """
+        from qgis.core import QgsCoordinateTransform, QgsProject
+        if src is None:
+            return []
+        tr_ = None
+        s_crs = src.sourceCrs()
+        if (crs is not None and s_crs is not None and s_crs.isValid()
+                and crs.isValid() and s_crs != crs):
+            tr_ = QgsCoordinateTransform(s_crs, crs,
+                                         QgsProject.instance())
+        out = []
+        for ft in src.getFeatures():
+            if feedback.isCanceled():
+                break
+            bed = ""
+            if field:
+                try:
+                    own = ft[field]
+                except (KeyError, IndexError):
+                    own = None
+                bed = "" if own is None else str(own).strip()
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            if tr_ is not None:
+                g = QgsGeometry(g)
+                if g.transform(tr_) != 0:
+                    continue
+            root = g.constGet()
+            try:
+                n_part = root.numGeometries()
+            except AttributeError:
+                n_part = 1
+            for pi in range(n_part):
+                try:
+                    part = root.geometryN(pi) if n_part > 1 else root
+                except AttributeError:
+                    part = root
+                ring = getattr(part, "exteriorRing", None)
+                line = ring() if callable(ring) else part
+                if line is None or not hasattr(line, "numPoints"):
+                    continue
+                pts = np.array(
+                    [(line.xAt(k), line.yAt(k), line.zAt(k))
+                     for k in range(line.numPoints())], dtype=float)
+                if len(pts) >= 2:
+                    out.append((bed, pts))
+        return out
 
     def _rings(self, src, field, only, feedback):
         """Кольца контуров с номером пласта, из геометрии как есть."""
@@ -3998,6 +4080,9 @@ class SectionsToBedAlgorithm(IsolinerAlgorithm):
         mask_fld = self.parameterAsString(parameters, "MASK_FIELD",
                                           context)
         mask_own = self.parameterAsBool(parameters, "MASK_OWN", context)
+        edge_src = self.parameterAsSource(parameters, "OUTLINE", context)
+        edge_fld = self.parameterAsString(parameters, "OUTLINE_FIELD",
+                                          context)
         out_path = self.parameterAsOutputLayer(parameters, "OUTPUT",
                                                context)
 
@@ -4009,8 +4094,16 @@ class SectionsToBedAlgorithm(IsolinerAlgorithm):
         beds = sorted({b for b, _p in rings})
         feedback.pushInfo(self.tr("Контуров: %d, пластов: %d.")
                           % (len(rings), len(beds)))
+        edges = self._outline_lines(edge_src, crs_in, edge_fld, feedback)
+        if edge_src is not None and not edges:
+            feedback.pushWarning(self.tr(
+                "Контур пласта на плане пуст, выклинивания не будет."))
 
-        allp = np.vstack([p for _b, p in rings])
+        # Охват берётся и по контуру на плане: разрезы бывают только
+        # по краям, а граница пласта шире них.
+        allp = np.vstack([p for _b, p in rings]
+                         + [p[:, :3] for _b, p in edges])
+        allp = allp[np.isfinite(allp[:, :2]).all(axis=1)]
         x0, x1 = float(allp[:, 0].min()), float(allp[:, 0].max())
         y0, y1 = float(allp[:, 1].min()), float(allp[:, 1].max())
         if cell <= 0:
@@ -4057,9 +4150,30 @@ class SectionsToBedAlgorithm(IsolinerAlgorithm):
                 "%.2f .. %.2f м.")
                 % (bed or "-", len(top), float(thick.min()),
                    float(thick.max())))
-            picked.append({"bed": bed, "top": top, "bot": bot,
-                           "whose": whose,
-                           "thin": float(thick.min())})
+            d = {"bed": bed, "top": top, "bot": bot, "whose": whose,
+                 "thin": float(thick.min()),
+                 "top_s": top, "bot_s": bot, "edge": []}
+            own_e = [p for b, p in edges if not b or b == str(bed)]
+            if own_e:
+                d["edge"] = own_e
+                step = max(section3d.sample_step(top), cell)
+                pts_e, n_flat = section3d.outline_points(own_e, step)
+                if n_flat:
+                    feedback.pushWarning(self.tr(
+                        "Пласт %s: контуров на плане без отметок %d. "
+                        "Они только обрезают пласт, выклинивания к ним "
+                        "не будет.") % (bed or "-", n_flat))
+                if len(pts_e):
+                    d["top"], d["bot"], d["whose"] = \
+                        section3d.pinch_to_outline(top, bot, whose, pts_e)
+                    feedback.pushInfo(self.tr(
+                        "Пласт %s: контур на плане, точек %d, "
+                        "отметки %.2f .. %.2f м. Кровля и подошва "
+                        "сходятся на нём, пласт к нему выклинивается.")
+                        % (bed or "-", len(pts_e),
+                           float(pts_e[:, 2].min()),
+                           float(pts_e[:, 2].max())))
+            picked.append(d)
         if not picked:
             raise QgsProcessingException(self.tr(
                 "Ни одного пласта не построено."))
@@ -4079,12 +4193,16 @@ class SectionsToBedAlgorithm(IsolinerAlgorithm):
         # разрезами, и в модели между пластами появляется щель или
         # нахлёст, которых на разрезе нет.
         for up, low in zip(picked, picked[1:]):
-            snap = max(section3d.sample_step(up["bot"]), cell)
-            joint = np.vstack([up["bot"], low["top"]])
-            side = np.concatenate([np.zeros(len(up["bot"])),
-                                   np.ones(len(low["top"]))])
+            # Сверка только по разрезам: общий контур на плане у двух
+            # пластов совпадает сам с собой и склеил бы их там, где
+            # на разрезах они не встречались.
+            snap = max(section3d.sample_step(up["bot_s"]), cell)
+            probe = np.vstack([up["bot_s"], low["top_s"]])
+            side = np.concatenate([np.zeros(len(up["bot_s"])),
+                                   np.ones(len(low["top_s"]))])
             places, worst, where = section3d.crossing_spread(
-                joint, joint[:, 2], snap=snap, owner=side)
+                probe, probe[:, 2], snap=snap, owner=side)
+            joint = np.vstack([up["bot"], low["top"]])
             if not places:
                 # Молчать здесь нельзя: человек ждёт склейки, её нет,
                 # и причина именно та, о которой он не догадается -
@@ -4172,6 +4290,12 @@ class SectionsToBedAlgorithm(IsolinerAlgorithm):
                                       field=mask_fld, bed=bed)
                 if mr:
                     keep = polygon_mask(mr, gt, (ny, nx))
+            if d["edge"]:
+                em = polygon_mask(
+                    [[(float(x), float(y)) for x, y in p[:, :2]]
+                     for p in d["edge"] if len(p) >= 3],
+                    gt, (ny, nx))
+                keep = em if keep is None else (keep & em)
             if mask_own:
                 own_ring = self._own_hull(
                     np.vstack([d["top"], d["bot"]]), mask_buf)
@@ -4191,6 +4315,14 @@ class SectionsToBedAlgorithm(IsolinerAlgorithm):
                     "Пласт %s: обрезано маской, осталось %.1f "
                     "процента ячеек.")
                     % (bed or "-", 100.0 * n_keep / float(nx * ny)))
+            if d["edge"]:
+                t_, b_, n_x = section3d.close_negative(surf[0], surf[1])
+                surf = [t_, b_]
+                if n_x:
+                    feedback.pushInfo(self.tr(
+                        "Пласт %s: у контура выклинивания подошва "
+                        "местами вышла выше кровли, ячеек %d. Там "
+                        "мощность принята нулевой.") % (bed or "-", n_x))
             bands.extend(surf)
             m = surf[0] - surf[1]
             fin = m[np.isfinite(m)]
