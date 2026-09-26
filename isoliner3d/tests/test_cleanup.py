@@ -129,6 +129,22 @@ def test_volume_needs_consistent_winding():
     assert abs(cleanup.mesh_volume(v, mixed) - 1000.0) < 1e-6
 
 
+def test_degenerate_face_does_not_flip_its_neighbours():
+    """Вырожденная грань не выворачивает соседей при согласовании.
+
+    Своё ребро она проходит в обе стороны, и если согласование дойдёт
+    до неё раньше, чем её выбросят, соседа по этому ребру оно
+    перевернёт зря. Маршевая поверхность по полю с точными нулями
+    в узлах даёт таких граней тысячи. На кубе хватает одной: объём
+    выходил 833 вместо 1000.
+    """
+    v, f = _cube(0.0, 10.0, 0.0, 10.0, 0.0, 10.0)
+    for tri in f[:4]:
+        bad = np.array([[tri[0], tri[1], tri[0]]])
+        got = cleanup.mesh_volume(v, np.vstack([bad, f]))
+        assert abs(got - 1000.0) < 1e-6, got
+
+
 def test_orient_returns_a_consistent_mesh():
     v, f = _cube(0.0, 10.0, 0.0, 10.0, 0.0, 10.0)
     mixed = f.copy()

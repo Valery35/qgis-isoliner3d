@@ -1045,6 +1045,31 @@ Ten chains that come round again and again in the work. Numbers with a
 dot are Isoliner3D tools, names without a number are the neighbouring
 Isoliner.
 
+## 2.15 Formation bodies from outlines
+
+Builds bodies of formations from outlines in any planes: vertical sections, the map on the ground surface, inclined cuts. There may be several input layers.
+
+For formations that lie side by side and meet along steep contacts. 2.08 builds beds lying one above another, and on such formations it stretches each over the common area.
+
+Every formation gets a field: the signed distance to its contacts, plus inside, minus outside. The outer edge of an outline is not a contact: the bottom of a section and the edge of the map are drawn where the data ended. The field is interpolated in the volume with multilevel B-splines, and every voxel goes to the formation with the largest field. There are no gaps or overlaps between the bodies by construction.
+
+If the sections are parallel, the interpolation lattice is dense in their plane and sparse across. Then a contact between the sections runs from one to the other instead of blurring. The map holds a contact near the surface, the sections carry it into depth.
+
+From above the bodies are clipped by the relief built from the map elevations and the tops of the sections, from below by the lowest elevation of the data, in plan by the convex hull of the data.
+
+The log shows the misfit at the contacts for every formation. A large misfit means that outlines in different planes disagree.
+
+The code of a formation must match on the sections and on the map: that is how the tool knows it is one formation. A contact is found by the shared edges of neighbouring outlines in one plane, so neighbouring outlines should be drawn with snapped vertices, without gaps.
+
+| Field | What it sets |
+|---|---|
+| **Outline layers (polygons with Z)** | Outline layers: polygons with real Z, in any planes. Vertical sections, a map of the formations on the ground surface with the relief elevations, inclined cuts, all together. Every outline is sampled in its own plane, and the plane is taken from its vertices. A flat drawn section is no good: it has no real elevations. |
+| **Formation code field (empty - layer name)** | The formation code field. The same code on a section and on the map means one formation. Empty or no such field in a layer - the layer name serves as the code: handy when every formation lies in its own layer. |
+| **Area grid step, m (0 - from the data)** | The grid step over the area. Zero takes a hundredth of the extent. A contact lands within half a cell, and the time grows with the number of cells. |
+| **Vertical step, m (0 - half the area step)** | The vertical grid step. Zero takes half the area step: formations are usually steeper vertically than along the strike. |
+| **Formation cube** | Formation cube: every voxel holds the number of its formation, above the relief and outside the data it is empty. The scene shows it as a cube, 2.03 turns it into a block model. |
+| **Formation bodies** | Formation bodies: closed shells, one per connected piece of a formation, with the volume in the attributes. 2.11, 2.12 and 2.14 take them. |
+
 ## From boreholes to reserves
 
 1. Samples with grades in a point layer, the elevation in the geometry
@@ -1202,6 +1227,10 @@ will not agree exactly. The mesh runs through the centres of the cells,
 the perimeter: about one per cent on a grid of two hundred cells, and
 noticeably more on a coarse one.
 
+
+### Formations side by side, not one above another
+
+2.08 builds beds: each has a roof and a floor over the plan, and the beds lie one above another. If formations lie side by side and meet along steep contacts, like volcanic formations on a section across the strike, 2.08 stretches each over the common area. For them there is **2.15 Formation bodies from outlines**: sections, a map of the formations with the relief elevations and inclined cuts go in together, and every point of the volume goes to one formation.
 
 ## A surface from cross sections
 

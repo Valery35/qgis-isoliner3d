@@ -6917,6 +6917,325 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
         return {"OUTPUT": dest}
 
 
+HINTS_2_15 = {
+    "INPUTS": "Слои контуров: полигоны с настоящими Z, в любых "
+              "плоскостях. Вертикальные разрезы, карта толщ на дневной "
+              "поверхности с отметками рельефа, наклонные сечения, "
+              "всё вместе. Каждый контур опробуется в своей плоскости, "
+              "и плоскость берётся из самих вершин. Плоский чертёжный "
+              "разрез не годится: у него нет настоящих отметок.",
+    "FIELD": "Поле кода толщи. Одинаковый код на разрезе и на карте "
+             "значит одну толщу. Пусто или поля в слое нет - кодом "
+             "служит имя слоя: так удобно, когда каждая толща лежит "
+             "своим слоем.",
+    "CELL": "Шаг сетки по площади. Ноль берёт сотую долю охвата. "
+            "Контакт ложится с точностью до половины ячейки, а время "
+            "растёт с числом ячеек.",
+    "CELLZ": "Шаг сетки по вертикали. Ноль берёт половину шага "
+             "по площади: толщи обычно круче по вертикали, чем "
+             "по простиранию.",
+    "OUTPUT_CUBE": "Куб толщ: в каждом вокселе номер толщи, над рельефом "
+                   "и вне данных пусто. Сцена показывает его как куб, "
+                   "2.03 переводит в блочную модель.",
+    "OUTPUT": "Тела толщ: замкнутые оболочки, по одной на связный "
+              "кусок толщи, с объёмом в атрибутах. Их принимают "
+              "2.11, 2.12 и 2.14.",
+}
+
+
+class FormationBodiesAlgorithm(IsolinerAlgorithm):
+    """Тела толщ по контурам в любых плоскостях.
+
+    Толщи лежат рядом, а не одна над другой: граница между ними это
+    крутой контакт, а не кровля и подошва над планом. 2.08 для этого
+    не годится, он растягивает каждую толщу на общую площадь. Здесь
+    у каждой толщи поле во всём объёме, и каждая точка отходит той,
+    чьё поле больше. Сама математика лежит в domains.py.
+    """
+
+    INPUTS, FIELD, CELL, CELLZ = "INPUTS", "FIELD", "CELL", "CELLZ"
+    OUTPUT_CUBE, OUTPUT = "OUTPUT_CUBE", "OUTPUT"
+
+    def name(self):
+        return "formation_bodies"
+
+    def displayName(self):
+        return self.tr("2.15 Тела толщ по контурам")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def createInstance(self):
+        return FormationBodiesAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Строит тела толщ по контурам в любых плоскостях: "
+            "вертикальным разрезам, карте на дневной поверхности, "
+            "наклонным сечениям. Слоёв на входе может быть несколько.\n\n"
+            "Для толщ, которые лежат рядом и граничат по крутым "
+            "контактам. 2.08 строит пласты, лежащие друг над другом, "
+            "и на таких толщах растягивает каждую на общую площадь.\n\n"
+            "У каждой толщи строится поле: расстояние до её контактов "
+            "со знаком, внутри плюс, снаружи минус. Внешний край "
+            "контура контактом не считается: низ разреза и обрез карты "
+            "проведены там, где кончились данные. Поле "
+            "интерполируется в объёме мультисеточными B-сплайнами, "
+            "и каждый воксель отходит толще с наибольшим полем. Щелей "
+            "и нахлёстов между телами нет по построению.\n\n"
+            "Если разрезы параллельны, решётка интерполяции частая "
+            "в их плоскости и редкая поперёк. Тогда контакт между "
+            "разрезами идёт от одного к другому, а не расплывается. "
+            "Карта держит контакт у поверхности, в глубину его ведут "
+            "разрезы.\n\n"
+            "Сверху тела обрезаются рельефом по отметкам карты и верху "
+            "разрезов, снизу по нижней отметке данных, в плане "
+            "по выпуклой оболочке данных.\n\n"
+            "В журнал печатается невязка у контактов по каждой толще. "
+            "Большая невязка значит, что контуры разных плоскостей "
+            "спорят между собой.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterMultipleLayers(
+            self.INPUTS, self.tr("Слои контуров (полигоны с Z)"),
+            layerType=QgsProcessing.SourceType.TypeVectorPolygon))
+        self.addParameter(QgsProcessingParameterString(
+            self.FIELD, self.tr("Поле кода толщи (пусто - имя слоя)"),
+            defaultValue="code", optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CELL, self.tr("Шаг сетки по площади, м (0 - от данных)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=0.0, minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CELLZ, self.tr("Шаг по вертикали, м (0 - половина "
+                                "шага по площади)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=0.0, minValue=0.0))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_CUBE, self.tr("Куб толщ")))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Тела толщ"),
+            QgsProcessing.SourceType.TypeVectorPolygon))
+        _hints(self, HINTS_2_15)
+
+    def _rings(self, layers, field, crs, feedback):
+        """Контуры всех слоёв: коды и вершины (N, 3) в системе `crs`."""
+        from qgis.core import (QgsCoordinateTransform, QgsProject,
+                               QgsFeatureRequest)
+        req = QgsFeatureRequest()
+        no_check = getattr(getattr(QgsFeatureRequest,
+                                   "InvalidGeometryCheck",
+                                   QgsFeatureRequest),
+                           "GeometryNoCheck", None)
+        if no_check is not None:
+            req.setInvalidGeometryCheck(no_check)
+        rings, codes, n_flat = [], [], 0
+        for lyr in layers:
+            tr_ = None
+            if (lyr.crs().isValid() and crs.isValid()
+                    and lyr.crs() != crs):
+                tr_ = QgsCoordinateTransform(lyr.crs(), crs,
+                                             QgsProject.instance())
+            idx = lyr.fields().indexOf(field) if field else -1
+            if field and idx < 0:
+                feedback.pushInfo(self.tr(
+                    "Слой %s: поля %s нет, кодом толщи служит имя "
+                    "слоя.") % (lyr.name(), field))
+            for ft in lyr.getFeatures(req):
+                if feedback.isCanceled():
+                    break
+                g = ft.geometry()
+                if g is None or g.isEmpty():
+                    continue
+                if tr_ is not None:
+                    g = QgsGeometry(g)
+                    if g.transform(tr_) != 0:
+                        continue
+                code = lyr.name()
+                if idx >= 0:
+                    val = ft.attributes()[idx]
+                    if val is not None and str(val).strip() not in (
+                            "", "NULL"):
+                        code = str(val).strip()
+                root = g.constGet()
+                try:
+                    n_part = root.numGeometries()
+                except AttributeError:
+                    n_part = 1
+                for pi in range(n_part):
+                    try:
+                        part = root.geometryN(pi) if n_part > 1 else root
+                    except AttributeError:
+                        part = root
+                    ring = getattr(part, "exteriorRing", lambda: None)()
+                    if ring is None:
+                        continue
+                    pts = np.array(
+                        [(ring.xAt(k), ring.yAt(k), ring.zAt(k))
+                         for k in range(ring.numPoints())], dtype=float)
+                    if len(pts) < 4:
+                        continue
+                    if not np.isfinite(pts).all():
+                        n_flat += 1
+                        continue
+                    rings.append(pts[:-1] if np.allclose(pts[0], pts[-1])
+                                 else pts)
+                    codes.append(code)
+        if n_flat:
+            feedback.pushWarning(self.tr(
+                "Контуров без высоты: %d, они пропущены. Нужны "
+                "полигоны с настоящими Z.") % n_flat)
+        return rings, codes
+
+    def _process(self, parameters, context, feedback):
+        from qgis.core import QgsFields, QgsFeature, QgsWkbTypes
+        from . import domains
+        from .cadmesh import mesh_wkb
+
+        layers = self.parameterAsLayerList(parameters, self.INPUTS,
+                                           context)
+        layers = [lyr for lyr in layers if hasattr(lyr, "getFeatures")]
+        if not layers:
+            raise QgsProcessingException(self.tr(
+                "Нет ни одного слоя контуров."))
+        field = (self.parameterAsString(parameters, self.FIELD,
+                                        context) or "").strip()
+        cell = self.parameterAsDouble(parameters, self.CELL, context)
+        cellz = self.parameterAsDouble(parameters, self.CELLZ, context)
+        cube_path = self.parameterAsOutputLayer(parameters,
+                                                self.OUTPUT_CUBE, context)
+        crs = layers[0].crs()
+
+        rings, codes = self._rings(layers, field, crs, feedback)
+        if not rings:
+            raise QgsProcessingException(self.tr(
+                "Контуров с высотой не нашлось."))
+        uniq = sorted(set(codes), key=str)
+        if len(uniq) < 2:
+            feedback.pushWarning(self.tr(
+                "Толща одна: контактов нет, тело займёт всю область "
+                "данных."))
+        allp = np.vstack(rings)
+        span = float(max(np.ptp(allp[:, 0]), np.ptp(allp[:, 1])))
+        if cell <= 0:
+            cell = max(span / 100.0, 0.1)
+            feedback.pushInfo(self.tr("Шаг сетки от данных: %.1f м.")
+                              % cell)
+        if cellz <= 0:
+            cellz = cell / 2.0
+        nx = int(np.ceil(np.ptp(allp[:, 0]) / cell))
+        ny = int(np.ceil(np.ptp(allp[:, 1]) / cell))
+        nz = int(np.ceil(np.ptp(allp[:, 2]) / cellz)) + 1
+        if nx * ny * nz * len(uniq) > 40e6:
+            raise QgsProcessingException(self.tr(
+                "Сетка %d x %d x %d на %d толщ слишком велика. "
+                "Увеличьте шаг.") % (nx, ny, nz, len(uniq)))
+        feedback.pushInfo(self.tr(
+            "Контуров: %d, толщ: %d (%s). Сетка %d x %d x %d, "
+            "ячейка %.1f м, по вертикали %.1f м.")
+            % (len(rings), len(uniq), ", ".join(uniq), nx, ny, nz,
+               cell, cellz))
+
+        def _prog(i, n):
+            feedback.setProgress(30.0 * i / max(n, 1))
+        try:
+            m = domains.build(rings, codes, cell=cell, cellz=cellz,
+                              progress=_prog)
+        except ValueError:
+            raise QgsProcessingException(self.tr(
+                "Ни один контур не лёг в плоскость."))
+        names = {domains.WALL: self.tr("разрез"),
+                 domains.PLAN: self.tr("план"),
+                 domains.SLANT: self.tr("наклонное сечение")}
+        feedback.pushInfo(self.tr("Плоскостей: %d (%s).") % (
+            len(m["kinds"]), ", ".join(names[k] for k in m["kinds"])))
+        if m["spacing"]:
+            feedback.pushInfo(self.tr(
+                "Разрезы параллельны, шаг между ними %.0f м. Решётка "
+                "интерполяции %d x %d x %d: частая в плоскости "
+                "разрезов, редкая поперёк.")
+                % ((m["spacing"],) + tuple(m["grid3"])))
+        for c in m["codes"]:
+            if c in m["misfit"]:
+                feedback.pushInfo(self.tr(
+                    "Толща %s: невязка у контактов %.2f м.")
+                    % (c, m["misfit"][c]))
+        feedback.setProgress(60)
+
+        # куб толщ: номер толщи, числом из кода, если коды числа
+        try:
+            num = [float(c) for c in m["codes"]]
+        except ValueError:
+            num = [float(i + 1) for i in range(len(m["codes"]))]
+            feedback.pushInfo(self.tr("Номера толщ в кубе: %s.") % (
+                ", ".join("%d - %s" % (i + 1, c)
+                          for i, c in enumerate(m["codes"]))))
+        cls = m["cls"]
+        cube = np.where(cls >= 0, np.asarray(num)[np.clip(cls, 0, None)],
+                        np.nan)
+        nz_, ny_, nx_ = m["shape"]
+        _write_grid_tiff(cube_path, [cube[k] for k in range(nz_)], m["gt"],
+                         crs.toWkt(), float("nan"), nx_, ny_,
+                         [self.tr("уровень %d") % (k + 1)
+                          for k in range(nz_)],
+                         meta={"Z0": "%.6f" % m["z0"],
+                               "DZ": "%.6f" % m["dz"]})
+
+        fields = QgsFields()
+        fields.append(_field("body", QVariant.Int))
+        fields.append(_field("name", QVariant.String))
+        fields.append(_field("volume", QVariant.Double))
+        fields.append(_field("faces", QVariant.Int))
+        fields.append(_field("closed", QVariant.Int))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.MultiPolygonZ, crs)
+        if sink is None:
+            raise QgsProcessingException(self.tr(
+                "Не удалось создать слой тел."))
+        n_body = n_open = 0
+        for ci, c in enumerate(m["codes"]):
+            if feedback.isCanceled():
+                break
+            got = domains.bodies(m["margin"][c], m["gt"], m["z0"],
+                                 m["dz"])
+            vols = []
+            for bv, bf, holes, _pinch, vol in got:
+                wkb = mesh_wkb(bv, bf)
+                if wkb is None:
+                    continue
+                n_body += 1
+                if holes:
+                    n_open += 1
+                geom = QgsGeometry()
+                geom.fromWkb(wkb)
+                ft = QgsFeature(fields)
+                ft.setGeometry(geom)
+                ft.setAttributes([n_body, str(c),
+                                  float(vol) if vol is not None else None,
+                                  int(len(bf)), 1 if holes == 0 else 0])
+                sink.addFeature(ft)
+                vols.append(vol or 0.0)
+            feedback.pushInfo(self.tr(
+                "Толща %s: тел %d, объём %.0f м3.")
+                % (c, len(got), float(sum(vols))))
+            feedback.setProgress(60.0 + 40.0 * (ci + 1)
+                                 / len(m["codes"]))
+        _set_output_name(context, dest, self.tr("Тела толщ"))
+        _set_output_name(context, cube_path, self.tr("Куб толщ"))
+        if n_open:
+            feedback.pushWarning(self.tr(
+                "Незамкнутых тел: %d. Объём по ним не считается.")
+                % n_open)
+        return {self.OUTPUT: dest, self.OUTPUT_CUBE: cube_path}
+
+
 ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
@@ -6940,4 +7259,5 @@ ALGORITHMS = [
     SelectByShellAlgorithm,
     GridToShellAlgorithm,
     ZonalShellStatsAlgorithm,
+    FormationBodiesAlgorithm,
 ]

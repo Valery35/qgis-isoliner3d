@@ -3655,4 +3655,67 @@ TRANSLATIONS = {
     'относится ко всем пластам.':
         'The field that ties an outline to a bed. An outline with an empty '
         'value applies to all beds.',
+    # 2.15: тела толщ по контурам
+    '2.15 Тела толщ по контурам':
+        '2.15 Formation bodies from outlines',
+    'Контуров без высоты: %d, они пропущены. Нужны полигоны с настоящими Z.':
+        'Outlines without heights: %d, they are skipped. Polygons with real Z are needed.',
+    'Контуров: %d, толщ: %d (%s). Сетка %d x %d x %d, ячейка %.1f м, по вертикали %.1f м.':
+        'Outlines: %d, formations: %d (%s). Grid %d x %d x %d, cell %.1f m, vertically %.1f m.',
+    'Куб толщ':
+        'Formation cube',
+    'Куб толщ: в каждом вокселе номер толщи, над рельефом и вне данных пусто. Сцена показывает его как куб, 2.03 переводит в блочную модель.':
+        'Formation cube: every voxel holds the number of its formation, above the relief and outside the data it is empty. The scene shows it as a cube, 2.03 turns it into a block model.',
+    'Незамкнутых тел: %d. Объём по ним не считается.':
+        'Open bodies: %d. Their volume is not computed.',
+    'Нет ни одного слоя контуров.':
+        'There is no outline layer.',
+    'Ни один контур не лёг в плоскость.':
+        'No outline lies in a plane.',
+    'Номера толщ в кубе: %s.':
+        'Formation numbers in the cube: %s.',
+    'Плоскостей: %d (%s).':
+        'Planes: %d (%s).',
+    'Поле кода толщи (пусто - имя слоя)':
+        'Formation code field (empty - layer name)',
+    'Поле кода толщи. Одинаковый код на разрезе и на карте значит одну толщу. Пусто или поля в слое нет - кодом служит имя слоя: так удобно, когда каждая толща лежит своим слоем.':
+        'The formation code field. The same code on a section and on the map means one formation. Empty or no such field in a layer - the layer name serves as the code: handy when every formation lies in its own layer.',
+    'Разрезы параллельны, шаг между ними %.0f м. Решётка интерполяции %d x %d x %d: частая в плоскости разрезов, редкая поперёк.':
+        'The sections are parallel, %.0f m apart. The interpolation lattice is %d x %d x %d: dense in the plane of the sections, sparse across them.',
+    'Сетка %d x %d x %d на %d толщ слишком велика. Увеличьте шаг.':
+        'A grid of %d x %d x %d for %d formations is too large. Increase the step.',
+    'Слои контуров (полигоны с Z)':
+        'Outline layers (polygons with Z)',
+    'Слои контуров: полигоны с настоящими Z, в любых плоскостях. Вертикальные разрезы, карта толщ на дневной поверхности с отметками рельефа, наклонные сечения, всё вместе. Каждый контур опробуется в своей плоскости, и плоскость берётся из самих вершин. Плоский чертёжный разрез не годится: у него нет настоящих отметок.':
+        'Outline layers: polygons with real Z, in any planes. Vertical sections, a map of the formations on the ground surface with the relief elevations, inclined cuts, all together. Every outline is sampled in its own plane, and the plane is taken from its vertices. A flat drawn section is no good: it has no real elevations.',
+    'Слой %s: поля %s нет, кодом толщи служит имя слоя.':
+        'Layer %s: there is no field %s, the layer name serves as the formation code.',
+    'Строит тела толщ по контурам в любых плоскостях: вертикальным разрезам, карте на дневной поверхности, наклонным сечениям. Слоёв на входе может быть несколько.\n\nДля толщ, которые лежат рядом и граничат по крутым контактам. 2.08 строит пласты, лежащие друг над другом, и на таких толщах растягивает каждую на общую площадь.\n\nУ каждой толщи строится поле: расстояние до её контактов со знаком, внутри плюс, снаружи минус. Внешний край контура контактом не считается: низ разреза и обрез карты проведены там, где кончились данные. Поле интерполируется в объёме мультисеточными B-сплайнами, и каждый воксель отходит толще с наибольшим полем. Щелей и нахлёстов между телами нет по построению.\n\nЕсли разрезы параллельны, решётка интерполяции частая в их плоскости и редкая поперёк. Тогда контакт между разрезами идёт от одного к другому, а не расплывается. Карта держит контакт у поверхности, в глубину его ведут разрезы.\n\nСверху тела обрезаются рельефом по отметкам карты и верху разрезов, снизу по нижней отметке данных, в плане по выпуклой оболочке данных.\n\nВ журнал печатается невязка у контактов по каждой толще. Большая невязка значит, что контуры разных плоскостей спорят между собой.':
+        'Builds bodies of formations from outlines in any planes: vertical sections, the map on the ground surface, inclined cuts. There may be several input layers.\n\nFor formations that lie side by side and meet along steep contacts. 2.08 builds beds lying one above another, and on such formations it stretches each over the common area.\n\nEvery formation gets a field: the signed distance to its contacts, plus inside, minus outside. The outer edge of an outline is not a contact: the bottom of a section and the edge of the map are drawn where the data ended. The field is interpolated in the volume with multilevel B-splines, and every voxel goes to the formation with the largest field. There are no gaps or overlaps between the bodies by construction.\n\nIf the sections are parallel, the interpolation lattice is dense in their plane and sparse across. Then a contact between the sections runs from one to the other instead of blurring. The map holds a contact near the surface, the sections carry it into depth.\n\nFrom above the bodies are clipped by the relief built from the map elevations and the tops of the sections, from below by the lowest elevation of the data, in plan by the convex hull of the data.\n\nThe log shows the misfit at the contacts for every formation. A large misfit means that outlines in different planes disagree.',
+    'Тела толщ':
+        'Formation bodies',
+    'Тела толщ: замкнутые оболочки, по одной на связный кусок толщи, с объёмом в атрибутах. Их принимают 2.11, 2.12 и 2.14.':
+        'Formation bodies: closed shells, one per connected piece of a formation, with the volume in the attributes. 2.11, 2.12 and 2.14 take them.',
+    'Толща %s: невязка у контактов %.2f м.':
+        'Formation %s: misfit at the contacts %.2f m.',
+    'Толща %s: тел %d, объём %.0f м3.':
+        'Formation %s: bodies %d, volume %.0f m3.',
+    'Толща одна: контактов нет, тело займёт всю область данных.':
+        'Only one formation: there are no contacts, the body will fill the whole data area.',
+    'Шаг по вертикали, м (0 - половина шага по площади)':
+        'Vertical step, m (0 - half the area step)',
+    'Шаг сетки от данных: %.1f м.':
+        'Grid step from the data: %.1f m.',
+    'Шаг сетки по вертикали. Ноль берёт половину шага по площади: толщи обычно круче по вертикали, чем по простиранию.':
+        'The vertical grid step. Zero takes half the area step: formations are usually steeper vertically than along the strike.',
+    'Шаг сетки по площади, м (0 - от данных)':
+        'Area grid step, m (0 - from the data)',
+    'Шаг сетки по площади. Ноль берёт сотую долю охвата. Контакт ложится с точностью до половины ячейки, а время растёт с числом ячеек.':
+        'The grid step over the area. Zero takes a hundredth of the extent. A contact lands within half a cell, and the time grows with the number of cells.',
+    'наклонное сечение':
+        'inclined cut',
+    'план':
+        'plan',
+    'разрез':
+        'section',
 }

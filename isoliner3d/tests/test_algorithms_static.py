@@ -43,6 +43,7 @@ EXPECTED = {
     "SelectByShellAlgorithm": ("select_by_shell", "2.12"),
     "GridToShellAlgorithm": ("grid_to_shell", "2.13"),
     "ZonalShellStatsAlgorithm": ("zonal_shell_stats", "2.14"),
+    "FormationBodiesAlgorithm": ("formation_bodies", "2.15"),
 }
 
 
@@ -339,7 +340,8 @@ def test_every_tool_has_field_hints():
              ("BooleanShellsAlgorithm", "HINTS_2_11"),
              ("SelectByShellAlgorithm", "HINTS_2_12"),
              ("GridToShellAlgorithm", "HINTS_2_13"),
-             ("ZonalShellStatsAlgorithm", "HINTS_2_14"))
+             ("ZonalShellStatsAlgorithm", "HINTS_2_14"),
+             ("FormationBodiesAlgorithm", "HINTS_2_15"))
     tree = ast.parse(src)
     dicts = {}
     for node in tree.body:

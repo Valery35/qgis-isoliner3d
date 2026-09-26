@@ -35,7 +35,7 @@ MODULES = ("algorithms.py", "viewer3d.py", "texmesh.py", "plugin.py",
            "cleanup.py", "axes.py", "mba.py",
            "glyphs.py", "cadmesh.py", "about.py", "section3d.py",
            "lights.py", "demo_drift.py", "boolean3d.py",
-           "viewer_core.py", "viewer_dialog.py", "fields.py",
+           "viewer_core.py", "viewer_dialog.py", "fields.py", "domains.py",
            "__init__.py")
 
 # коды, которые считаем ошибкой сборки
