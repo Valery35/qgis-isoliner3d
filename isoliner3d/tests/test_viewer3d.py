@@ -78,6 +78,46 @@ def test_window_is_shown_before_layers_are_read():
     assert body.index(".raise_()") < body.index(".activateWindow()")
 
 
+def test_button_brings_back_a_minimized_window():
+    """Кнопка сцены возвращает свёрнутое окно.
+
+    `show()` у свёрнутого окна ничего не делает, и вернуть его удавалось
+    только свернув и развернув саму QGIS. Снимается ровно флаг
+    свёрнутости: развёрнутое на весь экран окно остаётся развёрнутым.
+    """
+    import enum
+    from isoliner3d import viewer3d as v3
+
+    class WS(enum.Flag):
+        NONE = 0
+        MIN = 1
+        MAX = 2
+        ACTIVE = 8
+
+    class Dlg:
+        def __init__(self, st):
+            self.st = st
+
+        def windowState(self):
+            return self.st
+
+        def setWindowState(self, st):
+            self.st = st
+
+    d = Dlg(WS.MIN | WS.MAX)
+    assert v3._unminimize(d, WS.MIN, WS.ACTIVE)
+    assert d.st == WS.MAX | WS.ACTIVE, d.st
+    d = Dlg(WS.NONE)
+    assert not v3._unminimize(d, WS.MIN, WS.ACTIVE)
+    assert d.st == WS.NONE
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "..", "viewer3d.py"),
+               encoding="utf-8").read()
+    i = src.index("def show_viewer")
+    body = src[i:src.index("\ndef ", i + 20)]
+    assert body.index("_unminimize(") < body.index(".show()")
+
+
 def test_bed_pairs_reads_the_band_as_a_place_in_the_stack():
     """Кровля - этот пласт и ниже, подошва - этот пласт и выше.
 

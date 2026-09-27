@@ -747,6 +747,29 @@ def _log(msg):
         pass
 
 
+def _unminimize(dlg, mini=None, active=None):
+    """Развернуть свёрнутое окно, сохранив остальное его состояние.
+
+    `show()` у свёрнутого окна ничего не делает: оно уже «показано»,
+    просто свёрнуто. Кнопка сцены тогда молчала, и вернуть окно
+    удавалось только свернув и развернув саму QGIS. Снимается ровно
+    флаг свёрнутости: окно, развёрнутое на весь экран до сворачивания,
+    возвращается развёрнутым.
+
+    `mini` и `active` - флаги Qt, их можно подменить в проверке без Qt.
+    Возвращает True, если окно было свёрнуто.
+    """
+    if mini is None or active is None:
+        from qgis.PyQt.QtCore import Qt
+        ws = getattr(Qt, "WindowState", Qt)
+        mini, active = ws.WindowMinimized, ws.WindowActive
+    state = dlg.windowState()
+    if not (state & mini):
+        return False
+    dlg.setWindowState((state & ~mini) | active)
+    return True
+
+
 def show_viewer(iface):
     """Открывает (или поднимает) окно 3D-просмотра."""
     global _DIALOG
@@ -767,6 +790,8 @@ def show_viewer(iface):
     # человек жмёт кнопку и не видит ничего. К моменту показа окно
     # оказывалось позади главного, и открыть его удавалось только
     # свернув QGIS.
+    # Свёрнутое окно `show()` не возвращает: сначала снять свёрнутость.
+    _unminimize(_DIALOG)
     _DIALOG.show()
     _DIALOG.raise_()
     # Поднять мало: без передачи ввода окно у части оконных
