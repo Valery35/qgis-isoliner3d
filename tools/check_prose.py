@@ -47,6 +47,9 @@ STOP = [
     "руками", "кучу", "под рукой", "мелочь", "навигатор", "лечит",
     "лечил", "болезн",
 ]
+# Слова, которые ловятся только целиком: у них есть законные
+# родственники (прямой, прямого, напрямую).
+STOP_WHOLE = ["прямо"]
 
 LONG_SENTENCE = 34
 
@@ -117,6 +120,9 @@ def check(path, ru_titles, en_titles):
         low = line.lower()
         for word in STOP:
             if word in low:
+                found.append("%s:%d стоп-слово %s" % (path, i, word))
+        for word in STOP_WHOLE:
+            if re.search(r"\b%s\b" % re.escape(word), low):
                 found.append("%s:%d стоп-слово %s" % (path, i, word))
 
     titles = ru_titles if path in RU_FILES else en_titles
