@@ -35,10 +35,10 @@ FILES = [
     os.path.join("manual", "manual.md"),
     os.path.join("manual", "manual_en.md"),
     "README.md",
-    "README.en.md",
+    "README.ru.md",
 ]
 
-RU_FILES = {os.path.join("manual", "manual.md"), "README.md"}
+RU_FILES = {os.path.join("manual", "manual.md"), "README.ru.md"}
 
 STOP = [
     "честн", "врёт", "врут", "главные грабли", "софт", "кучк", "гладь",

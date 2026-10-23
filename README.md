@@ -1,163 +1,167 @@
 # Isoliner3D
 
-[English](README.en.md) · **Русский**
+[Русская версия](README.ru.md) · **English**
 
-[![Установить в QGIS](https://img.shields.io/badge/%D0%A3%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%B8%D1%82%D1%8C%20%D0%B2%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/isoliner3d/)
-[![Страница плагина](https://img.shields.io/badge/%D0%A1%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0%20%D0%BF%D0%BB%D0%B0%D0%B3%D0%B8%D0%BD%D0%B0-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner3d)
+[![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/isoliner3d/)
+[![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner3d)
 
-Плагин QGIS для показа геологической модели в объёме и для подсчёта запасов
-по блочной модели: поверхности из растров, водонепроницаемые тела пластов,
-скважины, разрезы, наложение карт текстурой.
+A QGIS plugin that shows a geological model in three dimensions and computes
+reserves from a block model: surfaces from rasters, watertight bed bodies,
+boreholes, cross-sections, maps draped as textures.
 
-![Рельеф с отмывкой и три разреза-забора по нему, в координатном коробе с подписями отметок. Всё в одной сцене.](docs/screenshot.png)
+![Relief with hillshading and three section fences across it, inside a coordinate box with elevation labels. All in one scene.](docs/screenshot.png)
 
-Рендер идёт на pyqtgraph и PyOpenGL, которые лежат внутри плагина. Штатный
-3D-вид QGIS и Qt3D не используются, внешних зависимостей нет.
+Rendering runs on pyqtgraph and PyOpenGL bundled inside the plugin. The
+built-in QGIS 3D view and Qt3D are not used, and there are no external
+dependencies.
 
-Плагин-спутник набора кригинга и изолиний [Isoliner](https://plugins.qgis.org/plugins/grid_isolines/) и инструмента чистки топологии [Topoliner](https://plugins.qgis.org/plugins/topoliner/). Вместе они закрывают путь от точек наблюдений до объёмной модели: Isoliner строит гриды и изолинии, Topoliner приводит в порядок контуры, Isoliner3D показывает результат в объёме и считает запасы.
+A companion to the [Isoliner](https://plugins.qgis.org/plugins/grid_isolines/)
+kriging and contouring toolset and to [Topoliner](https://plugins.qgis.org/plugins/topoliner/), topology
+cleaning. Together they cover the way from observation points to a
+volumetric model: Isoliner builds grids and isolines, Topoliner tidies
+the contours, Isoliner3D shows the result in three dimensions and
+computes reserves.
 
-## Зачем
+## Why
 
-Кровля, подошва, скважины и разрез существуют по отдельности и сходятся
-только в голове у геолога. Isoliner3D собирает их в одну сцену: тела
-пластов, стволы скважин насквозь, чертёж разреза на своём месте
-в пространстве и карта, натянутая на рельеф.
+A roof, a bottom, boreholes and a section exist separately and come together
+only in the geologist's head. Isoliner3D assembles them into one scene: bed
+bodies, borehole stems running through them, the section drawing in its
+place in space and a map draped over the relief.
 
-## 3D-окно
+## The 3D window
 
-- Поверхности из растров проекта, каждая своим цветом, с вертикальным
-  преувеличением и разносом по Z.
-- Тела пластов из многоканальных гридов: канал 1 кровля, канал 2 подошва,
-  боковая юбка по границе фактических данных.
-- Скважины стволами, интервалы окрашены по стратиграфическому положению,
-  мачта с подписью над устьем, подписи прореживаются.
-- Плоскость разреза со следом сечения по поверхностям и контуром сечения
-  по телам.
-- Полиэдры, TIN и MultiPolygon Z объёмными телами.
-- Наложение карты текстурой с затенением по нормали: ортофото, тайловая
-  подложка, геологическая карта со своей символикой. Разрешение задаётся
-  отдельно и от плотности сетки не зависит.
-- Чертёж разреза текстурой на ленте, несколько разрезов сразу.
-- Опрос кликом: имя слоя, координаты, значения всех каналов, мощность.
-- Куб значений показывается изоповерхностью по отсечке: замкнутое тело, годное для подсчёта объёма.
-- Куб значений показывается вокселями: ячейка коробкой, цвет по интервалу содержания. Строятся только видимые грани, соседние грани одного интервала сливаются, поэтому куб в миллионы ячеек остаётся лёгким.
-- Цвет берётся из оформления слоя: шкала растра, категории и градации вектора. Класс, снятый в легенде, в сцену не идёт.
-- Точки показываются кругом, квадратом, ромбом, треугольником или крестом. Круг экранный и читается с любого отдаления, плоские виды лежат в плане и закрываются поверхностью.
-- Точки подписываются полем слоя. Подписи с ореолом, прореживаются, их число ограничивается.
-- Сцена живёт в системе координат проекта: слои в других системах перепроецируются, как на холсте карты.
-- Отметка векторного слоя берётся из геометрии, из поля или с поверхности. При укладке на поверхность значение читается в каждой вершине, а там, где данных нет, объект обрезается.
-- Порядок слоёв повторяет дерево карты, верхний рисуется поверх нижнего. Список следует за деревом сам.
-- Кригинг в объёме с вариограммой, замеренной по данным, и картой доверия вторым кубом.
-- Отмывка, градиентный фон и сглаживание краёв в сцене, вращение и съёмка оборота кадрами.
-- Оболочки в слой проекта: разбор на связные тела и объём каждого одной кнопкой. Принимаются и изоповерхность по кубу, и тело пласта.
-- Тела освещаются тремя источниками: с одним всё, что от него отвёрнуто, уходит в тень, а у тела пласта таких граней половина.
-- Выгрузка в STL и OBJ для CAD.
-- 2.07 MBA в объёме: куб по сотням тысяч замеров, где кригинг встаёт.
-- Тело пласта по зарисовкам на разрезах: кровля и подошва интерполируются порознь, контакт соседних пластов строится одной поверхностью, маска области задаёт, докуда верить.
-- Оболочки таблицей: уровень, цвет и непрозрачность на строку, крышка на краю куба.
-- Отсечка куба поверхностями: всё выше рельефа или вне пласта гасится до построения.
-- Выгрузка в GLB с координатным коробом, подписями делений и раскраской как на экране.
-- Координатный короб: деления с подписями, сетка на выбранных плоскостях, стрелка севера.
-- Отсечка поверхностями сверху и снизу: в сцене и в блочной модели.
-- Чистка изоповерхности: сглаживание ступеней и отброс мелких кусков.
-- Тело режется контуром, коридором и диапазоном отметок, срез закрывается крышкой.
-- Куб режется стенкой по линии: вертикальный срез с раскраской по значению.
-- Куб показывается несколькими вложенными оболочками сразу: цвет каждой из шкалы, прозрачность растёт к наружным.
-- Обрезка по отметке: контур и коридор режут в плане, диапазон отметок режет по вертикали.
-- У каждого поля каждого инструмента своя подсказка: она говорит, чем плох другой выбор.
-- Обрезка сцены контуром или линией: кусок внутри, всё кроме него, сторона от линии, коридор заданной ширины вдоль профиля. Режутся и поверхности, и векторы.
-- Разметка в самой сцене: контур и линия рисуются кликами по поверхности, сохраняются слоем проекта.
-- Сцена считается по кнопке «Обновить сцену», отметки видимости только записывают, что показывать.
-- Параллельная проекция и вид сверху планом.
-- Снимок PNG для отчётов.
+- Surfaces from the project rasters, each in its own colour, with vertical
+  exaggeration and Z spacing.
+- Bed bodies from multiband grids: band 1 roof, band 2 bottom, a side skirt
+  along the boundary of the actual data.
+- Boreholes as stems, the intervals coloured by stratigraphic position, a
+  mast with a label above the collar, labels thinned automatically.
+- A section plane with the intersection trace over surfaces and a section
+  contour over bodies.
+- Polyhedra, TIN and MultiPolygon Z as volumetric bodies.
+- Maps draped as a texture with shading from the normal: an orthophoto, a
+  tiled basemap, a geological map with its own symbology. The resolution is
+  set separately and does not depend on the mesh density.
+- The section drawing draped onto the ribbon, several sections at once.
+- Click query: the layer name, the coordinates, all band values, the
+- A cube of values is shown as an isosurface at a cutoff: a closed body fit for volume computation.
+- Hillshading, a gradient background and edge smoothing in the scene, a turntable and frame capture.
+- Shells into a project layer: split into connected bodies and the volume of each, in one click. Both an isosurface over a cube and a bed body are taken.
+- Bodies are lit by three sources: with a single one everything turned away from it falls into shadow, and half of a bed body is just that.
+- Export to STL and OBJ for CAD.
+- 2.07 MBA in volume: a cube from hundreds of thousands of measurements, where kriging stalls.
+- A bed body from drawings on sections: the roof and the floor are interpolated separately, the contact of neighbouring beds is built as one surface, and an area mask says how far to trust it.
+- Shells in a table: level, colour and opacity per row, a cap at the cube edge.
+- Cube clipping by surfaces: everything above the terrain or outside the bed is dropped before building.
+- Export to GLB with the coordinate box, tick labels and the same colouring as on screen.
+- A coordinate box: labelled ticks, a grid on chosen planes, a north arrow.
+- Clipping by surfaces above and below: in the scene and in the block model.
+- Cleaning an isosurface: smoothing the steps and dropping small parts.
+- A body is cut by a contour, a corridor and a range of elevations, and the cut is capped.
+- A cube of values is cut by a wall along a line: a vertical section coloured by value.
+- A cube of values is shown as voxels: a cell as a box, coloured by grade interval. Only visible faces are built and neighbouring faces of one interval merge, so a cube of millions of cells stays light.
+- Colour comes from the layer styling: a raster ramp, categories and graduated classes of a vector. A class unticked in the legend does not reach the scene.
+- Points are shown as a circle, a square, a diamond, a triangle or a cross. The circle is on screen and reads at any distance, the flat shapes lie in plan and are hidden by a surface.
+- Points are labelled from a layer field. Labels have a halo, are thinned and their number is capped.
+- The scene lives in the project CRS: layers in other systems are reprojected, just as on the map canvas.
+- The elevation of a vector layer comes from the geometry, from a field or from a surface. When draped, the value is read at every vertex, and where there is no data the feature is cut away.
+- The layer order follows the map tree, the upper layer is drawn over the lower one. The list follows the tree by itself.
+- Clipping the scene by a contour or a line: the piece inside, everything but it, a side of the line, a corridor of a given width along the profile. Both surfaces and vectors are cut.
+- Markup right in the scene: a contour and a line are drawn by clicks on the surface and saved as a project layer.
+- The scene is computed by the «Rebuild the scene» button, the visibility ticks only record what to show.
+- A parallel projection and a top view as a plan.
+  thickness.
+- A PNG snapshot for reports.
 
-## Инструменты
+## Tools
 
-Панель Processing, группа **Пласт и блочная модель**. Считают на NumPy
-и GDAL, кригинг им не нужен.
+The Processing toolbox, the **Bed and block model** group. They compute on
+NumPy and GDAL and need no kriging.
 
-| Инструмент | Что делает | Выход |
+| Tool | What it does | Output |
 |---|---|---|
-| 1.01 Собрать грид пласта | Кровля, подошва и параметры в один растр | Грид пласта |
-| 1.02 Калькулятор пласта | Мощность, объём, тоннаж руды и металла, содержание | Грид и отчёт HTML |
-| 1.03 Грид пласта в блочную модель | Центроид на ячейку, деление колонки по вертикали | Точки |
-| 1.04 Поверхности в 3D (меши) | Экспорт гридов в формат 2DM (MDAL) | Mesh-слои |
-| 1.05 Домены в канал пласта | Полигоны участков отдельным каналом грида | Грид пласта |
-| 1.06 Разность запасов (списание) | Разность двух блочных моделей по ячейкам | Точки |
-| 1.07 Создать пример данных (демо) | Тела с Z: пласт, свита, куб, тетраэдр | Слой |
-| 1.08 Карта для текстуры (демо) | Проверочная карта с сеткой и полями | Растр |
+| 1.01 Assemble a bed grid | A roof, a bottom and parameters into one raster | A bed grid |
+| 1.02 Bed calculator | Thickness, volume, ore and metal tonnage, grade | A grid and an HTML report |
+| 1.03 Bed grid to a block model | A centroid per cell, a vertical split of the column | Points |
+| 1.04 Surfaces to 3D (meshes) | Export of grids to the 2DM format (MDAL) | Mesh layers |
+| 1.05 Domains to a bed band | Area polygons as an extra grid band | A bed grid |
+| 1.06 Reserve difference (write-off) | The difference of two block models per cell | Points |
+| 1.07 Create sample data (demo) | Bodies with Z: a bed, a pile, a cube, a tetrahedron | A layer |
+| 1.08 A map for a texture (demo) | A check map with a grid and fields | A raster |
 
-Группа **Объёмная интерполяция** работает с кубом значений: канал грида
-это горизонтальный уровень.
+The **Interpolation in three dimensions** group works with a cube of
+values: a grid band is a horizontal level.
 
-| Инструмент | Что делает | Выход |
+| Tool | What it does | Output |
 |---|---|---|
-| 2.01 Демонстрационные скважины в объёме | Пласт со складкой, линза или крутая жила, опробование интервалами | Точки |
-| 2.02 Интерполяция точек в объёме | Ближний сосед и обратные расстояния с анизотропией | Куб значений |
-| 2.03 Куб в блочную модель | Центроид на занятую ячейку, размер блока и объём | Точки |
-| 2.04 Тело куба вокселями | Тело по отсечке коробками ячеек, объект на интервал | MULTIPOLYGON Z |
-| 2.05 Проверка интерполяции | Исключение пробы или скважины, ошибка и смещение | Точки-невязки |
-| 2.06 Кригинг в объёме | Веса из вариограммы, замеренной по данным | Куб и куб дисперсии |
-| 2.07 MBA в объёме | Мультисеточные B-сплайны: сотни тысяч замеров там, где кригинг встаёт | Куб значений |
-| 2.08 Пласты по разрезам | Кровля и подошва по контурам на разрезах, со склейкой контактов и маской области | Грид пластов |
-| 2.09 Демонстрационная выработка (демо) | Калийный штрек со сбойками: зарисовки бортов, скважины веером, борозды, известный ответ | Три слоя с содержаниями |
-| 2.10 Поверхности по сечениям | Поверхность по линиям на разрезах: профили насыпи, следы разлома, границы пачек | Грид, канал на поверхность |
-| 2.11 Булевы операции с оболочками | Вычитание, объединение, пересечение тел через ячейки: остаток запасов после отработки | Тела с объёмами |
-| 2.12 Выборка оболочкой | Точки, линии и полигоны внутри тела: объём, тоннаж и средневзвешенное содержание отобранного | Отобранные объекты |
-| 2.13 Оболочка грида пласта | Замкнутое тело по гриду инструментом, а не кнопкой: цепочка до запаса собирается в модель | Тела с объёмами |
-| 2.14 Зональная статистика оболочек | Сколько точек, линий и их длины попало в каждое тело. Числа в атрибутах, повторные прогоны складываются | Тела с полями счёта |
-| 2.15 Тела толщ по контурам | Толщи, лежащие рядом, по разрезам, карте с отметками рельефа и наклонным сечениям вместе. Каждая точка объёма отходит одной толще | Куб толщ и тела толщ с объёмом |
-| 2.16 Демонстрационная речная сеть (демо) | Рельеф и речная сеть с расходом на каждом звене, пример для показа линий трубами | Речная сеть и рельеф |
+| 2.01 Demonstration boreholes in three dimensions | A folded bed, a lens or a steep vein, sampled by intervals | Points |
+| 2.02 Interpolation of points in three dimensions | Nearest neighbour and inverse distances with anisotropy | A cube of values |
+| 2.03 Cube to a block model | A centroid per occupied cell, block size and volume | Points |
+| 2.04 Cube body as voxels | A body above the cutoff as cell boxes, one feature per interval | MULTIPOLYGON Z |
+| 2.05 Check of the interpolation | Leave one sample or one hole out, error and bias | Residual points |
+| 2.06 Kriging in three dimensions | Weights from a variogram measured on the data | A cube and a variance cube |
+| 2.07 MBA in volume | Multilevel B-splines: hundreds of thousands of measurements where kriging stalls | A cube of values |
+| 2.08 Beds from sections | A roof and a floor from the outlines on sections, with contact gluing and an area mask | A grid of beds |
+| 2.09 A demonstration drift (demo) | A potash drift with crosscuts: wall drawings, fan holes, grooves, a known answer | Three layers with grades |
+| 2.10 Surfaces from cross sections | A surface from lines on sections: embankment profiles, fault traces, member boundaries | A grid, a band per surface |
+| 2.11 Boolean operations on shells | Difference, union and intersection over cells: the reserves left after mining | Bodies with volumes |
+| 2.12 Selection by a shell | Points, lines and polygons inside a body: volume, tonnage and the weighted grade of the selection | The selected features |
+| 2.13 A shell from a bed grid | A closed body from a grid by a tool rather than a button: the chain to reserves fits a model | Bodies with volumes |
+| 2.14 Zonal statistics of shells | How many points, lines and their lengths fell into every body. Numbers in the attributes, repeated runs add up | Bodies with count fields |
+| 2.15 Formation bodies from outlines | Formations lying side by side, from sections, a map with relief elevations and inclined cuts together. Every point of the volume goes to one formation | A formation cube and formation bodies with volume |
+| 2.16 A demonstration river network (demo) | A relief and a river network with a discharge on every link, an example for showing lines as tubes | A river network and a relief |
 
-Грид пласта, собранный первым инструментом, читается 3D-окном как тело:
-посчитали и сразу посмотрели. Куб, собранный вторым инструментом второй
-группы, читается изоповерхностью и вокселями.
+A bed grid assembled by the first tool is read by the 3D window as a body:
+computed and looked at right away.
 
-## Производительность
+## Performance
 
-Прочитанные гриды и отрисованные карты кэшируются, поэтому повторная сборка
-сцены идёт из памяти. На сцене из шести поверхностей и 312 тысяч
-треугольников это 0.02 секунды вместо 0.77. Крупные гриды прореживаются
-автоматически, форма поверхности при этом сохраняется.
+The grids that are read and the maps that are rendered are cached, so a
+repeated scene rebuild comes from memory. On a scene of six surfaces and
+312 thousand triangles that is 0.02 seconds instead of 0.77. Large grids are
+thinned automatically while the shape of the surface is preserved.
 
-Счётчики перестройки сцены видны в окне, разбивка по фазам (чтение, меши,
-окраска, векторы, сборка сцены) пишется в журнал сообщений QGIS.
+The scene rebuild counters are shown in the window, and the breakdown by
+phase (reading, meshes, colouring, vectors, scene assembly) goes to the QGIS
+message log.
 
-## Язык
+## Language
 
-Интерфейс двуязычный, русский и английский. Язык берётся из локали QGIS.
-Покрытие проверяется тестом: строка без перевода не пройдёт.
+The interface is bilingual, Russian and English. The language comes from the
+QGIS locale. Coverage is enforced by a test: a string without a translation
+will not pass.
 
-## Страница для сайта
+## The website page
 
-В папке `site/` лежит самодостаточная страница `isoliner3d_landing.html`:
-схемы встроены в файл, переключатель языка работает без перезагрузки,
-внешних запросов нет. Собирается скриптами `tools/make_figures.py`
-и `tools/build_site.py`.
+The `site/` folder holds a self-contained page,
+`isoliner3d_landing.html`: the figures are embedded in the file, the
+language switch works without a reload, and there are no external requests.
+It is built by `tools/make_figures.py` and `tools/build_site.py`.
 
-## Установка
+## Installation
 
-Из каталога QGIS либо из ZIP: **Модули - Управление модулями - Установить
-из ZIP**. Перезапуск QGIS не нужен.
+From the QGIS plugin catalogue or from a ZIP: **Plugins - Manage and Install
+Plugins - Install from ZIP**. No QGIS restart is needed.
 
-Требования: QGIS 3.16 и новее, Qt5 или Qt6.
+Requirements: QGIS 3.16 or newer, Qt5 or Qt6.
 
-## Документация
+## Documentation
 
-Руководство в PDF идёт в комплекте плагина: `isoliner3d/doc/Isoliner3D.pdf`
-(RU) и `Isoliner3D_en.pdf` (EN). Пункт **Модули - Isoliner3D - Справка**
-открывает его на языке интерфейса.
+The PDF manual ships with the plugin: `isoliner3d/doc/Isoliner3D.pdf` (RU)
+and `Isoliner3D_en.pdf` (EN). The **Plugins - Isoliner3D - Help** entry opens
+it in the interface language.
 
-Исходник руководства: [manual/manual.md](manual/manual.md)
-и [manual/manual_en.md](manual/manual_en.md), сборка PDF
-через `manual/build_pdf.sh`.
+The manual source: [manual/manual.md](manual/manual.md) and
+[manual/manual_en.md](manual/manual_en.md), the PDF is built by
+`manual/build_pdf.sh`.
 
-Правила работы над модулем: [AGENTS.md](AGENTS.md).
-История изменений: [CHANGELOG.md](CHANGELOG.md).
+Development rules: [AGENTS.md](AGENTS.md).
+Change history: [CHANGELOG.md](CHANGELOG.md).
 
-## Разработка
+## Development
 
-Headless-тесты, QGIS не требуется:
+Headless tests, no QGIS required:
 
 ```
 python isoliner3d/tests/test_mesh3d.py
@@ -172,13 +176,13 @@ python isoliner3d/tests/test_texmesh.py
 python isoliner3d/tests/test_flakes.py
 ```
 
-Ядро (`mesh3d.py`, `polyhedral.py`, `demo_map.py`) это чистый NumPy без
-импорта QGIS. `viewer3d.py` и `texmesh.py` импортируют Qt, QGIS
-и pyqtgraph лениво, поэтому модули грузятся headless. `algorithms.py` тянет
-QGIS на верхнем уровне и проверяется статически, разбором AST.
+The core (`mesh3d.py`, `polyhedral.py`, `demo_map.py`) is pure NumPy with no
+QGIS imports. `viewer3d.py` and `texmesh.py` import Qt, QGIS and pyqtgraph
+lazily, so the modules load headless. `algorithms.py` imports QGIS at the
+top level and is checked statically, by parsing the AST.
 
-## Лицензия
+## License
 
-GNU GPL версии 2 или новее, см. [LICENSE](LICENSE).
+GNU GPL version 2 or later, see [LICENSE](LICENSE).
 
-© 2026 ООО «Информ++» ([informpp.ru](https://www.informpp.ru/)).
+© 2026 Inform++ LLC ([informpp.ru](https://www.informpp.ru/)).
