@@ -29,7 +29,7 @@ from .viewer_core import (    # noqa: F401
     _css_rgba, _draw_on_top, _file_stamp, _fill_z, _find_data, _flat_z,
     _fmt_n, _gdal_open, _import_gl, _is_closed, _layer_budget, _map_order,
     _ramp_from_renderer, _read_raster, _ring_normal, _tri_cached, _tri_key,
-    ear_clip,
+    ear_clip, gradient_bands,
     _tri_rings, cache_clear, cache_size, clip_wall, colormap, draw_depth,
     field_color, flat_marker_mesh, is_available, is_bed_grid, layer_lift,
     ramp_colors, volume_beyond_box, bed_pairs, split_by_alpha, symbol_alpha,

@@ -498,6 +498,29 @@ def tri_cache_size():
     return len(_TRI_CACHE), _TRI_BYTES
 
 
+def gradient_bands(height, lo, hi, step=4, most=192):
+    """Полосы градиентного фона: (низ, высота, цвет) снизу вверх.
+
+    Полоса не тоньше `step` пикселей и не больше `most` штук: при
+    такой частоте переход цвета глазу не виден, а очисток на кадр
+    немного. Полосы стыкуются без зазора и покрывают всю высоту.
+    """
+    import numpy as np
+    h = max(int(height), 1)
+    n = int(max(1, min(most, h // max(int(step), 1))))
+    edges = np.round(np.linspace(0, h, n + 1)).astype(int)
+    lo = np.asarray(lo, dtype=float)
+    hi = np.asarray(hi, dtype=float)
+    out = []
+    for k in range(n):
+        t = (k + 0.5) / n
+        c = lo + (hi - lo) * t
+        bh = int(edges[k + 1] - edges[k])
+        if bh > 0:
+            out.append((int(edges[k]), bh, tuple(float(q) for q in c)))
+    return out
+
+
 def ear_clip(u, v):
     """Разбить простой многоугольник на треугольники, отсечением ушей.
 

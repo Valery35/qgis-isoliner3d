@@ -37,6 +37,7 @@ from .viewer3d import (    # noqa: F401
     draw_depth, field_color, flat_marker_mesh, grid_to_mesh_arrays,
     layer_lift, polygon_mask, polyline_dist_side, ramp_colors,
     sample_bilinear, shade_colors, split_by_alpha, symbol_alpha,
+    gradient_bands,
     thin_labels_xy, tr, walk_rings, z_range_mask)
 
 import numpy as np                                # noqa: E402
@@ -141,32 +142,39 @@ class _PickView(gl.GLViewWidget):
         self.drawItemTree(useItemNames=useItemNames)
 
     def _paint_gradient(self, GL):
-        """Залить кадр полосами от нижнего цвета к верхнему."""
-        GL.glMatrixMode(GL.GL_PROJECTION)
-        GL.glPushMatrix()
-        GL.glLoadIdentity()
-        GL.glOrtho(0, 1, 0, 1, -1, 1)
-        GL.glMatrixMode(GL.GL_MODELVIEW)
-        GL.glPushMatrix()
-        GL.glLoadIdentity()
-        GL.glDisable(GL.GL_DEPTH_TEST)
-        GL.glDisable(GL.GL_LIGHTING)
-        lo = np.asarray(self.bg_bottom, dtype=float)
-        hi = np.asarray(self.bg_top, dtype=float)
-        n = 24
-        GL.glBegin(GL.GL_QUAD_STRIP)
-        for k in range(n + 1):
-            t = float(k) / n
-            c = lo + (hi - lo) * t
-            GL.glColor4f(*[float(q) for q in c])
-            GL.glVertex2f(0.0, t)
-            GL.glVertex2f(1.0, t)
-        GL.glEnd()
-        GL.glEnable(GL.GL_DEPTH_TEST)
-        GL.glPopMatrix()
-        GL.glMatrixMode(GL.GL_PROJECTION)
-        GL.glPopMatrix()
-        GL.glMatrixMode(GL.GL_MODELVIEW)
+        """Залить кадр полосами от нижнего цвета к верхнему.
+
+        Полосы заливаются очисткой буфера с ножницами, а не
+        четырёхугольниками. Рисование четырёхугольников требует
+        старого конвейера (glMatrixMode, glBegin), а его нет
+        в контексте core profile: на AltLinux с QGIS 4.2 окно сцены
+        не открывалось вовсе, glMatrixMode отвечал «invalid
+        operation» на каждом кадре. Очистка с ножницами есть в любом
+        профиле OpenGL и в OpenGL ES.
+
+        Сбой фона не должен ронять вид: тогда кадр остаётся залитым
+        нижним цветом, а сцена рисуется как обычно.
+        """
+        try:
+            vp = GL.glGetIntegerv(GL.GL_VIEWPORT)
+            x0, y0, w, h = [int(v) for v in vp]
+            if w <= 0 or h <= 0:
+                return
+            lo = np.asarray(self.bg_bottom, dtype=float)
+            hi = np.asarray(self.bg_top, dtype=float)
+            for ln in gradient_bands(h, lo, hi):
+                band_y, band_h, col = ln
+                GL.glEnable(GL.GL_SCISSOR_TEST)
+                GL.glScissor(x0, y0 + band_y, w, band_h)
+                GL.glClearColor(*col)
+                GL.glClear(GL.GL_COLOR_BUFFER_BIT)
+        except Exception:  # nosec - фон не важнее сцены
+            pass
+        finally:
+            try:
+                GL.glDisable(GL.GL_SCISSOR_TEST)
+            except Exception:  # nosec
+                pass
 
     def projectionMatrix(self, region=None, viewport=None):
         """Ортогональная проекция вместо перспективной.
