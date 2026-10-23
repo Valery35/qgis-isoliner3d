@@ -286,6 +286,14 @@ The scene asks the data itself, in this order: the **`color`** field if
 the layer has one, then the layer symbology asked per feature, then a
 single colour for the whole layer.
 
+Bodies take the opacity together with the colour: the alpha of the
+symbol colour, the symbol opacity and the layer opacity from its
+properties, as on the map. So the voxel classes from 2.04 can be made
+translucent right in the layer style. Solid bodies are drawn first and
+translucent ones over them, so what lies inside shows through a
+transparent shell. The layer transparency in the scene properties is
+multiplied by the transparency of the style.
+
 # Isosurfaces and voxels
 
 A cube of values is a multiband grid where a band is a horizontal level.

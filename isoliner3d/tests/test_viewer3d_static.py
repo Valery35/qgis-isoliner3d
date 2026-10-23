@@ -525,7 +525,8 @@ def test_style_reader_returns_colour_and_size():
     src = _viewer_src()
     start = src.index("def _layer_colors")
     body = src[start:src.index("\n        @staticmethod", start)]
-    assert "out[ft.id()] = (sym.color().name(), size)" in body
+    assert "out[ft.id()] = (sym.color().name(), size," in body
+    assert "symbol_alpha(sym))" in body
     assert "out[ft.id()] = None" in body
     assert "self._style_color(by_style, ft)" in src
 
@@ -1162,7 +1163,53 @@ def test_bodies_have_their_own_transparency():
     assert 'o_b.get("lyr_opacity"' in body
     assert "alpha0" not in body
     # и режим рисования у тела свой, по его же прозрачности
-    assert "gopt = 'opaque' if alpha >= 0.999 else 'translucent'" in body
+    assert "split_by_alpha(alphas)" in body
+    assert "gopt = 'opaque' if part is solid else 'translucent'" in body
+
+
+def test_body_transparency_comes_from_the_layer_style():
+    """Непрозрачность тела берётся из стиля слоя, как на карте.
+
+    Классы вокселей различали прозрачностью в стиле, а сцена читала
+    только `color().name()` и рисовала их сплошным цветом. Теперь
+    идёт альфа цвета, непрозрачность символа и непрозрачность слоя.
+    """
+    src = _viewer_src()
+    i = src.index("def _body_meshes")
+    body = src[i:src.index("\n    def ", i + 20)]
+    assert "lyr.opacity()" in body
+    assert body.count("self._style_alpha(by_style, ft)") == 3
+    i = src.index("def _style_by_ranges")
+    assert "symbol_alpha(sym)" in src[i:i + 2000]
+
+
+def test_symbol_alpha_multiplies_colour_and_symbol():
+    """Альфа цвета и непрозрачность символа перемножаются."""
+    from isoliner3d.viewer_core import split_by_alpha, symbol_alpha
+
+    class Col:
+        def __init__(self, a):
+            self.a = a
+
+        def alphaF(self):
+            return self.a
+
+    class Sym:
+        def __init__(self, a, o):
+            self.c, self.o = Col(a), o
+
+        def color(self):
+            return self.c
+
+        def opacity(self):
+            return self.o
+
+    assert abs(symbol_alpha(Sym(0.5, 0.4)) - 0.2) < 1e-12
+    assert symbol_alpha(Sym(1.0, 1.0)) == 1.0
+    assert symbol_alpha(object()) == 1.0
+    solid, soft = split_by_alpha([1.0, 0.2, 0.7, 1.0])
+    assert solid == [0, 3]
+    assert soft == [2, 1], soft     # от плотных к прозрачным
 
 
 def test_translucent_is_drawn_after_opaque():

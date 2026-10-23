@@ -36,8 +36,8 @@ from .viewer3d import (    # noqa: F401
     _tri_cached, bed_to_mesh_arrays, clip_wall, colormap, cylinder,
     draw_depth, field_color, flat_marker_mesh, grid_to_mesh_arrays,
     layer_lift, polygon_mask, polyline_dist_side, ramp_colors,
-    sample_bilinear, shade_colors, thin_labels_xy, tr, walk_rings,
-    z_range_mask)
+    sample_bilinear, shade_colors, split_by_alpha, symbol_alpha,
+    thin_labels_xy, tr, walk_rings, z_range_mask)
 
 import numpy as np                                # noqa: E402
 
@@ -2618,7 +2618,7 @@ class ViewerDialog(QDialog):
                 size = float(sym.size())
             except Exception:  # nosec
                 size = None
-            return (sym.color().name(), size)
+            return (sym.color().name(), size, symbol_alpha(sym))
 
         req = QgsFeatureRequest()
         try:
@@ -2748,7 +2748,7 @@ class ViewerDialog(QDialog):
                         size = float(sym.size())
                     except Exception:  # nosec
                         size = None
-                    one = (sym.color().name(), size)
+                    one = (sym.color().name(), size, symbol_alpha(sym))
                 out = _OneStyle(one)
                 self._layer_colors_cache[key] = out
                 _log(tr("Стиль слоя %s: один символ на слой, %s.")
@@ -2793,7 +2793,10 @@ class ViewerDialog(QDialog):
                         size = float(sym.size())
                     except Exception:  # nosec
                         size = None
-                    out[ft.id()] = (sym.color().name(), size)
+                    # Третьим идёт непрозрачность символа: классы
+                    # блочной модели часто различают именно ею.
+                    out[ft.id()] = (sym.color().name(), size,
+                                    symbol_alpha(sym))
                 rnd.stopRender(ctx)
         except Exception:  # nosec
             out = {}
@@ -2813,6 +2816,18 @@ class ViewerDialog(QDialog):
         """Цвет объекта из стиля, без размера."""
         v = by_style.get(ft.id())
         return v[0] if v else None
+
+    @staticmethod
+    def _style_alpha(by_style, ft):
+        """Непрозрачность объекта из стиля, доля единицы.
+
+        Цвет из поля и старые записи прозрачности не несут: для них
+        единица, объект плотный.
+        """
+        v = by_style.get(ft.id())
+        if not v or len(v) < 3 or v[2] is None:
+            return 1.0
+        return float(v[2])
 
     @staticmethod
     def _style_size(by_style, ft):
@@ -2996,7 +3011,10 @@ class ViewerDialog(QDialog):
         return max(n, 1)
 
     def _body_meshes(self, prof=None):
-        """(verts, faces, name, цвет) по отмеченным полигонам с Z.
+        """(verts, faces, name, цвет, слой, непрозрачность) по полигонам с Z.
+
+        Непрозрачность - символа стиля, умноженная на непрозрачность
+        слоя из его свойств, как и на карте.
 
         Каждый ОБЪЕКТ слоя разбирается из WKT в треугольники отдельным
         мешем, поэтому свита из нескольких пластов красится
@@ -3012,6 +3030,10 @@ class ViewerDialog(QDialog):
             if mode not in ("solid", "prism"):
                 continue          # такой слой рисуется линиями
             by_style = self._layer_colors(lyr)
+            try:
+                lyr_alpha = min(max(float(lyr.opacity()), 0.0), 1.0)
+            except Exception:  # nosec
+                lyr_alpha = 1.0
             zsrc = o.get("zsrc", "geom")
             if zsrc == "geom" and not _layer_has_z(lyr):
                 self._warn(tr("У слоя %s нет высоты Z, выберите "
@@ -3089,7 +3111,8 @@ class ViewerDialog(QDialog):
                           else lyr.name())
                     out.append((v, f, nm,
                                 self._style_color(by_style, ft),
-                                lyr.id()))
+                                lyr.id(), self._style_alpha(by_style, ft)
+                                * lyr_alpha))
                     continue
                 zfix = None if zsrc == "geom" else \
                     (self._feature_z(ft, o) or 0.0)
@@ -3165,7 +3188,9 @@ class ViewerDialog(QDialog):
                                   if multi else lyr.name())
                             out.append((v, f, nm,
                                         self._style_color(by_style, ft),
-                                        lyr.id()))
+                                        lyr.id(),
+                                        self._style_alpha(by_style, ft)
+                                        * lyr_alpha))
                             continue
                     else:
                         v, f = _tri_cached(lyr, ft, g, flat, prof)
@@ -3184,7 +3209,8 @@ class ViewerDialog(QDialog):
                 k += 1
                 nm = ("%s #%d" % (lyr.name(), k)) if multi else lyr.name()
                 out.append((v, f.astype(np.int64), nm,
-                            self._style_color(by_style, ft), lyr.id()))
+                            self._style_color(by_style, ft), lyr.id(),
+                            self._style_alpha(by_style, ft) * lyr_alpha))
             if not k:
                 _log(tr("Слой %s: объектов %d, тел не вышло. Пусто %d, "
                         "скрыто стилем %d, без отметок %d, плоских %d.")
@@ -6733,46 +6759,55 @@ class ViewerDialog(QDialog):
                 # поверхность над ним. У тела своя прозрачность,
                 # в свойствах его слоя.
                 o_b = self._opts.get(lid_b) or {}
-                alpha = 1.0 - float(
+                own_b = 1.0 - float(
                     o_b.get("lyr_opacity", 0) or 0) / 100.0
-                gopt = 'opaque' if alpha >= 0.999 else 'translucent'
-                # Копим и координаты сцены, и настоящие: сцена нужна
-                # для показа, выгрузке нужны настоящие.
-                allv, allf, allc, base = [], [], [], 0
-                allmap = []
-                for bi, (bverts, bfaces, bname, bcol, _bl) in group:
-                    color = PALETTE[(len(meshes) + bi) % len(PALETTE)]
-                    if bcol:
-                        color = _css_rgba(bcol)
-                    v = bverts.copy()
-                    v[:, 0] -= cx
-                    v[:, 1] -= cy
-                    v[:, 2] = ((v[:, 2] - cz) * vex
-                               + self._z_priority(lid_b, span_z))
-                    allv.append(v)
-                    allmap.append(np.asarray(bverts, dtype=float))
-                    allf.append(np.asarray(bfaces, dtype=np.int64)
-                                + base)
-                    allc.append(np.tile(
-                        np.array(color[:3] + (alpha,), dtype='float32'),
-                        (len(v), 1)))
-                    base += len(v)
-                bv = np.vstack(allv).astype('float32')
-                bf = np.vstack(allf)
-                md = gl.MeshData(vertexes=bv, faces=bf)
-                md.setVertexColors(self._shaded(np.vstack(allc), md))
-                prof.count("tris", len(bf)).count("verts", len(bv))
-                # Без затенения: цвет берётся из стиля слоя, и
-                # затенение его умножает, уводя оранжевый в бурый.
-                # Пояса плоские, светотень им ничего не добавляет,
-                # а совпадение с картой важнее.
-                item = gl.GLMeshItem(meshdata=md, smooth=False,
-                                     shader=None, glOptions=gopt)
-                self._add_item(item, lid_b, gopt)
-                lyr_e = QgsProject.instance().mapLayer(lid_b)
-                self._keep_for_export(
-                    lyr_e.name() if lyr_e else "body",
-                    np.vstack(allmap), bf, np.vstack(allc))
+                # Непрозрачность каждого объекта - из стиля слоя
+                # (альфа цвета, непрозрачность символа и слоя), поверх
+                # неё - своя в настройках сцены. Плотные и прозрачные
+                # объекты идут двумя мешами: см. `split_by_alpha`.
+                alphas = [float(rec[5] if len(rec) > 5 else 1.0) * own_b
+                          for _bi, rec in group]
+                solid, soft = split_by_alpha(alphas)
+                for part in (solid, soft):
+                    if not part:
+                        continue
+                    gopt = 'opaque' if part is solid else 'translucent'
+                    allv, allf, allc, base = [], [], [], 0
+                    allmap = []
+                    for gi in part:
+                        bi, rec = group[gi]
+                        bverts, bfaces, _bname, bcol = rec[:4]
+                        alpha = alphas[gi]
+                        color = PALETTE[(len(meshes) + bi) % len(PALETTE)]
+                        if bcol:
+                            color = _css_rgba(bcol)
+                        v = bverts.copy()
+                        v[:, 0] -= cx
+                        v[:, 1] -= cy
+                        v[:, 2] = ((v[:, 2] - cz) * vex
+                                   + self._z_priority(lid_b, span_z))
+                        allv.append(v)
+                        allmap.append(np.asarray(bverts, dtype=float))
+                        allf.append(np.asarray(bfaces, dtype=np.int64)
+                                    + base)
+                        allc.append(np.tile(
+                            np.array(color[:3] + (alpha,),
+                                     dtype='float32'), (len(v), 1)))
+                        base += len(v)
+                    bv = np.vstack(allv).astype('float32')
+                    bf = np.vstack(allf)
+                    md = gl.MeshData(vertexes=bv, faces=bf)
+                    md.setVertexColors(self._shaded(np.vstack(allc), md))
+                    prof.count("tris", len(bf)).count("verts", len(bv))
+                    # Без затенения: цвет берётся из стиля слоя, и
+                    # затенение его умножает, уводя оранжевый в бурый.
+                    item = gl.GLMeshItem(meshdata=md, smooth=False,
+                                         shader=None, glOptions=gopt)
+                    self._add_item(item, lid_b, gopt)
+                    lyr_e = QgsProject.instance().mapLayer(lid_b)
+                    self._keep_for_export(
+                        lyr_e.name() if lyr_e else "body",
+                        np.vstack(allmap), bf, np.vstack(allc))
         self._clip_report(prof)
         if attr is not None:
             self._show_legend(attr[1], attr[2])
@@ -6884,7 +6919,7 @@ class ViewerDialog(QDialog):
                         continue
                     dxn, dyn = sxx / seglen, syy / seglen
                     nrm = (syy, -sxx, 0.0)   # горизонтальная нормаль шторы
-                    for bverts, bfaces, _bn, _bc, _bl in bodies:
+                    for bverts, bfaces, _bn, _bc, _bl, _ba in bodies:
                         s3 = poly.slice_triangles(
                             bverts, bfaces, (ax, ay, 0.0), nrm)
                         for s in s3:

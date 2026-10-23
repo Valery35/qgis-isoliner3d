@@ -31,7 +31,7 @@ from .viewer_core import (    # noqa: F401
     _ramp_from_renderer, _read_raster, _ring_normal, _tri_cached, _tri_key,
     _tri_rings, cache_clear, cache_size, clip_wall, colormap, draw_depth,
     field_color, flat_marker_mesh, is_available, is_bed_grid, layer_lift,
-    ramp_colors, volume_beyond_box, bed_pairs,
+    ramp_colors, volume_beyond_box, bed_pairs, split_by_alpha, symbol_alpha,
     shade_colors, tri_cache_clear, tri_cache_size, walk_rings, z_range_mask)
 
 
