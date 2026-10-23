@@ -7236,6 +7236,166 @@ class FormationBodiesAlgorithm(IsolinerAlgorithm):
         return {self.OUTPUT: dest, self.OUTPUT_CUBE: cube_path}
 
 
+HINTS_2_16 = {
+    "EXTENT": "Куда положить пример. Пусто означает взять охват окна "
+              "вида: сеть ляжет туда, куда вы смотрите.",
+    "CELL": "Шаг сетки рельефа, метры. Сетка 140 на 110 ячеек, поэтому "
+            "от шага зависит и размер участка: при 50 м это 7 на 5,5 "
+            "километра.",
+    "MIN_AREA": "Площадь водосбора, с которой начинается русло. Меньше "
+                "порог - гуще сеть и больше мелких притоков.",
+    "RUNOFF": "Модуль стока: литров в секунду с квадратного километра "
+              "водосбора. Расход звена - площадь его водосбора, "
+              "умноженная на этот модуль.",
+    "SEED": "Одно и то же зерно даёт один и тот же рельеф и одну и ту "
+            "же сеть. Другое зерно - другой рельеф.",
+    "OUTPUT": "Звенья сети: линии с отметками рельефа, с полями "
+              "расхода, площади водосбора, порядка по Стралеру и "
+              "длины. Для показа трубами поле толщины - q.",
+    "OUTPUT_DEM": "Рельеф, по которому течёт сеть, с заполненными "
+                  "понижениями. В сцене это поверхность, над которой "
+                  "лежат русла.",
+}
+
+
+class DemoRiversAlgorithm(IsolinerAlgorithm):
+    """Демонстрационная речная сеть с расходами.
+
+    Набор для показа линий трубами: расход растёт вниз по течению
+    на порядки, и толщина трубы читается сразу. Рельеф и сток
+    считаются в demo_rivers.py.
+    """
+
+    EXTENT, CELL, MIN_AREA = "EXTENT", "CELL", "MIN_AREA"
+    RUNOFF, SEED = "RUNOFF", "SEED"
+    OUTPUT, OUTPUT_DEM = "OUTPUT", "OUTPUT_DEM"
+
+    def tr(self, s): return _tr(s)
+    def createInstance(self): return DemoRiversAlgorithm()
+    def name(self): return "demo_rivers"
+
+    def displayName(self):
+        return self.tr("2.16 Демонстрационная речная сеть (демо)")
+
+    def helpUrl(self): return _help_url()
+    def group(self): return self.tr(GROUP5)
+    def groupId(self): return GROUP5_ID
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Создаёт рельеф и речную сеть по нему, с расходом на каждом "
+            "звене.\n\n"
+            "Рельеф задаётся формулой: общий уклон к югу, гряды и "
+            "холмы. Бессточные понижения заполняются, вода течёт "
+            "к самому крутому из восьми соседей, площадь водосбора "
+            "копится вниз по течению. Русло начинается там, где "
+            "водосбор больше порога, расход звена пропорционален "
+            "площади его водосбора.\n\n"
+            "Набор нужен, чтобы показать линии трубами. Расход растёт "
+            "вниз по течению в десятки раз, и толщина трубы читается "
+            "сразу. В свойствах слоя в сцене выберите показ трубой "
+            "и поле толщины q, а покрасить можно по порядку по "
+            "Стралеру.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self._defaults = _load_defaults(self)
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Охват (куда положить пример)"),
+            optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CELL, self.tr("Шаг сетки рельефа, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.CELL, 50.0), minValue=1.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.MIN_AREA, self.tr("Водосбор начала русла, км2"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.MIN_AREA, 0.5), minValue=0.001))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.RUNOFF, self.tr("Модуль стока, л/с с км2"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=_dv(self, self.RUNOFF, 8.0), minValue=0.0))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SEED, self.tr("Зерно случайности"),
+            QgsProcessingParameterNumber.Type.Integer,
+            defaultValue=_dv(self, self.SEED, 1))))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Речная сеть"),
+            QgsProcessing.SourceType.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT_DEM, self.tr("Рельеф")))
+        _hints(self, HINTS_2_16)
+
+    def _process(self, parameters, context, feedback):
+        from qgis.core import (QgsFields, QgsFeature, QgsLineString,
+                               QgsPoint, QgsWkbTypes)
+        from . import demo_rivers as dr
+        feedback.pushInfo(_version_line())
+        _saved = dict(parameters)
+        crs = QgsProject.instance().crs()
+        ext = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        cell = self.parameterAsDouble(parameters, self.CELL, context)
+        min_area = self.parameterAsDouble(parameters, self.MIN_AREA,
+                                          context)
+        runoff = self.parameterAsDouble(parameters, self.RUNOFF, context)
+        seed = self.parameterAsInt(parameters, self.SEED, context)
+        dem_path = self.parameterAsOutputLayer(parameters,
+                                               self.OUTPUT_DEM, context)
+        if ext is None or ext.isEmpty():
+            x0 = y0 = 0.0
+            feedback.pushInfo(self.tr(
+                "Пример положен от начала координат: задайте охват, "
+                "чтобы поставить его на своё место."))
+        else:
+            x0, y0 = ext.xMinimum(), ext.yMinimum()
+        r = dr.demo(cell=cell, seed=seed, min_area_km2=min_area,
+                    runoff=runoff, x0=x0, y0=y0)
+        dem, gt = r["dem"], r["gt"]
+        ny, nx = dem.shape
+        _write_grid_tiff(dem_path, [dem], gt, crs.toWkt(), float("nan"),
+                         nx, ny, [self.tr("рельеф")])
+        _set_output_name(context, dem_path, self.tr("Рельеф"))
+        feedback.setProgress(50)
+
+        fields = QgsFields()
+        fields.append(_field("link", QVariant.Int))
+        fields.append(_field("strahler", QVariant.Int))
+        for nm in ("q", "area_km2", "length_m"):
+            fields.append(_field(nm, QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.LineStringZ, crs)
+        if sink is None:
+            raise QgsProcessingException(self.tr(
+                "Не удалось создать слой речной сети."))
+        for k, ln in enumerate(r["links"]):
+            ls = QgsLineString([QgsPoint(float(x), float(y), float(z))
+                                for x, y, z in ln["xyz"]])
+            ft = QgsFeature(fields)
+            ft.setGeometry(QgsGeometry(ls))
+            ft.setAttributes([k + 1, ln["order"], ln["q"],
+                              ln["area_km2"], ln["length_m"]])
+            sink.addFeature(ft)
+        _set_output_name(context, dest, self.tr("Речная сеть"))
+        q = [ln["q"] for ln in r["links"]]
+        if q:
+            feedback.pushInfo(self.tr(
+                "Звеньев: %d, порядков по Стралеру до %d. Расход "
+                "от %.4f до %.3f м3/с, длина сети %.1f км.")
+                % (len(q), max(ln["order"] for ln in r["links"]),
+                   min(q), max(q),
+                   sum(ln["length_m"] for ln in r["links"]) / 1000.0))
+        feedback.pushInfo(self.tr(
+            "Порядок показа.\n"
+            "1. Рельеф и речную сеть в 3D-просмотр.\n"
+            "2. В свойствах слоя сети: линейный слой трубой, поле "
+            "толщины q, диаметр от 4 до 40 м, шкала по площади "
+            "сечения.\n"
+            "3. Стиль слоя на карте: градуированный по полю strahler. "
+            "Цвет и прозрачность трубы сцена берёт из стиля."))
+        _save_values(self, _saved)
+        return {self.OUTPUT: dest, self.OUTPUT_DEM: dem_path}
+
+
 ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
@@ -7260,4 +7420,5 @@ ALGORITHMS = [
     GridToShellAlgorithm,
     ZonalShellStatsAlgorithm,
     FormationBodiesAlgorithm,
+    DemoRiversAlgorithm,
 ]

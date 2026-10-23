@@ -110,6 +110,7 @@ values: a grid band is a horizontal level.
 | 2.13 A shell from a bed grid | A closed body from a grid by a tool rather than a button: the chain to reserves fits a model | Bodies with volumes |
 | 2.14 Zonal statistics of shells | How many points, lines and their lengths fell into every body. Numbers in the attributes, repeated runs add up | Bodies with count fields |
 | 2.15 Formation bodies from outlines | Formations lying side by side, from sections, a map with relief elevations and inclined cuts together. Every point of the volume goes to one formation | A formation cube and formation bodies with volume |
+| 2.16 A demonstration river network (demo) | A relief and a river network with a discharge on every link, an example for showing lines as tubes | A river network and a relief |
 
 A bed grid assembled by the first tool is read by the 3D window as a body:
 computed and looked at right away.

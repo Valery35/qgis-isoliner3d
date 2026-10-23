@@ -917,6 +917,40 @@ class ViewerDialog(QDialog):
                            (tr("Скважины (стволы по отметкам)"),
                             "wells")):
             self.vec_kind.addItem(label, key)
+        # Линии трубами: толщина в метрах сцены, по полю или одна.
+        self.vec_line = QComboBox()
+        for label, key in ((tr("Линией"), "line"),
+                           (tr("Трубой"), "tube")):
+            self.vec_line.addItem(label, key)
+        self.vec_line.setToolTip(tr(
+            "Экранная линия одинакова при любом удалении и ничего "
+            "не показывает толщиной. Труба имеет диаметр в метрах, "
+            "и значение поля читается размером."))
+        self.vec_tfield = QComboBox()
+        self.vec_tfield.setToolTip(tr(
+            "Числовое поле для толщины трубы. Пусто - у всех труб "
+            "наибольший диаметр."))
+        self.vec_dmin = QDoubleSpinBox()
+        self.vec_dmin.setRange(0.01, 100000.0)
+        self.vec_dmin.setDecimals(2)
+        self.vec_dmin.setValue(2.0)
+        self.vec_dmin.setToolTip(tr(
+            "Диаметр трубы при наименьшем значении поля, метры."))
+        self.vec_dmax = QDoubleSpinBox()
+        self.vec_dmax.setRange(0.01, 100000.0)
+        self.vec_dmax.setDecimals(2)
+        self.vec_dmax.setValue(10.0)
+        self.vec_dmax.setToolTip(tr(
+            "Диаметр трубы при наибольшем значении поля, метры. Без "
+            "поля это диаметр всех труб слоя."))
+        self.vec_tscale = QComboBox()
+        for label, key in ((tr("По площади сечения"), "area"),
+                           (tr("По диаметру"), "linear")):
+            self.vec_tscale.addItem(label, key)
+        self.vec_tscale.setToolTip(tr(
+            "По площади сечения значению пропорциональна площадь, "
+            "а не диаметр: глаз читает толщину трубы площадью, и "
+            "большие значения не забивают картинку."))
         self.vec_opacity = QSpinBox()
         self.vec_opacity.setRange(0, 100)
         self.vec_opacity.setValue(0)
@@ -936,6 +970,11 @@ class ViewerDialog(QDialog):
         vf.addRow(tr("Поверхность отметки"), self.vec_zsurf)
         vf.addRow(tr("Смещение по вертикали, м"), self.vec_zoff)
         vf.addRow(tr("Прозрачность слоя"), self.vec_opacity)
+        vf.addRow(tr("Линейный слой"), self.vec_line)
+        vf.addRow(tr("Поле толщины трубы"), self.vec_tfield)
+        vf.addRow(tr("Диаметр от, м"), self.vec_dmin)
+        vf.addRow(tr("Диаметр до, м"), self.vec_dmax)
+        vf.addRow(tr("Шкала толщины"), self.vec_tscale)
         vf.addRow(tr("Размер точки, px (0 - из стиля)"),
                   self.vec_psize)
         vf.addRow(tr("Вид маркера"), self.vec_shape)
@@ -950,11 +989,14 @@ class ViewerDialog(QDialog):
         for w in (self.vec_kind, self.vec_poly, self.vec_zsrc,
                   self.vec_zfield, self.vec_zsurf, self.vec_label,
                   self.vec_shape,
-                  self.vec_ztop,
+                  self.vec_ztop, self.vec_line, self.vec_tfield,
+                  self.vec_tscale,
                   self.vec_base, self.vec_htop, self.wells_label):
             w.currentIndexChanged.connect(self._save_vec_opts)
         self.vec_zoff.valueChanged.connect(self._save_vec_opts)
         self.vec_opacity.valueChanged.connect(self._save_vec_opts)
+        self.vec_dmin.valueChanged.connect(self._save_vec_opts)
+        self.vec_dmax.valueChanged.connect(self._save_vec_opts)
         self.vec_psize.valueChanged.connect(self._save_vec_opts)
         self.vec_msize.valueChanged.connect(self._save_vec_opts)
         self.vec_nlab.valueChanged.connect(self._save_vec_opts)
@@ -2092,6 +2134,8 @@ class ViewerDialog(QDialog):
                 "poly": "solid" if has_z else "outline",
                 "ztop": None, "base": None, "htop": "field",
                 "zfield": None,
+                "line": "line", "tfield": None, "dmin": 2.0,
+                "dmax": 10.0, "tscale": "area",
                 "wells_label": None, "wells_fields": []}
 
     def _opts_of(self, lyr):
@@ -2149,6 +2193,9 @@ class ViewerDialog(QDialog):
             self.vec_label.blockSignals(True)
             self.vec_label.clear()
             self.vec_label.addItem(tr("(нет)"), None)
+            self.vec_tfield.blockSignals(True)
+            self.vec_tfield.clear()
+            self.vec_tfield.addItem(tr("(нет)"), None)
             guess = -1
             for f in lyr.fields():
                 self.wells_label.addItem(f.name(), f.name())
@@ -2159,6 +2206,7 @@ class ViewerDialog(QDialog):
                 if f.isNumeric():
                     self.vec_zfield.addItem(f.name(), f.name())
                     self.vec_ztop.addItem(f.name(), f.name())
+                    self.vec_tfield.addItem(f.name(), f.name())
             iz = _find_data(self.vec_zfield, o.get("zfield"))
             self.vec_zfield.setCurrentIndex(max(iz, 0))
             it_ = _find_data(self.vec_ztop, o.get("ztop"))
@@ -2188,6 +2236,19 @@ class ViewerDialog(QDialog):
             self.vec_nlab.blockSignals(True)
             self.vec_nlab.setValue(int(o.get("nlab", 400) or 0))
             self.vec_nlab.blockSignals(False)
+            itf = _find_data(self.vec_tfield, o.get("tfield"))
+            self.vec_tfield.setCurrentIndex(max(itf, 0))
+            self.vec_tfield.blockSignals(False)
+            for w, key, dflt in ((self.vec_line, "line", "line"),
+                                 (self.vec_tscale, "tscale", "area")):
+                w.blockSignals(True)
+                w.setCurrentIndex(max(_find_data(w, o.get(key, dflt)), 0))
+                w.blockSignals(False)
+            for w, key, dflt in ((self.vec_dmin, "dmin", 2.0),
+                                 (self.vec_dmax, "dmax", 10.0)):
+                w.blockSignals(True)
+                w.setValue(float(o.get(key, dflt) or dflt))
+                w.blockSignals(False)
             ih = _find_data(self.vec_htop, o.get("htop", "field"))
             self.vec_htop.setCurrentIndex(max(ih, 0))
             il = _find_data(self.wells_label, o.get("wells_label"))
@@ -2280,7 +2341,19 @@ class ViewerDialog(QDialog):
         self._row(self.vec_ztop, prism)
         self._row(self.wells_label, wells)
         self._row(self.wells_fields, wells)
-        self.sec_box.setVisible(kind == "line")
+        is_line = kind == "line"
+        tube = is_line and self.vec_line.currentData() == "tube"
+        by_field = tube and bool(self.vec_tfield.currentData())
+        self._row(self.vec_line, is_line)
+        self._row(self.vec_tfield, tube)
+        self._row(self.vec_dmin, by_field)
+        self._row(self.vec_dmax, tube)
+        self._row(self.vec_tscale, by_field)
+        # Группу показываем, только когда окно свойств уже собрано.
+        # До первого открытия у неё нет родителя, и показ без родителя
+        # выводит её отдельным окном с заголовком «QGIS4».
+        if self._props is not None:
+            self.sec_box.setVisible(kind == "line")
         self.draw_combo.setEnabled(self.sec_on.isChecked())
 
         # «Своя высота геометрии» недоступна слою без Z
@@ -2329,6 +2402,11 @@ class ViewerDialog(QDialog):
         o["msize"] = float(self.vec_msize.value())
         o["nlab"] = int(self.vec_nlab.value())
         o["zfield"] = self.vec_zfield.currentData()
+        o["line"] = self.vec_line.currentData() or "line"
+        o["tfield"] = self.vec_tfield.currentData()
+        o["dmin"] = float(self.vec_dmin.value())
+        o["dmax"] = float(self.vec_dmax.value())
+        o["tscale"] = self.vec_tscale.currentData() or "area"
         o["wells_label"] = self.wells_label.currentData()
         o["wells_fields"] = [
             self.wells_fields.item(i).text()
@@ -3292,6 +3370,12 @@ class ViewerDialog(QDialog):
             # стирал всю раскраску: в сцене шла бурая паутина
             # вместо шкалы глубин.
             by_style = self._layer_colors(lyr)
+            try:
+                lyr_alpha = min(max(float(lyr.opacity()), 0.0), 1.0)
+            except Exception:  # nosec
+                lyr_alpha = 1.0
+            tfield = (o.get("tfield") if o.get("line") == "tube"
+                      else None)
             feats = list(lyr.getFeatures())
             if len(feats) > _MAX_LINES:
                 self._warn(
@@ -3316,6 +3400,13 @@ class ViewerDialog(QDialog):
                     g.transform(tr_)
                 zf = self._feature_z(ft, o)
                 fcol = self._style_color(by_style, ft) or "#7a5c3c"
+                f_alpha = self._style_alpha(by_style, ft) * lyr_alpha
+                f_val = None
+                if tfield:
+                    try:
+                        f_val = float(ft[tfield])
+                    except (TypeError, ValueError, KeyError):
+                        f_val = None
                 off = self._zoff_of(o)
                 for pts in _parts_xyz(g, zf):
                     kept = [p for p in pts
@@ -3338,7 +3429,7 @@ class ViewerDialog(QDialog):
                             if len(run) >= 2:
                                 n_made += 1
                                 out.append((run, fcol, lyr.name(),
-                                            lyr.id()))
+                                            lyr.id(), f_val, f_alpha))
             if not n_made:
                 _log(tr("Слой %s: объектов %d, линий не вышло. "
                         "Пусто %d, скрыто стилем %d, снято обрезкой "
@@ -6138,6 +6229,62 @@ class ViewerDialog(QDialog):
         _log(tr("В выгрузку: %s, вершин %d, граней %d")
              % (name, len(v), len(np.asarray(faces))))
 
+    def _tube_items(self, lid, rows, cx, cy, cz, vex, span_z, prof):
+        """Линии слоя трубами: два меша, плотный и полупрозрачный.
+
+        Диаметр в метрах сцены: из поля, переведённого шкалой
+        в диапазон диаметров слоя, либо один на всех. Цвет
+        и прозрачность каждой трубы из стиля слоя, поверх -
+        прозрачность слоя в свойствах сцены. Как у тел, плотные трубы
+        рисуются первыми, полупрозрачные поверх.
+        """
+        from .tubes import many_tubes, sides_for, value_to_diameter
+        lyr = QgsProject.instance().mapLayer(lid)
+        o = self._opts_of(lyr)
+        dmin = float(o.get("dmin", 2.0) or 2.0)
+        dmax = float(o.get("dmax", 10.0) or 10.0)
+        if o.get("tfield"):
+            diam = value_to_diameter([r[4] for r in rows], dmin, dmax,
+                                     o.get("tscale", "area"))
+            n_none = sum(1 for r in rows if r[4] is None)
+            if n_none:
+                self._warn(tr("Слой %s: у %d линий нет значения поля "
+                              "толщины, они нарисованы наименьшим "
+                              "диаметром.") % (self._title(lyr), n_none))
+        else:
+            diam = np.full(len(rows), dmax)
+        own_l = 1.0 - float(o.get("lyr_opacity", 0) or 0) / 100.0
+        alphas = [float(r[5] if len(r) > 5 else 1.0) * own_l
+                  for r in rows]
+        lines = []
+        for r in rows:
+            P = np.array(r[0], dtype=float)
+            P[:, 0] -= cx
+            P[:, 1] -= cy
+            P[:, 2] = ((P[:, 2] - cz) * vex
+                       + self._z_priority(lid, span_z))
+            lines.append(P)
+        sides = sides_for(sum(len(p) for p in lines),
+                          MAX_VERTS_SCENE // 2)
+        solid, soft = split_by_alpha(alphas)
+        for part in (solid, soft):
+            if not part:
+                continue
+            gopt = 'opaque' if part is solid else 'translucent'
+            v, f, own = many_tubes([lines[i] for i in part],
+                                   [0.5 * diam[i] for i in part],
+                                   sides=sides)
+            if not len(f):
+                continue
+            cols = np.array([_css_rgba(rows[i][1])[:3] + (alphas[i],)
+                             for i in part], dtype='float32')
+            md = gl.MeshData(vertexes=v.astype('float32'), faces=f)
+            md.setVertexColors(self._shaded(cols[own], md))
+            item = gl.GLMeshItem(meshdata=md, smooth=True, shader=None,
+                                 glOptions=gopt)
+            self._add_item(item, lid, gopt)
+            prof.count("tris", len(f)).count("verts", len(v))
+
     def _add_item(self, item, owner=None, gopt=None):
         """Положить элемент в сцену, запомнив, чьего он слоя.
 
@@ -7058,7 +7205,13 @@ class ViewerDialog(QDialog):
             # группируем по слою, а не по цвету: так галка прячет
             # слой сразу, без пересборки сцены
             by_layer = {}
-            for pts, col, _nm, lid_v in vlines:
+            tube_rows = {}
+            for row in vlines:
+                pts, col, _nm, lid_v = row[:4]
+                o_t = self._opts_of(QgsProject.instance().mapLayer(lid_v))
+                if o_t.get("line") == "tube":
+                    tube_rows.setdefault(lid_v, []).append(row)
+                    continue
                 seg = by_layer.setdefault((lid_v, col), [])
                 P = np.array(pts, dtype=float)
                 P[:, 0] -= cx
@@ -7077,6 +7230,9 @@ class ViewerDialog(QDialog):
                     color=_css_rgba(col), glOptions='opaque')
                 self._add_item(item, lid_v)
                 prof.count("verts", len(seg))
+            for lid_v, rows in tube_rows.items():
+                self._tube_items(lid_v, rows, cx, cy, cz, vex, span_z,
+                                 prof)
 
         # --- точки векторных слоёв, кроме тех, что рисуются скважинами
         if vpoints:

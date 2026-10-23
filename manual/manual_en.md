@@ -294,6 +294,32 @@ translucent ones over them, so what lies inside shows through a
 transparent shell. The layer transparency in the scene properties is
 multiplied by the transparency of the style.
 
+## Lines as tubes
+
+A screen line is drawn a few pixels wide and looks the same at any
+distance from the camera, so its thickness shows nothing. A line layer
+has the **As a tube** display in its properties: a tube has a diameter
+in metres, and the field value reads by size, as a line width does on
+the map.
+
+**Tube thickness field** is a numeric field. The smallest value gives
+**Diameter from**, the largest **Diameter up to**. Without a field all
+tubes of the layer get **Diameter up to**. **Thickness scale** by
+cross-section area makes the area, not the diameter, proportional to
+the value: the eye reads a tube by its area, and large values do not
+swamp the picture. The scale by diameter makes the diameter
+proportional.
+
+The colour and transparency of a tube come from the layer style, as for
+bodies, so one value can be shown by thickness and another by colour.
+The tubes of a layer are built into one mesh, the wall keeps its
+thickness at bends and the joints have no gaps. On layers with hundreds
+of thousands of vertices the number of faces around the tube drops, so
+the scene keeps rotating smoothly.
+
+Tool 2.16 makes an example to try: a river network where the discharge
+grows downstream tens of times.
+
 # Isosurfaces and voxels
 
 A cube of values is a multiband grid where a band is a horizontal level.
@@ -1077,6 +1103,24 @@ The code of a formation must match on the sections and on the map: that is how t
 | **Vertical step, m (0 - half the area step)** | The vertical grid step. Zero takes half the area step: formations are usually steeper vertically than along the strike. |
 | **Formation cube** | Formation cube: every voxel holds the number of its formation, above the relief and outside the data it is empty. The scene shows it as a cube, 2.03 turns it into a block model. |
 | **Formation bodies** | Formation bodies: closed shells, one per connected piece of a formation, with the volume in the attributes. 2.11, 2.12 and 2.14 take them. |
+
+## 2.16 A demonstration river network (demo)
+
+Creates a relief and a river network over it, with a discharge on every link.
+
+The relief is set by a formula: a general slope to the south, ridges and hills. Closed depressions are filled, water flows to the steepest of the eight neighbours, the catchment area accumulates downstream. A channel starts where the catchment exceeds the threshold, the discharge of a link is proportional to its catchment area.
+
+The set is meant to show lines as tubes. The discharge grows downstream tens of times, and the thickness of a tube reads at once. In the layer properties in the scene choose the tube display and the thickness field q, and colour by the Strahler order.
+
+| Field | What it sets |
+|---|---|
+| **Extent (where to put the example)** | Where to put the example. Empty means the extent of the map view: the network lands where you are looking. |
+| **Relief grid step, m** | The relief grid step, metres. The grid is 140 by 110 cells, so the step also sets the size of the area: at 50 m it is 7 by 5.5 kilometres. |
+| **Catchment where a channel starts, km2** | The catchment area where a channel starts. A smaller threshold gives a denser network and more small tributaries. |
+| **Runoff modulus, l/s per km2** | The runoff modulus: litres per second from a square kilometre of catchment. The discharge of a link is its catchment area times this modulus. |
+| **River network** | Links of the network: lines with relief elevations, with fields of discharge, catchment area, Strahler order and length. For showing as tubes the thickness field is q. |
+| **Relief** | The relief the network runs over, with the depressions filled. In the scene it is the surface the channels lie on. |
+| **The random seed** | The same seed gives the same relief and the same network. Another seed gives another relief. |
 
 ## From boreholes to reserves
 

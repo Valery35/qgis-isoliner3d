@@ -498,6 +498,72 @@ def tri_cache_size():
     return len(_TRI_CACHE), _TRI_BYTES
 
 
+def ear_clip(u, v):
+    """Разбить простой многоугольник на треугольники, отсечением ушей.
+
+    `u`, `v` - координаты вершин в плоскости кольца, без замыкающей.
+    Возвращает треугольники (K, 3) по номерам вершин либо None, если
+    кольцо самопересекается и ушей не нашлось: тогда решает вызывающий.
+
+    Вершины на одной прямой (у граней вокселей после склейки они
+    обычны) снимаются как вырожденные уши: треугольник нулевой площади
+    отрисовке не мешает, а дыра на месте вершины помешала бы.
+    """
+    import numpy as np
+    x = np.asarray(u, dtype=float)
+    y = np.asarray(v, dtype=float)
+    n = len(x)
+    if n < 3:
+        return np.zeros((0, 3), dtype=np.int64)
+    area = 0.5 * float(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
+    idx = list(range(n)) if area >= 0 else list(range(n))[::-1]
+    span = max(float(np.ptp(x)), float(np.ptp(y)), 1e-12)
+    eps = 1e-12 * span * span
+    out = []
+
+    def cross(a, b, c):
+        return ((x[b] - x[a]) * (y[c] - y[a])
+                - (y[b] - y[a]) * (x[c] - x[a]))
+
+    guard = 0
+    while len(idx) > 3 and guard < 4 * n * n:
+        guard += 1
+        m = len(idx)
+        found = False
+        for k in range(m):
+            a, b, c = idx[k - 1], idx[k], idx[(k + 1) % m]
+            cr = cross(a, b, c)
+            if cr < -eps:
+                continue                # вогнутая вершина
+            if cr > eps:
+                inside = False
+                # Точка на стороне уха тоже мешает: вогнутая вершина,
+                # лежащая ровно на диагонали, иначе остаётся снаружи,
+                # и ухо накрывает чужую площадь.
+                for j in idx:
+                    if j in (a, b, c):
+                        continue
+                    if ((x[j] == x[a] and y[j] == y[a])
+                            or (x[j] == x[b] and y[j] == y[b])
+                            or (x[j] == x[c] and y[j] == y[c])):
+                        continue
+                    if (cross(a, b, j) >= -eps and cross(b, c, j) >= -eps
+                            and cross(c, a, j) >= -eps):
+                        inside = True
+                        break
+                if inside:
+                    continue
+            out.append((a, b, c))
+            del idx[k]
+            found = True
+            break
+        if not found:
+            return None
+    if len(idx) == 3:
+        out.append(tuple(idx))
+    return np.asarray(out, dtype=np.int64).reshape(-1, 3)
+
+
 def _ring_normal(pts):
     """Нормаль кольца по формуле Ньюэлла.
 

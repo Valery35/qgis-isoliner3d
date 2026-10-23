@@ -29,6 +29,7 @@ from .viewer_core import (    # noqa: F401
     _css_rgba, _draw_on_top, _file_stamp, _fill_z, _find_data, _flat_z,
     _fmt_n, _gdal_open, _import_gl, _is_closed, _layer_budget, _map_order,
     _ramp_from_renderer, _read_raster, _ring_normal, _tri_cached, _tri_key,
+    ear_clip,
     _tri_rings, cache_clear, cache_size, clip_wall, colormap, draw_depth,
     field_color, flat_marker_mesh, is_available, is_bed_grid, layer_lift,
     ramp_colors, volume_beyond_box, bed_pairs, split_by_alpha, symbol_alpha,
@@ -270,6 +271,11 @@ def _prism(geom, cap_v, cap_f, zbot, ztop):
     return np.vstack(verts), np.vstack(faces)
 
 
+# Кольца до стольких вершин разбиваются своим отсечением ушей: оно
+# квадратично, и на больших контурах GEOS быстрее.
+_EAR_MAX = 200
+
+
 def _tessellate_ring3d(pts):
     """Разбить кольцо на треугольники в его собственной плоскости.
 
@@ -284,6 +290,12 @@ def _tessellate_ring3d(pts):
         p = p[:-1]
     if len(p) < 3:
         return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
+    if len(p) == 3:
+        # Треугольник уже разбит. Тела из 2.04, 2.11-2.15 и оболочки
+        # сцены пишутся именно так, по треугольнику на часть, и каждый
+        # уходил в триангуляцию GEOS: десятки тысяч вызовов на слой,
+        # а на QGIS 4.2 в одном из них падал весь QGIS.
+        return p.copy(), np.array([[0, 1, 2]], dtype=np.int64)
     n = _ring_normal(p)
     if n is None:
         return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
@@ -296,13 +308,24 @@ def _tessellate_ring3d(pts):
     origin = p.mean(axis=0)
     rel = p - origin
     uu, ww = rel.dot(u), rel.dot(w)
+    if len(p) <= _EAR_MAX:
+        # Небольшое кольцо разбиваем сами: GEOS здесь не нужен, а его
+        # триангуляция на неправильном кольце роняет QGIS целиком,
+        # без исключения, которое можно поймать.
+        got = ear_clip(uu, ww)
+        if got is not None:
+            return p.copy(), got
 
     from qgis.core import QgsGeometry, QgsPointXY
     flat = QgsGeometry.fromPolygonXY(
         [[QgsPointXY(float(a), float(b)) for a, b in zip(uu, ww)]])
     tri = None
-    for name in ("constrainedDelaunayTriangulation",
-                 "delaunayTriangulation"):
+    try:
+        valid = flat.isGeosValid()
+    except Exception:  # nosec
+        valid = False
+    for name in (("constrainedDelaunayTriangulation",
+                  "delaunayTriangulation") if valid else ()):
         fn = getattr(flat, name, None)
         if fn is None:
             continue

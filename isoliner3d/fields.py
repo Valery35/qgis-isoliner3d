@@ -90,6 +90,12 @@ LABELS = {
     "pinch": "Защипов",
     "zmin": "Отметка низа, м",
     "zmax": "Отметка верха, м",
+    # 2.16: речная сеть
+    "link": "Звено",
+    "strahler": "Порядок по Стралеру",
+    "q": "Расход, м³/с",
+    "area_km2": "Площадь водосбора, км²",
+    "length_m": "Длина, м",
 }
 
 # Поля с переменной приставкой: 2.14 называет их по слою, который
@@ -107,7 +113,7 @@ SUFFIX_LABELS = {
 # съело бы сотни метров.
 METRIC = {
     "x", "y", "z", "top", "bot", "z_from", "z_to", "thick",
-    "dx", "dy", "dz", "from_m", "to_m", "zmin", "zmax",
+    "dx", "dy", "dz", "from_m", "to_m", "zmin", "zmax", "length_m",
 }
 METRIC_SUFFIX = ("_len",)
 METRIC_DECIMALS = 2

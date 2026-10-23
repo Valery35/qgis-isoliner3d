@@ -3718,4 +3718,85 @@ TRANSLATIONS = {
         'plan',
     'разрез':
         'section',
+    # 2.16 и трубы в сцене
+    '2.16 Демонстрационная речная сеть (демо)':
+        '2.16 A demonstration river network (demo)',
+    'Водосбор начала русла, км2':
+        'Catchment where a channel starts, km2',
+    'Диаметр до, м':
+        'Diameter up to, m',
+    'Диаметр от, м':
+        'Diameter from, m',
+    'Диаметр трубы при наибольшем значении поля, метры. Без поля это диаметр всех труб слоя.':
+        'The tube diameter at the largest value of the field, metres. Without a field it is the diameter of all tubes of the layer.',
+    'Диаметр трубы при наименьшем значении поля, метры.':
+        'The tube diameter at the smallest value of the field, metres.',
+    'Длина, м':
+        'Length, m',
+    'Звено':
+        'Link',
+    'Звеньев: %d, порядков по Стралеру до %d. Расход от %.4f до %.3f м3/с, длина сети %.1f км.':
+        'Links: %d, Strahler orders up to %d. Discharge from %.4f to %.3f m3/s, network length %.1f km.',
+    'Звенья сети: линии с отметками рельефа, с полями расхода, площади водосбора, порядка по Стралеру и длины. Для показа трубами поле толщины - q.':
+        'Links of the network: lines with relief elevations, with fields of discharge, catchment area, Strahler order and length. For showing as tubes the thickness field is q.',
+    'Куда положить пример. Пусто означает взять охват окна вида: сеть ляжет туда, куда вы смотрите.':
+        'Where to put the example. Empty means the extent of the map view: the network lands where you are looking.',
+    'Линейный слой':
+        'Line layer',
+    'Линией':
+        'As a line',
+    'Модуль стока, л/с с км2':
+        'Runoff modulus, l/s per km2',
+    'Модуль стока: литров в секунду с квадратного километра водосбора. Расход звена - площадь его водосбора, умноженная на этот модуль.':
+        'The runoff modulus: litres per second from a square kilometre of catchment. The discharge of a link is its catchment area times this modulus.',
+    'Не удалось создать слой речной сети.':
+        'Could not create the river network layer.',
+    'Одно и то же зерно даёт один и тот же рельеф и одну и ту же сеть. Другое зерно - другой рельеф.':
+        'The same seed gives the same relief and the same network. Another seed gives another relief.',
+    'Охват (куда положить пример)':
+        'Extent (where to put the example)',
+    'Площадь водосбора, км²':
+        'Catchment area, km²',
+    'Площадь водосбора, с которой начинается русло. Меньше порог - гуще сеть и больше мелких притоков.':
+        'The catchment area where a channel starts. A smaller threshold gives a denser network and more small tributaries.',
+    'По диаметру':
+        'By diameter',
+    'По площади сечения':
+        'By cross-section area',
+    'По площади сечения значению пропорциональна площадь, а не диаметр: глаз читает толщину трубы площадью, и большие значения не забивают картинку.':
+        'By cross-section area the area, not the diameter, is proportional to the value: the eye reads the thickness of a tube by its area, and large values do not swamp the picture.',
+    'Поле толщины трубы':
+        'Tube thickness field',
+    'Порядок по Стралеру':
+        'Strahler order',
+    'Порядок показа.\n1. Рельеф и речную сеть в 3D-просмотр.\n2. В свойствах слоя сети: линейный слой трубой, поле толщины q, диаметр от 4 до 40 м, шкала по площади сечения.\n3. Стиль слоя на карте: градуированный по полю strahler. Цвет и прозрачность трубы сцена берёт из стиля.':
+        'How to show it.\n1. The relief and the river network into the 3D viewer.\n2. In the properties of the network layer: line layer as a tube, thickness field q, diameter from 4 to 40 m, scale by cross-section area.\n3. The layer style on the map: graduated by the field strahler. The scene takes the colour and transparency of a tube from the style.',
+    'Пример положен от начала координат: задайте охват, чтобы поставить его на своё место.':
+        'The example is placed from the origin: set the extent to put it in its place.',
+    'Расход, м³/с':
+        'Discharge, m³/s',
+    'Рельеф':
+        'Relief',
+    'Рельеф, по которому течёт сеть, с заполненными понижениями. В сцене это поверхность, над которой лежат русла.':
+        'The relief the network runs over, with the depressions filled. In the scene it is the surface the channels lie on.',
+    'Речная сеть':
+        'River network',
+    'Слой %s: у %d линий нет значения поля толщины, они нарисованы наименьшим диаметром.':
+        'Layer %s: %d lines have no value of the thickness field, they are drawn with the smallest diameter.',
+    'Создаёт рельеф и речную сеть по нему, с расходом на каждом звене.\n\nРельеф задаётся формулой: общий уклон к югу, гряды и холмы. Бессточные понижения заполняются, вода течёт к самому крутому из восьми соседей, площадь водосбора копится вниз по течению. Русло начинается там, где водосбор больше порога, расход звена пропорционален площади его водосбора.\n\nНабор нужен, чтобы показать линии трубами. Расход растёт вниз по течению в десятки раз, и толщина трубы читается сразу. В свойствах слоя в сцене выберите показ трубой и поле толщины q, а покрасить можно по порядку по Стралеру.':
+        'Creates a relief and a river network over it, with a discharge on every link.\n\nThe relief is set by a formula: a general slope to the south, ridges and hills. Closed depressions are filled, water flows to the steepest of the eight neighbours, the catchment area accumulates downstream. A channel starts where the catchment exceeds the threshold, the discharge of a link is proportional to its catchment area.\n\nThe set is meant to show lines as tubes. The discharge grows downstream tens of times, and the thickness of a tube reads at once. In the layer properties in the scene choose the tube display and the thickness field q, and colour by the Strahler order.',
+    'Трубой':
+        'As a tube',
+    'Числовое поле для толщины трубы. Пусто - у всех труб наибольший диаметр.':
+        'A numeric field for the tube thickness. Empty - all tubes get the largest diameter.',
+    'Шаг сетки рельефа, м':
+        'Relief grid step, m',
+    'Шаг сетки рельефа, метры. Сетка 140 на 110 ячеек, поэтому от шага зависит и размер участка: при 50 м это 7 на 5,5 километра.':
+        'The relief grid step, metres. The grid is 140 by 110 cells, so the step also sets the size of the area: at 50 m it is 7 by 5.5 kilometres.',
+    'Шкала толщины':
+        'Thickness scale',
+    'Экранная линия одинакова при любом удалении и ничего не показывает толщиной. Труба имеет диаметр в метрах, и значение поля читается размером.':
+        'A screen line looks the same at any distance and shows nothing by its thickness. A tube has a diameter in metres, and the field value reads by size.',
+    'рельеф':
+        'relief',
 }

@@ -1176,9 +1176,43 @@ def test_body_transparency_comes_from_the_layer_style():
     """
     src = _viewer_src()
     i = src.index("def _body_meshes")
-    body = src[i:src.index("\n    def ", i + 20)]
+    body = src[i:src.index("def _volume_is_impossible", i)]
     assert "lyr.opacity()" in body
     assert body.count("self._style_alpha(by_style, ft)") == 3
+
+
+def test_section_box_never_pops_up_as_its_own_window():
+    """Группа «Разрез» не всплывает отдельным окном.
+
+    Группы свойств кладутся в окно свойств при первом его открытии,
+    а до того родителя у них нет. Показ такой группы выводил её
+    отдельным окном «QGIS4» со словом «Разрез» на самом краю.
+    """
+    src = _viewer_src()
+    i = src.index("def _sync_vec_enabled")
+    body = src[i:src.index("def _save_vec_opts", i)]
+    j = body.index("self.sec_box.setVisible(")
+    assert "if self._props is not None:" in body[max(0, j - 300):j]
+
+
+def test_lines_can_be_drawn_as_tubes():
+    """Линейный слой рисуется трубой, толщина из поля.
+
+    Запись линии несёт значение поля толщины и непрозрачность
+    из стиля, а сборка сцены отправляет трубные слои в `_tube_items`.
+    """
+    src = _viewer_src()
+    i = src.index("def _vec_lines")
+    body = src[i:src.index("def _vec_points", i)]
+    assert 'o.get("line") == "tube"' in body
+    assert "lyr.id(), f_val, f_alpha))" in body
+    scene = src[src.index("def _rebuild_scene"):]
+    assert "self._tube_items(lid_v, rows, cx, cy, cz, vex, span_z," in scene
+    i = src.index("def _tube_items")
+    tube = src[i:src.index("def _add_item", i)]
+    assert "value_to_diameter(" in tube
+    assert "split_by_alpha(alphas)" in tube
+    assert "sides_for(" in tube
     i = src.index("def _style_by_ranges")
     assert "symbol_alpha(sym)" in src[i:i + 2000]
 
