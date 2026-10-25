@@ -4,6 +4,7 @@
 
 [![Установить в QGIS](https://img.shields.io/badge/%D0%A3%D1%81%D1%82%D0%B0%D0%BD%D0%BE%D0%B2%D0%B8%D1%82%D1%8C%20%D0%B2%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/isoliner3d/)
 [![Страница плагина](https://img.shields.io/badge/%D0%A1%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0%20%D0%BF%D0%BB%D0%B0%D0%B3%D0%B8%D0%BD%D0%B0-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner3d)
+[![Поддержать СБП](https://img.shields.io/badge/%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-%D0%A1%D0%91%D0%9F-2ea44f)](https://github.com/Valery35#%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%BA%D1%83)
 
 Плагин QGIS для показа геологической модели в объёме и для подсчёта запасов
 по блочной модели: поверхности из растров, водонепроницаемые тела пластов,
@@ -15,6 +16,8 @@
 3D-вид QGIS и Qt3D не используются, внешних зависимостей нет.
 
 Плагин-спутник набора кригинга и изолиний [Isoliner](https://plugins.qgis.org/plugins/grid_isolines/) и инструмента чистки топологии [Topoliner](https://plugins.qgis.org/plugins/topoliner/). Вместе они закрывают путь от точек наблюдений до объёмной модели: Isoliner строит гриды и изолинии, Topoliner приводит в порядок контуры, Isoliner3D показывает результат в объёме и считает запасы.
+
+Модуль бесплатный и открытый. [Поддержать разработку](https://github.com/Valery35#%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%BA%D1%83)
 
 ## Зачем
 

@@ -4,6 +4,7 @@
 
 [![Install in QGIS](https://img.shields.io/badge/Install%20in%20QGIS-blue.svg)](https://plugins.qgis.org/plugins/isoliner3d/)
 [![Plugin page](https://img.shields.io/badge/Plugin%20page-0f766e.svg)](https://www.informpp.ru/%D0%B3%D0%BB%D0%B0%D0%B2%D0%BD%D0%B0%D1%8F-%D1%81%D1%82%D1%80%D0%B0%D0%BD%D0%B8%D1%86%D0%B0/qgis-isoliner3d)
+[![Support development](https://img.shields.io/badge/Support-development-2ea44f)](https://github.com/Valery35#%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%BA%D1%83)
 
 A QGIS plugin that shows a geological model in three dimensions and computes
 reserves from a block model: surfaces from rasters, watertight bed bodies,
@@ -21,6 +22,8 @@ cleaning. Together they cover the way from observation points to a
 volumetric model: Isoliner builds grids and isolines, Topoliner tidies
 the contours, Isoliner3D shows the result in three dimensions and
 computes reserves.
+
+The plugin is free and open source. [Support development](https://github.com/Valery35#%D0%BF%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C-%D1%80%D0%B0%D0%B7%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D0%BA%D1%83) (Russian bank cards via SBP)
 
 ## Why
 
