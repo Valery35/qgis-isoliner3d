@@ -1072,6 +1072,7 @@ TRANSLATIONS = {
     'Версия %s': 'Version %s',
     'Исходный код': 'Source code',
     'Сообщить об ошибке': 'Report a bug',
+    'Поддержать разработку': 'Support development',
     'История изменений': 'Changelog',
     'Руководство (PDF)': 'Manual (PDF)',
     'Журнал': 'Log',

@@ -50,10 +50,10 @@ v3.2.0`, домен codeload из контейнера доступен.
 | Файл | Строк |
 |---|---|
 | `viewer_dialog.py` | 7330 |
-| `algorithms.py` | 7424 |
+| `algorithms.py` | 7427 |
 | `viewer3d.py` | 839 |
 | `viewer_core.py` | 1290 |
-| `i18n.py` | 3802 |
+| `i18n.py` | 3803 |
 
 Инструменты:
 

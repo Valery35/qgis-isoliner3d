@@ -147,6 +147,19 @@ def test_menu_item_is_wired():
     assert "except Exception" in body
 
 
+def test_support_link():
+    """Ссылка «Поддержать разработку» ведёт в профиль и переведена."""
+    from urllib.parse import unquote
+    from isoliner3d import i18n
+    assert about.SUPPORT_URL.startswith("https://github.com/Valery35#")
+    assert unquote(about.SUPPORT_URL).endswith("#поддержать-разработку")
+    i18n.set_language("en")
+    try:
+        assert i18n.tr("Поддержать разработку") == "Support development"
+    finally:
+        i18n.set_language(None)
+
+
 def test_qt_is_imported_lazily():
     """Qt тянется внутри функций: модуль читается и без QGIS."""
     src = open(os.path.join(PKG, "about.py"), encoding="utf-8").read()

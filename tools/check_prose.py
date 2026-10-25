@@ -81,7 +81,8 @@ def tool_titles():
 def sentences(text):
     """Предложения прозы: таблицы, заголовки, списки и код пропущены."""
     out, buf = [], []
-    skip = ("|", "#", "!", "```", "---", "title:", "lang:", "toc-")
+    # "[![" - строка плашек вверху README, это не проза.
+    skip = ("|", "#", "!", "[![", "```", "---", "title:", "lang:", "toc-")
     in_item = False
     for line in text.split("\n"):
         bullet = re.match(r"^\s*(?:[-*]|\d+[.)])\s", line)

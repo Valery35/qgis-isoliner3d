@@ -165,7 +165,10 @@ def _help_version(text):
                  "нам: https://www.informpp.ru/главная-страница/"
                  "предприятиям")
     tail = ("\n\nIsoliner3D v" + v) if v else ""
-    return text + tail + "\n" + invite
+    from .about import SUPPORT_URL
+    support = '<a href="%s">%s</a>' % (SUPPORT_URL,
+                                       _tr("Поддержать разработку"))
+    return text + tail + "\n" + invite + "\n" + support
 
 
 def _help_url():
