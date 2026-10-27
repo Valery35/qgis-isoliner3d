@@ -547,7 +547,7 @@ def test_exported_box_carries_labels():
     start = src.index("def _export_box")
     body = src[start:src.index("\n    def ", start + 20)]
     assert "from .glyphs import label_3d" in body
-    assert "tick_label(val)" in body
+    assert "tick_label(val, bo[\"mult\"][axis])" in body
     assert 'label_size(lo, hi, axis)' in body
     assert 'plane = "xz"' in body and 'plane = "xy"' in body
     # подписи полосками: толщину линий в glTF задать нельзя
@@ -645,7 +645,7 @@ def test_box_goes_to_the_export_as_lines():
     start = src.index("def _export_box")
     body = src[start:src.index("\n    def ", start + 20)]
     assert '"lines": idx' in body
-    assert "box_edges(lo, hi)" in body and "tick_marks(lo, hi" in body
+    assert "box_edges(lo, hi, bo[\"edges\"])" in body and "tick_marks(" in body
     assert "grid_lines(lo, hi" in body
     # середина для преувеличения считается по телам, а не по коробу
     i = src.index("zs_all = [")

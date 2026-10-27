@@ -33,18 +33,28 @@ def nice_step(span, want=5):
     return 10.0 * mag
 
 
-def nice_ticks(lo, hi, want=5):
+# Потолок по делениям на ось: шаг, заданный руками на большом охвате,
+# дал бы тысячи подписей.
+MAX_TICKS = 200
+
+
+def nice_ticks(lo, hi, want=5, step=0.0):
     """Деления по круглым числам внутри размаха.
 
     Края не добавляются: деление на краю охвата обычно некруглое,
-    а некруглая подпись хуже, чем её отсутствие.
+    а некруглая подпись хуже, чем её отсутствие. `step` больше нуля -
+    шаг, заданный человеком. Если он дал бы больше MAX_TICKS делений,
+    он удваивается.
     """
     lo, hi = float(lo), float(hi)
     if hi < lo:
         lo, hi = hi, lo
     if hi - lo <= 0:
         return [lo]
-    step = nice_step(hi - lo, want)
+    step = float(step) if step and float(step) > 0 else \
+        nice_step(hi - lo, want)
+    while (hi - lo) / step > MAX_TICKS:
+        step *= 2.0
     first = np.ceil(lo / step) * step
     out = []
     x = first
@@ -54,9 +64,15 @@ def nice_ticks(lo, hi, want=5):
     return out or [lo, hi]
 
 
-def tick_label(value):
-    """Подпись деления без хвоста нулей."""
-    v = float(value)
+def tick_label(value, mult=1.0):
+    """Подпись деления без хвоста нулей.
+
+    `mult` - множитель подписи: 0.001 даёт километры, -1 - глубину
+    положительными числами при отметках ниже нуля. Деления стоят там
+    же, меняется только текст.
+    """
+    v = float(value) * float(mult)
+    v = 0.0 if abs(v) < 1e-12 else v
     if abs(v - round(v)) < 1e-9:
         return "%d" % int(round(v))
     return ("%.6f" % v).rstrip("0").rstrip(".")
@@ -65,6 +81,24 @@ def tick_label(value):
 # Потолок по линиям сетки. Сетка гуще самой сцены читать не помогает,
 # а рисуется долго: на мелком шаге легко запросить миллион линий.
 MAX_GRID_LINES = 4000
+
+
+def custom_range(lo, hi, rng):
+    """Охват короба: свой, заданный человеком, или по сцене.
+
+    `rng` - (xmin, xmax, ymin, ymax, zmin, zmax) или None. Пара, где
+    наибольшее не больше наименьшего, не задана: по этой оси охват
+    остаётся от сцены. Так можно задать одни отметки, не трогая план.
+    """
+    lo = [float(v) for v in lo]
+    hi = [float(v) for v in hi]
+    if not rng:
+        return tuple(lo), tuple(hi)
+    for k in range(3):
+        a, b = float(rng[2 * k]), float(rng[2 * k + 1])
+        if b > a:
+            lo[k], hi[k] = a, b
+    return tuple(lo), tuple(hi)
 
 
 def grid_lines(lo, hi, step=0.0, planes=("floor",)):
@@ -142,8 +176,23 @@ def north_arrow(lo, hi, size=None):
             (tip, (x + wing * 0.6, y0 + ln - wing, z))]
 
 
-def box_edges(lo, hi):
-    """Двенадцать рёбер короба по охвату сцены."""
+EDGE_MODES = ("all", "axes", "none")
+
+
+def box_edges(lo, hi, mode="all"):
+    """Рёбра короба по охвату сцены.
+
+    `mode` "all" - все двенадцать, "axes" - три ребра из угла начала
+    (наименьшие X, Y, Z), как оси на чертеже: короб не загораживает
+    сцену. "none" - без рёбер, остаются сетка и деления.
+    """
+    if mode == "none":
+        return []
+    if mode == "axes":
+        x0, y0, z0 = [float(v) for v in lo]
+        x1, y1, z1 = [float(v) for v in hi]
+        o = (x0, y0, z0)
+        return [(o, (x1, y0, z0)), (o, (x0, y1, z0)), (o, (x0, y0, z1))]
     x0, y0, z0 = [float(v) for v in lo]
     x1, y1, z1 = [float(v) for v in hi]
     pts = [(x, y, z) for x in (x0, x1) for y in (y0, y1)
@@ -157,12 +206,14 @@ def box_edges(lo, hi):
     return segs
 
 
-def tick_marks(lo, hi, want=5, length=None):
+def tick_marks(lo, hi, want=5, length=None, steps=None):
     """Штрихи на рёбрах короба.
 
     Возвращает список (ось, значение, начало, конец). Штрих стоит
-    на ребре и уходит наружу: внутрь он лез бы сквозь тело.
+    на ребре и уходит наружу: внутрь он лез бы сквозь тело. `steps` -
+    шаг делений по X, Y, Z, ноль на оси - круглый шаг от размаха.
     """
+    steps = tuple(steps) if steps else (0.0, 0.0, 0.0)
     lo = [float(v) for v in lo]
     hi = [float(v) for v in hi]
     span = max(hi[k] - lo[k] for k in range(3)) or 1.0
@@ -176,7 +227,7 @@ def tick_marks(lo, hi, want=5, length=None):
     out = []
     for axis in range(3):
         other = away[axis]
-        for val in nice_ticks(lo[axis], hi[axis], want):
+        for val in nice_ticks(lo[axis], hi[axis], want, steps[axis]):
             a = list(lo)
             a[axis] = val
             b = list(a)

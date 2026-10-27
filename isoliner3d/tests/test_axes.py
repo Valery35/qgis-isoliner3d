@@ -189,6 +189,42 @@ def test_north_arrow_sits_outside_the_box():
     assert min(xs) < lo[0] or max(xs) > hi[0], (min(xs), max(xs))
 
 
+def test_edge_modes():
+    from isoliner3d.axes import box_edges
+    lo, hi = (0, 0, 0), (10, 20, 5)
+    assert len(box_edges(lo, hi)) == 12
+    ax = box_edges(lo, hi, "axes")
+    assert len(ax) == 3 and all(a == (0.0, 0.0, 0.0) for a, _b in ax)
+    assert box_edges(lo, hi, "none") == []
+
+
+def test_fixed_tick_steps_and_cap():
+    from isoliner3d.axes import tick_marks, nice_ticks, MAX_TICKS
+    m = tick_marks((0, 0, -300), (1000, 1000, 0), steps=(250, 250, 50))
+    zs = [v for ax, v, _a, _b in m if ax == 2]
+    assert zs == [-300, -250, -200, -150, -100, -50, 0]
+    xs = [v for ax, v, _a, _b in m if ax == 0]
+    assert xs == [0, 250, 500, 750, 1000]
+    # шаг в метр на сто километров укрупняется до потолка
+    assert len(nice_ticks(0, 100000, step=1.0)) <= MAX_TICKS + 1
+
+
+def test_label_multiplier():
+    from isoliner3d.axes import tick_label
+    assert tick_label(2500, 0.001) == "2.5"
+    assert tick_label(-150, -1) == "150"
+    assert tick_label(0, -1) == "0"
+
+
+def test_custom_range_per_axis():
+    from isoliner3d.axes import custom_range
+    lo, hi = custom_range((1, 2, 3), (4, 5, 6),
+                          (0, 10, 0, 0, -100, 0))
+    assert lo == (0.0, 2.0, -100.0) and hi == (10.0, 5.0, 0.0)
+    assert custom_range((1, 2, 3), (4, 5, 6), None) == ((1, 2, 3),
+                                                        (4, 5, 6))
+
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

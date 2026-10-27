@@ -1288,3 +1288,16 @@ def _band_items(source):
         out.append((i, "%d - %s" % (i, d) if d else str(i)))
     ds = None
     return out
+
+
+def utm_epsg(lon, lat):
+    """Код EPSG зоны UTM на WGS 84 для точки в градусах.
+
+    Сцене нужны метры и в плане, и по высоте: в градусах шаг по X
+    в сотню тысяч раз мельче шага по Z, и модель сплющивается
+    в стену. Если и проект, и все слои в градусах, сцена берёт
+    зону UTM по середине охвата.
+    """
+    zone = int((float(lon) + 180.0) // 6.0) % 60 + 1
+    return (32600 if float(lat) >= 0 else 32700) + zone
+

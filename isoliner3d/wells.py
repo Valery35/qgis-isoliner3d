@@ -91,6 +91,27 @@ def clean_survey(depth, azimuth, angle, convention="dip_down_neg"):
     return d[keep], inc[keep], a[keep]
 
 
+def with_collar(depth, azimuth, angle, c_azi=None, c_angle=None):
+    """Замеры с направлением из паспорта скважины на глубине 0.
+
+    Наклонная скважина идёт под углом с самого устья, и этот угол
+    пишется в паспорте, у устья, а первый замер инклинометрии бывает
+    глубже. Без него ствол до первого замера шёл бы по первому замеру.
+    Направление устья ставится замером на глубине 0, если своего
+    замера там нет: замер прибора на устье точнее паспорта.
+    """
+    d = [float(v) for v in depth]
+    a = [float(v) for v in azimuth]
+    g = [float(v) for v in angle]
+    if c_azi is None or c_angle is None:
+        return d, a, g
+    if not (np.isfinite(c_azi) and np.isfinite(c_angle)):
+        return d, a, g
+    if any(abs(v) <= 1e-6 for v in d):
+        return d, a, g
+    return [0.0] + d, [float(c_azi)] + a, [float(c_angle)] + g
+
+
 def desurvey(collar, depth, azimuth, angle, max_depth=None,
              convention="dip_down_neg", step=1.0):
     """Ствол скважины: точки (N, 3) и глубины по стволу (N,).

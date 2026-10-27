@@ -3949,8 +3949,8 @@ TRANSLATIONS = {
         'Borehole traces: lines with Z from the collar to the end of hole, for example from 2.17. The depth along the hole is the line length from its start.',
     'Стволы скважин: линии с настоящими Z от устья до забоя. Длина линии равна глубине по стволу, поэтому 2.18 режет её на интервалы без таблицы глубин.':
         'Borehole traces: lines with true Z from the collar to the end of hole. The line length equals the depth along the hole, so 2.18 cuts it into intervals without a depth table.',
-    'Строит стволы скважин по устьям и инклинометрии.\n\nМежду замерами ствол идёт дугой окружности, касательные к которой на концах совпадают с замерами: метод минимальной кривизны, им считают Micromine, Datamine, Surpac и Leapfrog. От устья до первого замера ствол идёт по первому замеру, за последним - по нему же до забоя. Скважина без инклинометрии отвесная.\n\nУгол записывают по-разному: от горизонта с минусом вниз (-90 отвесно вниз), от горизонта с плюсом вниз или зенитный угол от вертикали. Соглашение выбирается явно.\n\nНа выходе линии с Z, длина каждой равна глубине по стволу. Дальше 2.18 режет их на интервалы опробования или композиты, а сцена показывает трубами.':
-        'Builds borehole traces from collars and downhole surveys.\n\nBetween stations the trace follows a circular arc whose end tangents match the surveys: the minimum curvature method, used by Micromine, Datamine, Surpac and Leapfrog. From the collar to the first station the trace follows the first station, past the last one it goes straight along it to the end of hole. A hole without a survey is vertical.\n\nThe angle is recorded in different ways: from the horizontal with down negative (-90 straight down), from the horizontal with down positive, or a zenith angle from the vertical. The convention is chosen explicitly.\n\nThe output is lines with Z, the length of each equals the depth along the hole. Then 2.18 cuts them into sample intervals or composites, and the scene shows them as tubes.',
+    'Строит стволы скважин по устьям и инклинометрии.\n\nМежду замерами ствол идёт дугой окружности, касательные к которой на концах совпадают с замерами: метод минимальной кривизны, им считают Micromine, Datamine, Surpac и Leapfrog. От устья до первого замера ствол идёт по направлению из паспорта скважины, если поля азимута и угла есть у устьев, иначе по первому замеру. За последним замером ствол идёт по нему же до забоя. Скважина без инклинометрии и паспорта отвесная, скважина вверх из выработки задаётся углом вверх.\n\nУгол записывают по-разному: от горизонта с минусом вниз (-90 отвесно вниз), от горизонта с плюсом вниз или зенитный угол от вертикали. Соглашение выбирается явно.\n\nНа выходе линии с Z, длина каждой равна глубине по стволу. Дальше 2.18 режет их на интервалы опробования или композиты, а сцена показывает трубами.':
+        'Builds borehole traces from collars and downhole surveys.\n\nBetween stations the trace follows a circular arc whose end tangents match the surveys: the minimum curvature method, used by Micromine, Datamine, Surpac and Leapfrog. From the collar to the first station the trace follows the direction from the hole passport when the collars have azimuth and angle fields, otherwise the first station. Past the last station the trace goes along it to the end of hole. A hole without a survey and a passport is vertical, an upward hole from a working is set by an upward angle.\n\nThe angle is recorded in different ways: from the horizontal with down negative (-90 straight down), from the horizontal with down positive, or a zenith angle from the vertical. The convention is chosen explicitly.\n\nThe output is lines with Z, the length of each equals the depth along the hole. Then 2.18 cuts them into sample intervals or composites, and the scene shows them as tubes.',
     'Строк инклинометрии с пустыми или нечисловыми значениями: %d, они пропущены.':
         'Survey rows with empty or non-numeric values: %d, they are skipped.',
     'Строк таблицы без начала и конца или с концом не дальше начала: %d, они пропущены.':
@@ -4068,4 +4068,98 @@ TRANSLATIONS = {
         'Vertical cell, m (0 - by the blocks)',
     'точка':
         'point',
+    # 2.21 разрез инверсии
+    '2.21 Разрез 2D-инверсии в объём':
+        '2.21 2D inversion section into the volume',
+    'Не удалось создать слой разреза.':
+        'Could not create the section layer.',
+    'Нет строк с координатами. Выберите поля X, Y и Z или дайте слою точки с Z.':
+        'No rows with coordinates. Choose the X, Y and Z fields or give the layer points with Z.',
+    'Нет таблицы разреза.':
+        'No section table.',
+    'Поле X точки профиля. Пусто - X точки слоя, а у таблицы поле узнаётся по имени: X, EAST, XC и подобные.':
+        'The X field of the profile point. Empty - the X of the layer point, and for a table the field is recognised by name: X, EAST, XC and the like.',
+    'Поле Y точки профиля. Пусто - Y точки слоя, а у таблицы поле узнаётся по имени: Y, NORTH, YC и подобные.':
+        'The Y field of the profile point. Empty - the Y of the layer point, and for a table the field is recognised by name: Y, NORTH, YC and the like.',
+    'Поле высоты ячейки, если ячейки по глубине разные. Пусто - узнаётся по имени (DZ), без него высота - шаг отметок.':
+        'The cell height field, when cells differ with depth. Empty - recognised by name (DZ), without it the height is the elevation step.',
+    'Поле номера профиля, если в таблице несколько профилей. Пусто - узнаётся по имени (LINE, PROFILE), без него вся таблица - один профиль.':
+        'The profile number field, when the table holds several profiles. Empty - recognised by name (LINE, PROFILE), without it the whole table is one profile.',
+    'Поле отметки центра ячейки. Пусто - Z точки, иначе поле узнаётся по имени: Z, RL, ELEV и подобные.':
+        'The elevation field of the cell centre. Empty - the Z of the point, otherwise the field is recognised by name: Z, RL, ELEV and the like.',
+    'Поля: X %s, Y %s, Z %s, профиль %s, высота ячейки %s.':
+        'Fields: X %s, Y %s, Z %s, profile %s, cell height %s.',
+    'Профилей: %d, ячеек: %d.':
+        'Profiles: %d, cells: %d.',
+    'Разрез 2D-инверсии: таблица x, y, z и значения, где x и y лежат на профиле. Точечный слой с Z тоже годится.':
+        'A 2D inversion section: a table of x, y, z and values, where x and y lie on the profile. A point layer with Z works too.',
+    'Разрез инверсии':
+        'Inversion section',
+    'Разрез инверсии (таблица x, y, z)':
+        'Inversion section (x, y, z table)',
+    'Ставит разрез 2D-инверсии в пространство: каждая строка таблицы становится ячейкой, вертикальной гранью вдоль профиля.\n\nВход - таблица x, y, z и значения, где x и y - точка профиля, z - отметка центра ячейки. Ячейка тянется до середин между соседними точками профиля и на полшага по высоте. Порядок строк не важен: точки профиля упорядочиваются сами. Профиль может быть ломаным, у излома ячейка из двух граней. Разрыв профиля больше трёх обычных шагов не перекрывается.\n\nНесколько профилей в одной таблице разделяются полем номера профиля. Разная высота ячеек по глубине задаётся полем DZ.\n\nНа выходе грани с Z и всеми полями таблицы. В сцене это тело, а цвет берётся из стиля слоя: задайте стиль, градуированный по значению.':
+        'Puts a 2D inversion section into space: every row of the table becomes a cell, a vertical face along the profile.\n\nThe input is a table of x, y, z and values, where x and y are a profile point and z is the elevation of the cell centre. A cell extends to the midpoints between neighbouring profile points and half a step up and down. The row order does not matter: the profile points are ordered by themselves. The profile may be bent, at a bend a cell has two faces. A profile gap of more than three usual steps is not bridged.\n\nSeveral profiles in one table are separated by the profile number field. Cell heights varying with depth are set by the DZ field.\n\nThe output is faces with Z and all the fields of the table. In the scene it is a body, and the colour comes from the layer style: set a style graduated by the value.',
+    'Строк без координат: %d, они пропущены.':
+        'Rows without coordinates: %d, they are skipped.',
+    'Строк без ячейки: %d. Это профили из одной точки: проверьте поле номера профиля.':
+        'Rows without a cell: %d. These are profiles of one point: check the profile number field.',
+    'Ячейки разреза: вертикальные грани с Z и всеми полями таблицы. В сцене показываются телом, цвет из стиля слоя, например градуированного по значению.':
+        'Section cells: vertical faces with Z and all the fields of the table. In the scene they are shown as a body, the colour from the layer style, for example graduated by the value.',
+    'Поле X (пусто - по имени)':
+        'X field (empty - by name)',
+    'Поле Y (пусто - по имени)':
+        'Y field (empty - by name)',
+    'Поле Z (пусто - по имени)':
+        'Z field (empty - by name)',
+    'Поле номера профиля (пусто - по имени)':
+        'Profile number field (empty - by name)',
+    'Поле высоты ячейки (пусто - по имени)':
+        'Cell height field (empty - by name)',
+    'Поле азимута у устья (пусто - по имени)':
+        'Collar azimuth field (empty - by name)',
+    'Поле угла у устья (пусто - по имени)':
+        'Collar angle field (empty - by name)',
+    'Направление у устья: азимут %s, угол %s.':
+        'Direction at the collar: azimuth %s, angle %s.',
+    'Азимут скважины у устья из паспорта. Наклонная скважина идёт под ним с устья до первого замера. Пусто - узнаётся по имени (AZIMUTH, AZI, BRG).':
+        'The hole azimuth at the collar from the passport. An inclined hole follows it from the collar to the first station. Empty - recognised by name (AZIMUTH, AZI, BRG).',
+    'Угол скважины у устья из паспорта, в том же соглашении, что инклинометрия. Пусто - узнаётся по имени (DIP, ANGLE). Замер на глубине 0 важнее паспорта.':
+        'The hole angle at the collar from the passport, in the same convention as the survey. Empty - recognised by name (DIP, ANGLE). A station at depth 0 takes precedence over the passport.',
+    'Проект в градусах (%s), сцена собрана в системе слоя %s (%s): в градусах план и высота несоизмеримы.':
+        'The project is in degrees (%s), the scene is built in the system of layer %s (%s): in degrees the plan and the height are incommensurable.',
+    'Проект и слои в градусах, сцена собрана в %s: в градусах план и высота несоизмеримы.':
+        'The project and the layers are in degrees, the scene is built in %s: in degrees the plan and the height are incommensurable.',
+    # настройки координатного короба
+    'Без рёбер':
+        'No edges',
+    'Взять охват сцены':
+        'Take the scene extent',
+    'Все двенадцать':
+        'All twelve',
+    'Заполнить границы охватом последней собранной сцены.':
+        'Fill the bounds with the extent of the last built scene.',
+    'Короб по заданным границам, а не по охвату сцены: одинаковый на нескольких снимках или с круглыми краями. Ось, где «до» не больше «от», остаётся по сцене.':
+        'The box by the given bounds rather than by the scene extent: the same on several snapshots or with round edges. An axis where "to" is not greater than "from" stays by the scene.',
+    'На что умножить число в подписи. 0.001 даёт километры, -1 - глубину положительными числами. Деления стоят там же, меняется только текст.':
+        'What to multiply the label number by. 0.001 gives kilometres, -1 gives depth as positive numbers. The ticks stay in place, only the text changes.',
+    'Рёбра':
+        'Edges',
+    'Свой охват короба':
+        'Own box extent',
+    'Три оси из угла':
+        'Three axes from the corner',
+    'Три оси из угла начала не загораживают сцену, как оси на чертеже. Без рёбер остаются сетка и деления.':
+        'Three axes from the origin corner do not block the scene, like axes on a drawing. Without edges the grid and ticks remain.',
+    'Шаг делений и подписей в единицах карты. Ноль берёт круглый шаг от размаха. Слишком частый шаг укрупняется сам.':
+        'The tick and label step in map units. Zero takes a round step from the span. Too fine a step coarsens by itself.',
+    'до ':
+        'to ',
+    'от ':
+        'from ',
+    'Шаг делений: план, Z':
+        'Tick step: plan, Z',
+    'Множитель подписей: план, Z':
+        'Label multiplier: plan, Z',
+    'Охват короба':
+        'Box extent',
 }

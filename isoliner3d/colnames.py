@@ -29,13 +29,16 @@ ROLES = {
     "from": ("from", "from_m", "depth_from", "fromdepth", "samp_from",
              "от"),
     "to": ("to", "to_m", "depth_to", "todepth", "samp_to", "до"),
+    # разрез 2D-инверсии: номер профиля
+    "line": ("line", "line_id", "lineid", "profile", "prof", "profile_id",
+             "профиль", "линия", "пр"),
     # блочная модель: центр
     "bx": ("east", "x", "xc", "xcentre", "xcenter", "x_centre",
            "x_center", "xcen", "centroid_x"),
     "by": ("north", "y", "yc", "ycentre", "ycenter", "y_centre",
            "y_center", "ycen", "centroid_y"),
     "bz": ("rl", "z", "zc", "zcentre", "zcenter", "z_centre",
-           "z_center", "zcen", "centroid_z"),
+           "z_center", "zcen", "centroid_z", "elev", "elevation"),
     # блочная модель: размер
     "sx": ("_east", "dx", "xinc", "x_inc", "xsize", "x_size", "size_x",
            "sizex", "dim_x", "east_size", "xdim", "xlength"),

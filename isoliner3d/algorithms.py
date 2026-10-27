@@ -7429,6 +7429,12 @@ HINTS_2_17 = {
               "слоя не нужно.",
     "ZFIELD": "Поле отметки устья. Пусто - отметка из Z геометрии. "
               "Без неё ствол встанет на ноль, о чём будет сказано.",
+    "C_AZI": "Азимут скважины у устья из паспорта. Наклонная скважина "
+             "идёт под ним с устья до первого замера. Пусто - "
+             "узнаётся по имени (AZIMUTH, AZI, BRG).",
+    "C_ANGLE": "Угол скважины у устья из паспорта, в том же соглашении, "
+               "что инклинометрия. Пусто - узнаётся по имени (DIP, "
+               "ANGLE). Замер на глубине 0 важнее паспорта.",
     "EOH": "Поле глубины скважины (забоя). Пусто - узнаётся по "
            "имени (EOH, DEPTH), а без такого поля ствол кончается "
            "на последнем замере инклинометрии.",
@@ -7462,6 +7468,7 @@ class DesurveyAlgorithm(IsolinerAlgorithm):
 
     COLLARS, HOLE, XFIELD, YFIELD = "COLLARS", "HOLE", "XFIELD", "YFIELD"
     ZFIELD, EOH = "ZFIELD", "EOH"
+    C_AZI, C_ANGLE = "C_AZI", "C_ANGLE"
     SURVEY, S_HOLE, S_DEPTH = "SURVEY", "S_HOLE", "S_DEPTH"
     S_AZI, S_ANGLE, CONVENTION = "S_AZI", "S_ANGLE", "CONVENTION"
     STEP, OUTPUT = "STEP", "OUTPUT"
@@ -7491,8 +7498,11 @@ class DesurveyAlgorithm(IsolinerAlgorithm):
             "к которой на концах совпадают с замерами: метод "
             "минимальной кривизны, им считают Micromine, Datamine, "
             "Surpac и Leapfrog. От устья до первого замера ствол идёт "
-            "по первому замеру, за последним - по нему же до "
-            "забоя. Скважина без инклинометрии отвесная.\n\n"
+            "по направлению из паспорта скважины, если поля азимута "
+            "и угла есть у устьев, иначе по первому замеру. За "
+            "последним замером ствол идёт по нему же до забоя. "
+            "Скважина без инклинометрии и паспорта отвесная, "
+            "скважина вверх из выработки задаётся углом вверх.\n\n"
             "Угол записывают по-разному: от горизонта с минусом вниз "
             "(-90 отвесно вниз), от горизонта с плюсом вниз или "
             "зенитный угол от вертикали. Соглашение выбирается явно.\n\n"
@@ -7521,6 +7531,12 @@ class DesurveyAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterField(
             self.EOH, self.tr("Поле глубины скважины"), "eoh",
             self.COLLARS, type=num, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.C_AZI, self.tr("Поле азимута у устья (пусто - по имени)"),
+            None, self.COLLARS, type=num, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.C_ANGLE, self.tr("Поле угла у устья (пусто - по имени)"),
+            None, self.COLLARS, type=num, optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
             self.SURVEY, self.tr("Инклинометрия (таблица)"), anyv,
             optional=True))
@@ -7578,6 +7594,12 @@ class DesurveyAlgorithm(IsolinerAlgorithm):
         cn = col.fields().names()
         f_hole = colnames.resolve(f_hole, cn, "hole")
         f_eoh = colnames.resolve(f_eoh, cn, "eoh", taken=[f_hole])
+        f_caz = colnames.resolve(self.parameterAsString(
+            parameters, self.C_AZI, context), cn, "s_azi")
+        f_cang = colnames.resolve(self.parameterAsString(
+            parameters, self.C_ANGLE, context), cn, "s_angle")
+        if not (f_caz and f_cang):
+            f_caz = f_cang = None
         has_geom = col.wkbType() != QgsWkbTypes.Type.NoGeometry
         if not has_geom:
             f_x = colnames.resolve(f_x, cn, "collar_x")
@@ -7594,6 +7616,10 @@ class DesurveyAlgorithm(IsolinerAlgorithm):
             s_d = colnames.resolve(s_d, sn, "s_depth", taken=[s_hole])
             s_a = colnames.resolve(s_a, sn, "s_azi")
             s_g = colnames.resolve(s_g, sn, "s_angle")
+        if f_caz:
+            feedback.pushInfo(self.tr(
+                "Направление у устья: азимут %s, угол %s.")
+                % (f_caz, f_cang))
         feedback.pushInfo(self.tr(
             "Поля устьев: скважина %s, глубина %s, X %s, Y %s, Z %s. "
             "Инклинометрия: скважина %s, глубина %s, азимут %s, угол %s.")
@@ -7658,14 +7684,18 @@ class DesurveyAlgorithm(IsolinerAlgorithm):
             rows = surveys.get(name, [])
             seen.add(name)
             eoh = _numv(ft[f_eoh]) if f_eoh else None
-            if not rows:
+            caz = _numv(ft[f_caz]) if f_caz else None
+            cang = _numv(ft[f_cang]) if f_cang else None
+            sd, sa, sg = wells.with_collar(
+                [r[0] for r in rows], [r[1] for r in rows],
+                [r[2] for r in rows], caz, cang)
+            if not sd:
                 n_vert += 1
-                if eoh is None:
-                    n_skip += 1
-                    continue
+            if len(sd) <= 1 and eoh is None:
+                n_skip += 1
+                continue
             pts, mds = wells.desurvey(
-                (x, y, z), [r[0] for r in rows], [r[1] for r in rows],
-                [r[2] for r in rows], max_depth=eoh, convention=conv,
+                (x, y, z), sd, sa, sg, max_depth=eoh, convention=conv,
                 step=step)
             if len(pts) < 2:
                 n_skip += 1
@@ -8361,6 +8391,186 @@ class BlocksToCubeAlgorithm(IsolinerAlgorithm):
         return {self.OUTPUT: out}
 
 
+HINTS_2_21 = {
+    "TABLE": "Разрез 2D-инверсии: таблица x, y, z и значения, где x и y "
+             "лежат на профиле. Точечный слой с Z тоже годится.",
+    "XF": "Поле X точки профиля. Пусто - X точки слоя, а у таблицы "
+          "поле узнаётся по имени: X, EAST, XC и подобные.",
+    "YF": "Поле Y точки профиля. Пусто - Y точки слоя, а у таблицы "
+          "поле узнаётся по имени: Y, NORTH, YC и подобные.",
+    "ZF": "Поле отметки центра ячейки. Пусто - Z точки, иначе поле "
+          "узнаётся по имени: Z, RL, ELEV и подобные.",
+    "LINEF": "Поле номера профиля, если в таблице несколько профилей. "
+             "Пусто - узнаётся по имени (LINE, PROFILE), без него вся "
+             "таблица - один профиль.",
+    "DZF": "Поле высоты ячейки, если ячейки по глубине разные. Пусто - "
+           "узнаётся по имени (DZ), без него высота - шаг отметок.",
+    "OUTPUT": "Ячейки разреза: вертикальные грани с Z и всеми полями "
+              "таблицы. В сцене показываются телом, цвет из стиля "
+              "слоя, например градуированного по значению.",
+}
+
+
+class InversionSectionAlgorithm(IsolinerAlgorithm):
+    """Разрез 2D-инверсии вертикальными гранями вдоль профиля.
+
+    Геометрия ячеек лежит в section2d.py.
+    """
+
+    TABLE, XF, YF, ZF = "TABLE", "XF", "YF", "ZF"
+    LINEF, DZF, OUTPUT = "LINEF", "DZF", "OUTPUT"
+
+    def name(self):
+        return "inversion_section"
+
+    def displayName(self):
+        return self.tr("2.21 Разрез 2D-инверсии в объём")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def createInstance(self):
+        return InversionSectionAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Ставит разрез 2D-инверсии в пространство: каждая строка "
+            "таблицы становится ячейкой, вертикальной гранью вдоль "
+            "профиля.\n\n"
+            "Вход - таблица x, y, z и значения, где x и y - точка "
+            "профиля, z - отметка центра ячейки. Ячейка тянется "
+            "до середин между соседними точками профиля и на полшага "
+            "по высоте. Порядок строк не важен: точки профиля "
+            "упорядочиваются сами. Профиль может быть ломаным, "
+            "у излома ячейка из двух граней. Разрыв профиля больше "
+            "трёх обычных шагов не перекрывается.\n\n"
+            "Несколько профилей в одной таблице разделяются полем "
+            "номера профиля. Разная высота ячеек по глубине "
+            "задаётся полем DZ.\n\n"
+            "На выходе грани с Z и всеми полями таблицы. В сцене "
+            "это тело, а цвет берётся из стиля слоя: задайте стиль, "
+            "градуированный по значению.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        num = QgsProcessingParameterField.DataType.Numeric
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.TABLE, self.tr("Разрез инверсии (таблица x, y, z)"),
+            [QgsProcessing.SourceType.TypeVector]))
+        for key, label, typ in (
+                (self.XF, "Поле X (пусто - по имени)", num),
+                (self.YF, "Поле Y (пусто - по имени)", num),
+                (self.ZF, "Поле Z (пусто - по имени)", num),
+                (self.LINEF, "Поле номера профиля (пусто - по имени)",
+                 QgsProcessingParameterField.DataType.Any),
+                (self.DZF, "Поле высоты ячейки (пусто - по имени)",
+                 num)):
+            p = QgsProcessingParameterField(
+                key, self.tr(label), None, self.TABLE, type=typ,
+                optional=True)
+            self.addParameter(p if key == self.LINEF else _advanced(p))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Разрез инверсии"),
+            QgsProcessing.SourceType.TypeVectorPolygon))
+        _hints(self, HINTS_2_21)
+
+    def _process(self, parameters, context, feedback):
+        from qgis.core import (QgsFeature, QgsMultiPolygon, QgsPolygon,
+                               QgsLineString, QgsPoint)
+        from . import colnames, section2d
+
+        src = self.parameterAsSource(parameters, self.TABLE, context)
+        if src is None:
+            raise QgsProcessingException(self.tr("Нет таблицы разреза."))
+        names = src.fields().names()
+        f = {}
+        for key, role in ((self.XF, "bx"), (self.YF, "by"),
+                          (self.ZF, "bz"), (self.LINEF, "line"),
+                          (self.DZF, "sz")):
+            f[role] = colnames.resolve(
+                self.parameterAsString(parameters, key, context), names,
+                role)
+        pts = QgsWkbTypes.flatType(src.wkbType()) in (
+            QgsWkbTypes.Type.Point, QgsWkbTypes.Type.MultiPoint)
+        feats, xyz, n_bad = [], [], 0
+        for ft in src.getFeatures():
+            x = y = z = None
+            if pts and not self.parameterAsString(parameters, self.XF,
+                                                  context):
+                g = ft.geometry()
+                if g is not None and not g.isEmpty():
+                    p = g.vertexAt(0)
+                    x, y = p.x(), p.y()
+                    z = p.z() if p.is3D() else None
+            if x is None and f["bx"] and f["by"]:
+                x, y = _numv(ft[f["bx"]]), _numv(ft[f["by"]])
+            if f["bz"] and (z is None or z != z):
+                z = _numv(ft[f["bz"]])
+            if x is None or y is None or z is None or z != z:
+                n_bad += 1
+                continue
+            dz = _numv(ft[f["sz"]]) if f["sz"] else None
+            feats.append(ft)
+            xyz.append((x, y, z, np.nan if dz is None else dz,
+                        _key(ft[f["line"]]) if f["line"] else ""))
+        if not feats:
+            raise QgsProcessingException(self.tr(
+                "Нет строк с координатами. Выберите поля X, Y и Z или "
+                "дайте слою точки с Z."))
+        feedback.pushInfo(self.tr(
+            "Поля: X %s, Y %s, Z %s, профиль %s, высота ячейки %s.")
+            % tuple((f[k] or "-") for k in ("bx", "by", "bz", "line",
+                                           "sz")))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, src.fields(),
+            QgsWkbTypes.Type.MultiPolygonZ, src.sourceCrs())
+        if sink is None:
+            raise QgsProcessingException(self.tr(
+                "Не удалось создать слой разреза."))
+        lines = {}
+        for i, r in enumerate(xyz):
+            lines.setdefault(r[4], []).append(i)
+        made = 0
+        for name, idx in lines.items():
+            if feedback.isCanceled():
+                break
+            a = np.array([xyz[i][:4] for i in idx], dtype=float)
+            dz = a[:, 3] if f["sz"] else None
+            cells = section2d.cells(a[:, 0], a[:, 1], a[:, 2], dz)
+            for i, faces in zip(idx, cells):
+                if not faces:
+                    continue
+                mp = QgsMultiPolygon()
+                for fc in faces:
+                    ring = [QgsPoint(float(p[0]), float(p[1]), float(p[2]))
+                            for p in fc]
+                    ring.append(ring[0])
+                    poly = QgsPolygon()
+                    poly.setExteriorRing(QgsLineString(ring))
+                    mp.addGeometry(poly)
+                out = QgsFeature(src.fields())
+                out.setGeometry(QgsGeometry(mp))
+                out.setAttributes(feats[i].attributes())
+                sink.addFeature(out)
+                made += 1
+        _set_output_name(context, dest, self.tr("Разрез инверсии"))
+        feedback.pushInfo(self.tr("Профилей: %d, ячеек: %d.")
+                          % (len(lines), made))
+        if n_bad:
+            feedback.pushWarning(self.tr(
+                "Строк без координат: %d, они пропущены.") % n_bad)
+        if made < len(feats):
+            feedback.pushWarning(self.tr(
+                "Строк без ячейки: %d. Это профили из одной точки: "
+                "проверьте поле номера профиля.") % (len(feats) - made))
+        return {self.OUTPUT: dest}
+
+
 ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
@@ -8390,4 +8600,5 @@ ALGORITHMS = [
     HoleIntervalsAlgorithm,
     DemoDrillingAlgorithm,
     BlocksToCubeAlgorithm,
+    InversionSectionAlgorithm,
 ]

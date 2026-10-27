@@ -37,7 +37,7 @@ from .viewer3d import (    # noqa: F401
     draw_depth, field_color, flat_marker_mesh, grid_to_mesh_arrays,
     layer_lift, polygon_mask, polyline_dist_side, ramp_colors,
     sample_bilinear, shade_colors, split_by_alpha, symbol_alpha,
-    gradient_bands,
+    gradient_bands, utm_epsg,
     thin_labels_xy, tr, walk_rings, z_range_mask)
 
 import numpy as np                                # noqa: E402
@@ -488,6 +488,7 @@ class ViewerDialog(QDialog):
             "от размаха сцены. Слишком мелкий шаг укрупняется сам: "
             "сетка гуще самой сцены читать не помогает, а рисуется "
             "долго."))
+        self._build_box_controls()
         self.zs_top = QComboBox()
         self.zs_bot = QComboBox()
         for w, tip in (
@@ -648,9 +649,21 @@ class ViewerDialog(QDialog):
 
         box_grid = QGroupBox(tr("Координатный короб"))
         f3 = QFormLayout(box_grid)
+        f3.addRow(tr("Рёбра"), self.box_edge_mode)
         f3.addRow(tr("Сетка"), self.grid_planes)
         f3.addRow(tr("Шаг сетки, м"), self.grid_step)
+        f3.addRow(tr("Шаг делений: план, Z"),
+                  self._pair(self.tick_xy, self.tick_z))
+        f3.addRow(tr("Множитель подписей: план, Z"),
+                  self._pair(self.mult_xy, self.mult_z))
         sv.addWidget(box_grid)
+        # охват короба отдельной группой: в одной группе не больше
+        # пяти строк, иначе нужное ищется перебором
+        box_rng = QGroupBox(tr("Охват короба"))
+        vr = QVBoxLayout(box_rng)
+        vr.addWidget(self.box_range_on)
+        vr.addWidget(self.box_range_w)
+        sv.addWidget(box_rng)
         sv.addWidget(self.auto_rebuild)
 
         self.legend_pix = QLabel()
@@ -1822,6 +1835,13 @@ class ViewerDialog(QDialog):
                 "grid_planes": self.grid_planes.currentData(),
                 "grid_step": float(self.grid_step.value()),
                 "axes_on": bool(self.btn_axes.isChecked()),
+                "box_edges": self.box_edge_mode.currentData(),
+                "tick_xy": float(self.tick_xy.value()),
+                "tick_z": float(self.tick_z.value()),
+                "mult_xy": float(self.mult_xy.value()),
+                "mult_z": float(self.mult_z.value()),
+                "box_range_on": bool(self.box_range_on.isChecked()),
+                "box_range": [float(w.value()) for w in self.box_range],
                 "mask_lyr": self.mask_lyr.currentData(),
                 "mask_level": float(self.mask_level.value()),
                 "fence_all": bool(self.fence_all.isChecked()),
@@ -1869,6 +1889,17 @@ class ViewerDialog(QDialog):
                 combo.setCurrentIndex(max(k, 0))
             self.grid_step.setValue(float(state.get("grid_step", 0.0)))
             self.btn_axes.setChecked(bool(state.get("axes_on", False)))
+            ke = _find_data(self.box_edge_mode, state.get("box_edges"))
+            self.box_edge_mode.setCurrentIndex(max(ke, 0))
+            self.tick_xy.setValue(float(state.get("tick_xy", 0.0)))
+            self.tick_z.setValue(float(state.get("tick_z", 0.0)))
+            self.mult_xy.setValue(float(state.get("mult_xy", 1.0)))
+            self.mult_z.setValue(float(state.get("mult_z", 1.0)))
+            for w, v in zip(self.box_range,
+                            state.get("box_range") or []):
+                w.setValue(float(v))
+            self.box_range_on.setChecked(
+                bool(state.get("box_range_on", False)))
             im = _find_data(self.mask_lyr, state.get("mask_lyr"))
             self.mask_lyr.setCurrentIndex(max(im, 0))
             self.mask_level.setValue(
@@ -4088,6 +4119,114 @@ class ViewerDialog(QDialog):
             out = out.combine(g2)
         return out
 
+    def _build_box_controls(self):
+        """Настройки координатного короба: рёбра, деления, охват.
+
+        Короб ставит масштаб, а какой масштаб нужен, решает человек:
+        на разрезе важны отметки и шаг по ним, на плане километры,
+        на презентации короб не должен загораживать тело.
+        """
+        self.box_edge_mode = QComboBox()
+        for lab, key in ((tr("Все двенадцать"), "all"),
+                         (tr("Три оси из угла"), "axes"),
+                         (tr("Без рёбер"), "none")):
+            self.box_edge_mode.addItem(lab, key)
+        self.box_edge_mode.setToolTip(tr(
+            "Три оси из угла начала не загораживают сцену, как оси "
+            "на чертеже. Без рёбер остаются сетка и деления."))
+        self.tick_xy = QDoubleSpinBox()
+        self.tick_z = QDoubleSpinBox()
+        for w in (self.tick_xy, self.tick_z):
+            w.setRange(0.0, 1e7)
+            w.setDecimals(2)
+            w.setValue(0.0)
+            w.setSpecialValueText(tr("(от размаха)"))
+            w.setToolTip(tr(
+                "Шаг делений и подписей в единицах карты. Ноль берёт "
+                "круглый шаг от размаха. Слишком частый шаг "
+                "укрупняется сам."))
+        self.mult_xy = QDoubleSpinBox()
+        self.mult_z = QDoubleSpinBox()
+        for w in (self.mult_xy, self.mult_z):
+            w.setRange(-1e6, 1e6)
+            w.setDecimals(6)
+            w.setValue(1.0)
+            w.setToolTip(tr(
+                "На что умножить число в подписи. 0.001 даёт "
+                "километры, -1 - глубину положительными числами. "
+                "Деления стоят там же, меняется только текст."))
+        self.box_range_on = QCheckBox(tr("Свой охват короба"))
+        self.box_range_on.setToolTip(tr(
+            "Короб по заданным границам, а не по охвату сцены: "
+            "одинаковый на нескольких снимках или с круглыми краями. "
+            "Ось, где «до» не больше «от», остаётся по сцене."))
+        self.box_range = []
+        self.box_range_w = QWidget()
+        grid = QFormLayout(self.box_range_w)
+        grid.setContentsMargins(0, 0, 0, 0)
+        for axis in ("X", "Y", "Z"):
+            row = QWidget()
+            hl = QHBoxLayout(row)
+            hl.setContentsMargins(0, 0, 0, 0)
+            pair = []
+            for pref in (tr("от "), tr("до ")):
+                w = QDoubleSpinBox()
+                w.setRange(-1e9, 1e9)
+                w.setDecimals(1)
+                w.setPrefix(pref)
+                hl.addWidget(w)
+                pair.append(w)
+            self.box_range.extend(pair)
+            grid.addRow(axis, row)
+        fill = QPushButton(tr("Взять охват сцены"))
+        fill.setToolTip(tr("Заполнить границы охватом последней "
+                           "собранной сцены."))
+        fill.clicked.connect(self._box_range_from_scene)
+        grid.addRow("", fill)
+        self.box_range_w.setEnabled(False)
+        self.box_range_on.toggled.connect(self.box_range_w.setEnabled)
+        for w in [self.box_edge_mode, self.tick_xy, self.tick_z,
+                  self.mult_xy, self.mult_z, self.box_range_on,
+                  self.grid_planes, self.grid_step] + self.box_range:
+            sig = getattr(w, "currentIndexChanged", None) or \
+                getattr(w, "valueChanged", None) or w.toggled
+            sig.connect(lambda *_a: self._schedule_rebuild())
+
+    @staticmethod
+    def _pair(a, b):
+        """Два поля в одну строку свойств."""
+        w = QWidget()
+        hl = QHBoxLayout(w)
+        hl.setContentsMargins(0, 0, 0, 0)
+        hl.addWidget(a)
+        hl.addWidget(b)
+        return w
+
+    def _box_range_from_scene(self, *_a):
+        """Границы короба из охвата последней сборки."""
+        box = getattr(self, "_box_scene", None)
+        if not box:
+            self.info.setText(tr("Сначала соберите сцену."))
+            return
+        lo, hi = box
+        for k in range(3):
+            self.box_range[2 * k].setValue(float(lo[k]))
+            self.box_range[2 * k + 1].setValue(float(hi[k]))
+
+    def _box_opts(self):
+        """Настройки короба одним словарём: для рисования и выгрузки."""
+        return {
+            "edges": self.box_edge_mode.currentData() or "all",
+            "steps": (float(self.tick_xy.value()),
+                      float(self.tick_xy.value()),
+                      float(self.tick_z.value())),
+            "mult": (float(self.mult_xy.value()),
+                     float(self.mult_xy.value()),
+                     float(self.mult_z.value())),
+            "range": ([float(w.value()) for w in self.box_range]
+                      if self.box_range_on.isChecked() else None),
+        }
+
     def _export_box(self, lo, hi, _segs):
         """Короб в выгрузку линиями.
 
@@ -4097,9 +4236,10 @@ class ViewerDialog(QDialog):
         """
         import numpy as np
         from .axes import box_edges, tick_marks, grid_lines
-        pieces = list(box_edges(lo, hi))
-        pieces += [(a, b) for _ax, _v, a, b in tick_marks(lo, hi,
-                                                          want=5)]
+        bo = self._box_opts()
+        pieces = list(box_edges(lo, hi, bo["edges"]))
+        pieces += [(a, b) for _ax, _v, a, b in tick_marks(
+            lo, hi, want=5, steps=bo["steps"])]
         planes = tuple(p for p in
                        (self.grid_planes.currentData() or "").split(",")
                        if p)
@@ -4117,8 +4257,9 @@ class ViewerDialog(QDialog):
         # который на большой модели теряется.
         lab_v, lab_f = [], []
         base = 0
-        for axis, val, a, b in tick_marks(lo, hi, want=5):
-            txt = tick_label(val)
+        for axis, val, a, b in tick_marks(lo, hi, want=5,
+                                          steps=bo["steps"]):
+            txt = tick_label(val, bo["mult"][axis])
             gsz = label_size(lo, hi, axis)
             # Подпись отодвигается от штриха и не налезает на короб:
             # по плану уходит наружу, по вертикали влево от штриха.
@@ -4176,19 +4317,20 @@ class ViewerDialog(QDialog):
             return (float(p[0]) - cx, float(p[1]) - cy,
                     (float(p[2]) - cz) * vex)
 
-        segs = [(put(a), put(b)) for a, b in box_edges(lo, hi)]
-        if not segs:
-            return
+        bo = self._box_opts()
+        segs = [(put(a), put(b)) for a, b in box_edges(lo, hi,
+                                                        bo["edges"])]
         # Короб идёт и в выгрузку: без него в файле нет масштаба.
         # Настоящие отметки, как и у прочих частей: преувеличение
         # накладывается на выгрузке целиком.
         self._export_box(lo, hi, segs)
-        pos = np.array([q for seg in segs for q in seg], dtype=float)
-        item = gl.GLLinePlotItem(pos=pos, mode='lines', width=1.0,
-                                 antialias=True,
-                                 color=(0.35, 0.38, 0.45, 0.65),
-                                 glOptions='translucent')
-        self._add_item(item)
+        if segs:
+            pos = np.array([q for seg in segs for q in seg], dtype=float)
+            item = gl.GLLinePlotItem(pos=pos, mode='lines', width=1.0,
+                                     antialias=True,
+                                     color=(0.35, 0.38, 0.45, 0.65),
+                                     glOptions='translucent')
+            self._add_item(item)
 
         # Сетка на выбранных плоскостях: пол даёт масштаб в плане,
         # стены по отметкам, что для разреза важнее.
@@ -4208,7 +4350,7 @@ class ViewerDialog(QDialog):
                     glOptions='translucent'))
                 _log(tr("Сетка: линий %d.") % len(gsegs))
 
-        marks = tick_marks(lo, hi, want=5)
+        marks = tick_marks(lo, hi, want=5, steps=bo["steps"])
         if not marks:
             return
         tp = np.array([q for _a, _v, s0, s1 in marks
@@ -4240,8 +4382,9 @@ class ViewerDialog(QDialog):
                 _log(tr("Подписей осей больше %d, остальные "
                         "не ставим: они забили бы сцену.") % cap)
                 break
-            self._add_item(TextItem(pos=put(s1), text=tick_label(val),
-                                    color=(30, 30, 30, 255), font=fnt))
+            self._add_item(TextItem(
+                pos=put(s1), text=tick_label(val, bo["mult"][_axis]),
+                color=(30, 30, 30, 255), font=fnt))
 
     def _cap_cut(self, v, f):
         """Крышка на срезе оболочки.
@@ -4518,7 +4661,7 @@ class ViewerDialog(QDialog):
         try:
             from qgis.core import QgsCoordinateTransform
             src = lyr.crs()
-            dst = QgsProject.instance().crs()
+            dst = self._scene_crs()
         except Exception:  # nosec
             return None
         if not src.isValid() or not dst.isValid() or src == dst:
@@ -5229,7 +5372,7 @@ class ViewerDialog(QDialog):
                                             side)
             img = texmesh.render_project_map(
                 (xmin, xmax, ymin, ymax), w, h,
-                QgsProject.instance().crs(), layers, prof)
+                self._scene_crs(), layers, prof)
             if img is None:
                 _log(tr("Карта для текстуры не отрисовалась."))
                 return None
@@ -5609,7 +5752,7 @@ class ViewerDialog(QDialog):
             from qgis.core import (QgsVectorLayer, QgsFeature,
                                    QgsGeometry, QgsPointXY)
             proj = QgsProject.instance()
-            crs = proj.crs().authid() or ""
+            crs = self._scene_crs().authid() or ""
             lyr = QgsVectorLayer("Polygon?crs=" + crs,
                                  tr("Контур (нарисован)"), "memory")
             ft = QgsFeature()
@@ -6423,6 +6566,59 @@ class ViewerDialog(QDialog):
             self._busy(False)
             self._mark_dirty(False)
 
+    def _scene_crs(self):
+        """Система координат сцены: выбранная при сборке или проекта."""
+        crs = getattr(self, "_crs_now", None)
+        return crs if crs is not None else QgsProject.instance().crs()
+
+    def _pick_scene_crs(self):
+        """Система координат для сборки сцены.
+
+        Обычно это система проекта, как у холста карты. Но проект
+        в градусах (EPSG:4326 и подобные) сцене не годится: X и Y
+        в градусах, Z в метрах, и слой, перепроецированный в метры,
+        пересчитывался обратно в градусы и сплющивался. Тогда сцена
+        берёт систему первого отмеченного слоя в метрах, а если все
+        слои в градусах - зону UTM по середине охвата.
+        """
+        proj = QgsProject.instance().crs()
+        if not proj.isValid() or not proj.isGeographic():
+            return proj
+        layers = []
+        for cls in (QgsVectorLayer, QgsRasterLayer):
+            try:
+                layers.extend(self._checked_of(cls))
+            except Exception:  # nosec
+                pass
+        for lyr in layers:
+            crs = lyr.crs()
+            if crs.isValid() and not crs.isGeographic():
+                self._warn(tr(
+                    "Проект в градусах (%s), сцена собрана в системе "
+                    "слоя %s (%s): в градусах план и высота несоизмеримы.")
+                    % (proj.authid(), lyr.name(), crs.authid()))
+                return crs
+        for lyr in layers:
+            try:
+                from qgis.core import (QgsCoordinateReferenceSystem,
+                                       QgsCoordinateTransform)
+                ext = lyr.extent()
+                wgs = QgsCoordinateReferenceSystem("EPSG:4326")
+                c = QgsCoordinateTransform(lyr.crs(), wgs,
+                                           QgsProject.instance()
+                                           ).transform(ext.center())
+                utm = QgsCoordinateReferenceSystem(
+                    "EPSG:%d" % utm_epsg(c.x(), c.y()))
+            except Exception:  # nosec
+                continue
+            if utm.isValid():
+                self._warn(tr(
+                    "Проект и слои в градусах, сцена собрана в %s: "
+                    "в градусах план и высота несоизмеримы.")
+                    % utm.authid())
+                return utm
+        return proj
+
     def _rebuild_scene(self):
         prof = _Prof()
         self._clip_now = None
@@ -6446,6 +6642,10 @@ class ViewerDialog(QDialog):
         self._layer_colors_cache = {}
         self._export = []
         self._warnings = []
+        # система сцены выбирается раз на сборку: все слои должны
+        # пересчитываться в одну и ту же
+        self._crs_now = None
+        self._crs_now = self._pick_scene_crs()
         for m in self._items:
             self.view.removeItem(m)
         self._items = []
@@ -6778,6 +6978,10 @@ class ViewerDialog(QDialog):
         span_z = max(max(zs_) - min(zs_), 0.0) * float(vex)
         box_lo = (min(xs), min(ys), min(zs_))
         box_hi = (max(xs), max(ys), max(zs_))
+        self._box_scene = (box_lo, box_hi)
+        from .axes import custom_range
+        box_lo, box_hi = custom_range(box_lo, box_hi,
+                                      self._box_opts()["range"])
         if self.btn_axes.isChecked():
             self._add_axes_box(gl, box_lo, box_hi, cx, cy, cz, vex)
         else:

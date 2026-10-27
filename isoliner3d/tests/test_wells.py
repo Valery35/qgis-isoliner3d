@@ -137,6 +137,32 @@ def test_demo_assays_end_at_the_collar_depth():
     rich = {a[0] for a in d["assays"] if a[3] >= 1.0}
     assert len(rich) >= 0.8 * len(eoh)
 
+def test_collar_direction_starts_the_hole():
+    """Наклон из паспорта: ствол идёт под ним от устья до замера.
+
+    Устье -60 на восток, первый замер на 50 м такой же: ствол прямой,
+    а без паспорта он шёл бы до 50 м по замеру и совпал бы. Замер на
+    50 м круче - до него дуга от паспортного направления.
+    """
+    d, a, g = wells.with_collar([50.0], [90.0], [-60.0], 90.0, -60.0)
+    assert d == [0.0, 50.0]
+    p, _m = wells.desurvey((0, 0, 0), d, a, g, max_depth=100.0)
+    assert np.allclose(p[-1], (50.0, 0.0, -100.0 * np.sin(np.radians(60))),
+                       atol=1e-9)
+    # свой замер на устье важнее паспорта
+    assert wells.with_collar([0.0, 50.0], [10.0, 10.0], [-80.0, -80.0],
+                             90.0, -60.0)[1] == [10.0, 10.0]
+    # пустой паспорт ничего не меняет
+    assert wells.with_collar([5.0], [1.0], [-89.0], None, -60.0)[0] == [5.0]
+
+
+def test_upward_hole_from_underground():
+    """Скважина вверх из выработки: угол +45 от горизонта."""
+    d, a, g = wells.with_collar([], [], [], 0.0, 45.0)
+    p, _m = wells.desurvey((0, 0, -300.0), d, a, g, max_depth=100.0)
+    assert np.allclose(p[-1], (0.0, 100 / np.sqrt(2), -300 + 100 / np.sqrt(2)),
+                       atol=1e-9)
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

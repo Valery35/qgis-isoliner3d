@@ -214,8 +214,17 @@ looking, not a property of the data.
 ## Scene properties
 
 Opened by a button on the toolbar. The sections are **View**,
-**Clipping**, **Appearance** and **The coordinate box**. All the
-settings are saved into the project.
+**Clipping**, **Appearance**, **The coordinate box** and **Box
+extent**. All the settings are saved into the project.
+
+**The coordinate box** is set up for the task:
+
+- **Edges**: all twelve, three axes from the origin corner as on a drawing, or no edges. Three axes do not block the body.
+- **Grid** on the floor, the walls or both, and its step.
+- **Tick step** in plan and along Z separately. Zero takes a round step from the span, on a section the elevation step is usually set, for example 50 m.
+- **Label multiplier** in plan and along Z. The ticks stay in place, the number in the label changes: 0.001 gives kilometres, -1 along Z gives depth as positive numbers.
+
+**Box extent** sets own bounds instead of the scene extent, for each axis separately. A box with round edges, the same on several snapshots. An axis where "to" is not greater than "from" stays by the scene. The button "Take the scene extent" fills the bounds with the extent of the last build, then they are easy to round.
 
 Hillshading is not decoration: a surface coloured by a ramp is drawn
 with vertex colours and no light at all, so the relief within one shade
@@ -1128,7 +1137,7 @@ The set is meant to show lines as tubes. The discharge grows downstream tens of 
 
 Builds borehole traces from collars and downhole surveys the way they are exported from a database: a collar layer and a survey table, matched by the hole ID.
 
-Between stations the trace follows a circular arc whose end tangents match the surveys. This is the minimum curvature method used by Micromine, Datamine, Surpac and Leapfrog, and the traces agree with theirs. From the collar to the first station the trace follows the first station, past the last one it goes straight along it to the end of hole. A hole without a survey is vertical, with a warning.
+Between stations the trace follows a circular arc whose end tangents match the surveys. This is the minimum curvature method used by Micromine, Datamine, Surpac and Leapfrog, and the traces agree with theirs. From the collar to the first station the trace follows the direction from the hole passport: the azimuth and angle at the collar, when the collar layer has such fields. An inclined hole is angled from the collar itself, while the first instrument station may be deeper. Without a passport the trace follows the first station up to it. A station at depth 0 takes precedence over the passport. Past the last station the trace goes along it to the end of hole. A hole without a survey and without a passport is vertical, with a warning. An upward hole from an underground working is set by an upward angle: with the angle from the horizontal and down negative it is a positive angle.
 
 Databases record the angle in three ways: from the horizontal with down negative, where -90 means straight down, from the horizontal with down positive, and a zenith angle from the vertical, as in Russian surveys. The convention is chosen explicitly. A wrong convention sends the trace upwards or lays it flat, so check the first hole against a known one.
 
@@ -1142,6 +1151,8 @@ The output is lines with Z. The length of each equals the depth along the hole, 
 | **Поле номера скважины** | Поле номера скважины в устьях. По нему устье сводится с инклинометрией. Пусто - узнаётся по имени: HOLE, HOLEID, BHID. |
 | **Поле отметки устья (пусто - Z геометрии)** | Поле отметки устья. Пусто - отметка из Z геометрии. Без неё ствол встанет на ноль, о чём будет сказано. |
 | **Поле глубины скважины** | Поле глубины скважины (забоя). Пусто - узнаётся по имени (EOH, DEPTH), а без такого поля ствол кончается на последнем замере инклинометрии. |
+| **Поле азимута у устья (пусто - по имени)** | Азимут скважины у устья из паспорта. Наклонная скважина идёт под ним с устья до первого замера. Пусто - узнаётся по имени (AZIMUTH, AZI, BRG). |
+| **Поле угла у устья (пусто - по имени)** | Угол скважины у устья из паспорта, в том же соглашении, что инклинометрия. Пусто - узнаётся по имени (DIP, ANGLE). Замер на глубине 0 важнее паспорта. |
 | **Инклинометрия (таблица)** | Таблица инклинометрии: скважина, глубина по стволу, азимут, угол. Поля, которые не выбраны, узнаются по именам Micromine, Datamine и Surpac. Пусто - все скважины отвесные. |
 | **Поле номера скважины в инклинометрии** | Поле номера скважины в инклинометрии. Номера сводятся с устьями как текст без пробелов по краям. |
 | **Поле глубины замера** | Поле глубины замера по стволу, метры от устья, не отметка и не глубина по вертикали. |
@@ -1222,6 +1233,25 @@ Unrotate a model with rotated block axes into the block coordinate system first:
 | **Ячейка по вертикали, м (0 - по блокам)** | Ячейка куба по вертикали, метры. Ноль - наименьший размер блока по Z. |
 | **Куб значений** | Куб значений: канал на уровень, как у 2.02 и 2.06. Из него 2.04 строит тело вокселями, а 2.11-2.14 работают с оболочками. |
 | **Доля покрытия ячейки** | Какая доля ячейки должна быть покрыта блоками, чтобы она получила значение. Меньше - край модели толще, но размазан по ячейкам, задетым углом блока. |
+
+## 2.21 2D inversion section into the volume
+
+Puts a 2D inversion section into space, next to boreholes, cubes and surfaces. Every row of the table becomes a section cell: a vertical face along the profile.
+
+The input is a table of x, y, z and values. X and Y are a profile point, Z is the elevation of the cell centre, not a depth. A cell extends to the midpoints between neighbouring profile points, and at the end of the profile half a step outwards, and half a step up and down. The row order in the file does not matter: the profile points are ordered by themselves, from the outermost one along the profile.
+
+The profile may be bent: at a bend a cell has two flat faces, and the section follows the profile without gaps. A profile gap, where the next point is more than three usual steps away, is not bridged.
+
+Several profiles in one table are separated by the profile number field (LINE, PROFILE). If cells differ in height with depth, the height is set by the DZ field. Fields are recognised by name and need not be chosen.
+
+The output is faces with Z and all the fields of the table. The scene shows them as a body, the colour comes from the layer style. Set a style graduated by the field you need, for example resistivity: on the map the section shows as the profile line, in the scene as a wall.
+
+Export for geophysicists: CSV in UTF-8, comma separator, decimal point, a header `X,Y,Z,` and the value fields, one row per cell, a constant step along the profile and vertically. A 3D inversion is exported the same way and goes into 2.20. Back, a cube of the module is given as a table through 2.03: the block model layer is saved to CSV with the standard "Save As".
+
+| Field | What it sets |
+|---|---|
+| **Разрез инверсии (таблица x, y, z)** | Разрез 2D-инверсии: таблица x, y, z и значения, где x и y лежат на профиле. Точечный слой с Z тоже годится. |
+| **Разрез инверсии** | Ячейки разреза: вертикальные грани с Z и всеми полями таблицы. В сцене показываются телом, цвет из стиля слоя, например градуированного по значению. |
 
 ## From boreholes to reserves
 

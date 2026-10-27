@@ -49,6 +49,7 @@ EXPECTED = {
     "HoleIntervalsAlgorithm": ("hole_intervals", "2.18"),
     "DemoDrillingAlgorithm": ("demo_drilling", "2.19"),
     "BlocksToCubeAlgorithm": ("block_model_to_cube", "2.20"),
+    "InversionSectionAlgorithm": ("inversion_section", "2.21"),
 }
 
 
@@ -351,7 +352,8 @@ def test_every_tool_has_field_hints():
              ("DesurveyAlgorithm", "HINTS_2_17"),
              ("HoleIntervalsAlgorithm", "HINTS_2_18"),
              ("DemoDrillingAlgorithm", "HINTS_2_19"),
-             ("BlocksToCubeAlgorithm", "HINTS_2_20"))
+             ("BlocksToCubeAlgorithm", "HINTS_2_20"),
+             ("InversionSectionAlgorithm", "HINTS_2_21"))
     tree = ast.parse(src)
     dicts = {}
     for node in tree.body:

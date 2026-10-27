@@ -118,6 +118,7 @@ values: a grid band is a horizontal level.
 | 2.18 Intervals along a borehole | Sample intervals from a table, equal intervals and length-weighted composites | Pieces of the trace and midpoints |
 | 2.19 A demonstration drilling (demo) | Collars, survey and assays over a gold vein, an example for 2.17 and 2.18 | Three layers |
 | 2.20 Block model to cube | A block model from Micromine, Datamine or Surpac, or an x, y, z table of an inversion, on the grid of a cube. Sub-blocks are averaged by volume | A cube of values |
+| 2.21 2D inversion section into the volume | An x, y, z table along a profile becomes a wall of cells in the scene, a bent profile and several profiles in one table | Section cells with Z |
 
 A bed grid assembled by the first tool is read by the 3D window as a body:
 computed and looked at right away.
