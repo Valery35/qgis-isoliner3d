@@ -7399,6 +7399,968 @@ class DemoRiversAlgorithm(IsolinerAlgorithm):
         return {self.OUTPUT: dest, self.OUTPUT_DEM: dem_path}
 
 
+_CONV_KEYS = ("dip_down_neg", "dip_down_pos", "zenith")
+
+
+def _numv(v):
+    """Число из атрибута или None: пустое и текст не превращаются в 0."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f else None
+
+
+def _key(v):
+    """Номер скважины как строка без пробелов по краям."""
+    return "" if v is None else str(v).strip()
+
+
+HINTS_2_17 = {
+    "COLLARS": "Устья скважин: точечный слой или таблица с координатами. "
+               "У точечного слоя координаты берутся из геометрии, у "
+               "таблицы - из полей X и Y.",
+    "HOLE": "Поле номера скважины в устьях. По нему устье сводится "
+            "с инклинометрией. Пусто - узнаётся по имени: HOLE, "
+            "HOLEID, BHID.",
+    "XFIELD": "Поле X, если у слоя устьев нет геометрии. У точечного "
+              "слоя не нужно.",
+    "YFIELD": "Поле Y, если у слоя устьев нет геометрии. У точечного "
+              "слоя не нужно.",
+    "ZFIELD": "Поле отметки устья. Пусто - отметка из Z геометрии. "
+              "Без неё ствол встанет на ноль, о чём будет сказано.",
+    "EOH": "Поле глубины скважины (забоя). Пусто - узнаётся по "
+           "имени (EOH, DEPTH), а без такого поля ствол кончается "
+           "на последнем замере инклинометрии.",
+    "SURVEY": "Таблица инклинометрии: скважина, глубина по стволу, "
+              "азимут, угол. Поля, которые не выбраны, узнаются по "
+              "именам Micromine, Datamine и Surpac. Пусто - все "
+              "скважины отвесные.",
+    "S_HOLE": "Поле номера скважины в инклинометрии. Номера сводятся "
+              "с устьями как текст без пробелов по краям.",
+    "S_DEPTH": "Поле глубины замера по стволу, метры от устья, не "
+               "отметка и не глубина по вертикали.",
+    "S_AZI": "Поле азимута, градусы от севера сетки по часовой "
+             "стрелке. Сближение меридианов не учитывается.",
+    "S_ANGLE": "Поле угла наклона, в соглашении, выбранном ниже.",
+    "CONVENTION": "Как записан угол. Перепутанное соглашение уводит "
+                  "ствол вверх или кладёт его горизонтально, поэтому "
+                  "проверьте по одной известной скважине.",
+    "STEP": "Шаг узлов ствола вдоль дуги, метры. По узлам ствол "
+            "рисуется, и по ним же 2.18 находит точки на глубинах.",
+    "OUTPUT": "Стволы скважин: линии с настоящими Z от устья до "
+              "забоя. Длина линии равна глубине по стволу, поэтому "
+              "2.18 режет её на интервалы без таблицы глубин.",
+}
+
+
+class DesurveyAlgorithm(IsolinerAlgorithm):
+    """Стволы скважин по инклинометрии, методом минимальной кривизны.
+
+    Математика лежит в wells.py и проверяется без QGIS.
+    """
+
+    COLLARS, HOLE, XFIELD, YFIELD = "COLLARS", "HOLE", "XFIELD", "YFIELD"
+    ZFIELD, EOH = "ZFIELD", "EOH"
+    SURVEY, S_HOLE, S_DEPTH = "SURVEY", "S_HOLE", "S_DEPTH"
+    S_AZI, S_ANGLE, CONVENTION = "S_AZI", "S_ANGLE", "CONVENTION"
+    STEP, OUTPUT = "STEP", "OUTPUT"
+
+    def name(self):
+        return "desurvey_holes"
+
+    def displayName(self):
+        return self.tr("2.17 Стволы скважин по инклинометрии")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def createInstance(self):
+        return DesurveyAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Строит стволы скважин по устьям и инклинометрии.\n\n"
+            "Между замерами ствол идёт дугой окружности, касательные "
+            "к которой на концах совпадают с замерами: метод "
+            "минимальной кривизны, им считают Micromine, Datamine, "
+            "Surpac и Leapfrog. От устья до первого замера ствол идёт "
+            "по первому замеру, за последним - по нему же до "
+            "забоя. Скважина без инклинометрии отвесная.\n\n"
+            "Угол записывают по-разному: от горизонта с минусом вниз "
+            "(-90 отвесно вниз), от горизонта с плюсом вниз или "
+            "зенитный угол от вертикали. Соглашение выбирается явно.\n\n"
+            "На выходе линии с Z, длина каждой равна глубине по "
+            "стволу. Дальше 2.18 режет их на интервалы опробования "
+            "или композиты, а сцена показывает трубами.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        anyv = [QgsProcessing.SourceType.TypeVector]
+        num = QgsProcessingParameterField.DataType.Numeric
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.COLLARS, self.tr("Устья скважин"), anyv))
+        self.addParameter(QgsProcessingParameterField(
+            self.HOLE, self.tr("Поле номера скважины"), "hole",
+            self.COLLARS, optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.XFIELD, self.tr("Поле X (если нет геометрии)"), None,
+            self.COLLARS, type=num, optional=True)))
+        self.addParameter(_advanced(QgsProcessingParameterField(
+            self.YFIELD, self.tr("Поле Y (если нет геометрии)"), None,
+            self.COLLARS, type=num, optional=True)))
+        self.addParameter(QgsProcessingParameterField(
+            self.ZFIELD, self.tr("Поле отметки устья (пусто - Z "
+                                 "геометрии)"), None, self.COLLARS,
+            type=num, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.EOH, self.tr("Поле глубины скважины"), "eoh",
+            self.COLLARS, type=num, optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.SURVEY, self.tr("Инклинометрия (таблица)"), anyv,
+            optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.S_HOLE, self.tr("Поле номера скважины в инклинометрии"),
+            "hole", self.SURVEY, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.S_DEPTH, self.tr("Поле глубины замера"), "depth",
+            self.SURVEY, type=num, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.S_AZI, self.tr("Поле азимута"), "azimuth", self.SURVEY,
+            type=num, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.S_ANGLE, self.tr("Поле угла"), "dip", self.SURVEY,
+            type=num, optional=True))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.CONVENTION, self.tr("Как записан угол"),
+            options=[self.tr("От горизонта, вниз отрицательный "
+                             "(-90 - отвесно вниз)"),
+                     self.tr("От горизонта, вниз положительный "
+                             "(90 - отвесно вниз)"),
+                     self.tr("Зенитный, от вертикали (0 - отвесно "
+                             "вниз)")], defaultValue=0))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.STEP, self.tr("Шаг узлов ствола, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=1.0, minValue=0.01)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Стволы скважин"),
+            QgsProcessing.SourceType.TypeVectorLine))
+        _hints(self, HINTS_2_17)
+
+    def _process(self, parameters, context, feedback):
+        from qgis.core import (QgsFields, QgsFeature, QgsLineString,
+                               QgsPoint, QgsWkbTypes)
+        from . import wells
+
+        col = self.parameterAsSource(parameters, self.COLLARS, context)
+        f_hole = self.parameterAsString(parameters, self.HOLE, context)
+        f_x = self.parameterAsString(parameters, self.XFIELD, context)
+        f_y = self.parameterAsString(parameters, self.YFIELD, context)
+        f_z = self.parameterAsString(parameters, self.ZFIELD, context)
+        f_eoh = self.parameterAsString(parameters, self.EOH, context)
+        sv = self.parameterAsSource(parameters, self.SURVEY, context)
+        s_hole = self.parameterAsString(parameters, self.S_HOLE, context)
+        s_d = self.parameterAsString(parameters, self.S_DEPTH, context)
+        s_a = self.parameterAsString(parameters, self.S_AZI, context)
+        s_g = self.parameterAsString(parameters, self.S_ANGLE, context)
+        conv = _CONV_KEYS[self.parameterAsEnum(parameters,
+                                               self.CONVENTION, context)]
+        step = self.parameterAsDouble(parameters, self.STEP, context)
+        if col is None:
+            raise QgsProcessingException(self.tr("Нет слоя устьев."))
+        from . import colnames
+        cn = col.fields().names()
+        f_hole = colnames.resolve(f_hole, cn, "hole")
+        f_eoh = colnames.resolve(f_eoh, cn, "eoh", taken=[f_hole])
+        has_geom = col.wkbType() != QgsWkbTypes.Type.NoGeometry
+        if not has_geom:
+            f_x = colnames.resolve(f_x, cn, "collar_x")
+            f_y = colnames.resolve(f_y, cn, "collar_y")
+        if not f_z and not (has_geom and QgsWkbTypes.hasZ(col.wkbType())):
+            f_z = colnames.guess(cn, "collar_z")
+        if not f_hole:
+            raise QgsProcessingException(self.tr(
+                "Не найдено поле номера скважины в устьях: выберите "
+                "его."))
+        if sv is not None:
+            sn = sv.fields().names()
+            s_hole = colnames.resolve(s_hole, sn, "hole")
+            s_d = colnames.resolve(s_d, sn, "s_depth", taken=[s_hole])
+            s_a = colnames.resolve(s_a, sn, "s_azi")
+            s_g = colnames.resolve(s_g, sn, "s_angle")
+        feedback.pushInfo(self.tr(
+            "Поля устьев: скважина %s, глубина %s, X %s, Y %s, Z %s. "
+            "Инклинометрия: скважина %s, глубина %s, азимут %s, угол %s.")
+            % tuple((f or "-") for f in (
+                f_hole, f_eoh, f_x if not has_geom else self.tr("точка"),
+                f_y if not has_geom else self.tr("точка"),
+                f_z or self.tr("точка"), s_hole, s_d, s_a, s_g)))
+
+        surveys = {}
+        if sv is not None:
+            if not (s_hole and s_d and s_a and s_g):
+                raise QgsProcessingException(self.tr(
+                    "У инклинометрии не выбраны поля: скважина, "
+                    "глубина, азимут и угол."))
+            bad = 0
+            for ft in sv.getFeatures():
+                d, a, g = (_numv(ft[s_d]), _numv(ft[s_a]), _numv(ft[s_g]))
+                if d is None or a is None or g is None:
+                    bad += 1
+                    continue
+                surveys.setdefault(_key(ft[s_hole]), []).append((d, a, g))
+            if bad:
+                feedback.pushWarning(self.tr(
+                    "Строк инклинометрии с пустыми или нечисловыми "
+                    "значениями: %d, они пропущены.") % bad)
+
+        fields = QgsFields()
+        fields.append(_field("hole", QVariant.String))
+        fields.append(_field("eoh", QVariant.Double))
+        fields.append(_field("n_survey", QVariant.Int))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.LineStringZ, col.sourceCrs())
+        if sink is None:
+            raise QgsProcessingException(self.tr(
+                "Не удалось создать слой стволов."))
+        n_ok = n_vert = n_noz = n_skip = 0
+        seen = set()
+        for ft in col.getFeatures():
+            if feedback.isCanceled():
+                break
+            name = _key(ft[f_hole])
+            if not name:
+                n_skip += 1
+                continue
+            g = ft.geometry()
+            x = y = z = None
+            if g is not None and not g.isEmpty():
+                p = g.vertexAt(0)
+                x, y = p.x(), p.y()
+                z = p.z() if p.is3D() else None
+            elif f_x and f_y:
+                x, y = _numv(ft[f_x]), _numv(ft[f_y])
+            if f_z:
+                z = _numv(ft[f_z])
+            if x is None or y is None:
+                n_skip += 1
+                continue
+            if z is None or z != z:
+                z = 0.0
+                n_noz += 1
+            rows = surveys.get(name, [])
+            seen.add(name)
+            eoh = _numv(ft[f_eoh]) if f_eoh else None
+            if not rows:
+                n_vert += 1
+                if eoh is None:
+                    n_skip += 1
+                    continue
+            pts, mds = wells.desurvey(
+                (x, y, z), [r[0] for r in rows], [r[1] for r in rows],
+                [r[2] for r in rows], max_depth=eoh, convention=conv,
+                step=step)
+            if len(pts) < 2:
+                n_skip += 1
+                continue
+            out = QgsFeature(fields)
+            out.setGeometry(QgsGeometry(QgsLineString(
+                [QgsPoint(float(a), float(b), float(c))
+                 for a, b, c in pts])))
+            out.setAttributes([name, float(mds[-1]), len(rows)])
+            sink.addFeature(out)
+            n_ok += 1
+        _set_output_name(context, dest, self.tr("Стволы скважин"))
+        feedback.pushInfo(self.tr("Стволов: %d.") % n_ok)
+        if n_vert:
+            feedback.pushWarning(self.tr(
+                "Скважин без инклинометрии: %d. Они построены "
+                "отвесными, а без глубины забоя пропущены.") % n_vert)
+        if n_noz:
+            feedback.pushWarning(self.tr(
+                "Устьев без отметки: %d. Они поставлены на ноль: "
+                "выберите поле отметки или дайте устьям Z.") % n_noz)
+        if n_skip:
+            feedback.pushWarning(self.tr(
+                "Пропущено устьев: %d (нет номера, координат или "
+                "глубины).") % n_skip)
+        orphan = sorted(set(surveys) - seen)
+        if orphan:
+            feedback.pushWarning(self.tr(
+                "Инклинометрия без устья: %d скважин, например %s.")
+                % (len(orphan), ", ".join(orphan[:5])))
+        return {self.OUTPUT: dest}
+
+
+HINTS_2_18 = {
+    "TRACES": "Стволы скважин: линии с Z от устья к забою, например "
+              "из 2.17. Глубина по стволу считается длиной линии "
+              "от её начала.",
+    "T_HOLE": "Поле номера скважины в стволах. По нему ствол "
+              "сводится со строками таблицы интервалов.",
+    "MODE": "Интервалы из таблицы кладут каждую строку опробования "
+            "на ствол как есть. Равные интервалы режут ствол на "
+            "пробы заданной длины от устья до забоя. Композиты "
+            "режут так же и считают в каждом среднее по таблице, "
+            "взвешенное по длине.",
+    "TABLE": "Таблица интервалов: скважина, от, до и значения. Нужна "
+             "для интервалов из таблицы и для композитов.",
+    "F_HOLE": "Поле номера скважины в таблице интервалов. Номера "
+              "сводятся со стволами как текст.",
+    "F_FROM": "Поле начала интервала, метры по стволу от устья, "
+              "не отметка.",
+    "F_TO": "Поле конца интервала, метры по стволу. Строка с концом "
+            "не дальше начала пропускается.",
+    "VALUES": "Числовые поля для композитов. Пусто - все числовые, "
+              "кроме начала и конца интервала.",
+    "LENGTH": "Длина равного интервала или композита, метры. "
+              "Последний интервал до забоя короче, если длина "
+              "не делится нацело.",
+    "OUTPUT": "Интервалы: куски ствола с Z от начала до конца "
+              "интервала, с полями от, до, длина и значениями. "
+              "В сцене их показывают трубами с толщиной или цветом "
+              "по содержанию.",
+    "OUTPUT_POINTS": "Середины интервалов: точки с Z и теми же полями. "
+                     "Это вход для 2.02, 2.06 и 2.07.",
+}
+
+
+class HoleIntervalsAlgorithm(IsolinerAlgorithm):
+    """Интервалы по стволу: из таблицы, равные или композиты."""
+
+    TRACES, T_HOLE, MODE = "TRACES", "T_HOLE", "MODE"
+    TABLE, F_HOLE, F_FROM, F_TO = "TABLE", "F_HOLE", "F_FROM", "F_TO"
+    VALUES, LENGTH = "VALUES", "LENGTH"
+    OUTPUT, OUTPUT_POINTS = "OUTPUT", "OUTPUT_POINTS"
+
+    def name(self):
+        return "hole_intervals"
+
+    def displayName(self):
+        return self.tr("2.18 Интервалы по стволу скважины")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def createInstance(self):
+        return HoleIntervalsAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Режет стволы скважин на интервалы.\n\n"
+            "Три способа. Интервалы из таблицы: каждая строка "
+            "опробования ложится на ствол от своей глубины до своей "
+            "со всеми полями. Равные интервалы: ствол режется "
+            "на пробы заданной длины от устья. Композиты: так же, "
+            "но в каждом интервале считается среднее по таблице, "
+            "взвешенное по длине пересечения. Простое среднее "
+            "завысило бы короткую богатую пробу.\n\n"
+            "Композит без единой пробы получает пустое значение, "
+            "а не ноль, поле cover показывает опробованную долю его "
+            "длины.\n\n"
+            "На выходе куски ствола с Z и середины интервалов точками. "
+            "Куски показывают в сцене трубами, точки идут в "
+            "интерполяцию 2.02, 2.06 и 2.07.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        anyv = [QgsProcessing.SourceType.TypeVector]
+        num = QgsProcessingParameterField.DataType.Numeric
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.TRACES, self.tr("Стволы скважин (линии с Z)"),
+            [QgsProcessing.SourceType.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterField(
+            self.T_HOLE, self.tr("Поле номера скважины в стволах"),
+            "hole", self.TRACES, optional=True))
+        self.addParameter(QgsProcessingParameterEnum(
+            self.MODE, self.tr("Как резать"),
+            options=[self.tr("Интервалы из таблицы"),
+                     self.tr("Равные интервалы заданной длины"),
+                     self.tr("Композиты по длине из таблицы")],
+            defaultValue=0))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.TABLE, self.tr("Таблица интервалов"), anyv,
+            optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.F_HOLE, self.tr("Поле номера скважины в таблице"),
+            "hole", self.TABLE, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.F_FROM, self.tr("Поле начала интервала"), "from_m",
+            self.TABLE, type=num, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.F_TO, self.tr("Поле конца интервала"), "to_m",
+            self.TABLE, type=num, optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.VALUES, self.tr("Поля для композитов (пусто - все "
+                                 "числовые)"), None, self.TABLE,
+            type=num, allowMultiple=True, optional=True))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.LENGTH, self.tr("Длина интервала, м"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=1.0, minValue=0.01))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Интервалы"),
+            QgsProcessing.SourceType.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_POINTS, self.tr("Середины интервалов"),
+            QgsProcessing.SourceType.TypeVectorPoint))
+        _hints(self, HINTS_2_18)
+
+    @staticmethod
+    def _trace_xyz(g):
+        """Вершины ствола (N, 3) и глубины по стволу как длина."""
+        # у составной линии берётся первая часть: ствол один
+        if g.isMultipart():
+            g = QgsGeometry(g.constGet().geometryN(0).clone())
+        pts = np.array([(v.x(), v.y(), v.z()) for v in g.vertices()],
+                       dtype=float)
+        if len(pts) < 2 or not np.isfinite(pts).all():
+            return None, None
+        md = np.concatenate([[0.0], np.cumsum(np.linalg.norm(
+            np.diff(pts, axis=0), axis=1))])
+        return pts, md
+
+    def _process(self, parameters, context, feedback):
+        from qgis.core import (QgsFields, QgsFeature, QgsLineString,
+                               QgsPoint, QgsWkbTypes)
+        from . import wells
+
+        tr_src = self.parameterAsSource(parameters, self.TRACES, context)
+        t_hole = self.parameterAsString(parameters, self.T_HOLE, context)
+        mode = self.parameterAsEnum(parameters, self.MODE, context)
+        tab = self.parameterAsSource(parameters, self.TABLE, context)
+        f_hole = self.parameterAsString(parameters, self.F_HOLE, context)
+        f_from = self.parameterAsString(parameters, self.F_FROM, context)
+        f_to = self.parameterAsString(parameters, self.F_TO, context)
+        vals = self.parameterAsFields(parameters, self.VALUES, context)
+        length = self.parameterAsDouble(parameters, self.LENGTH, context)
+        from . import colnames
+        t_hole = colnames.resolve(t_hole, tr_src.fields().names(), "hole")
+        if not t_hole:
+            raise QgsProcessingException(self.tr(
+                "Не найдено поле номера скважины в стволах: выберите "
+                "его."))
+        if tab is not None:
+            tn = tab.fields().names()
+            f_hole = colnames.resolve(f_hole, tn, "hole")
+            f_from = colnames.resolve(f_from, tn, "from")
+            f_to = colnames.resolve(f_to, tn, "to")
+            feedback.pushInfo(self.tr(
+                "Поля таблицы: скважина %s, от %s, до %s.")
+                % tuple((f or "-") for f in (f_hole, f_from, f_to)))
+        if mode in (0, 2) and (tab is None or not (f_hole and f_from
+                                                   and f_to)):
+            raise QgsProcessingException(self.tr(
+                "Для этого способа нужна таблица интервалов с полями "
+                "скважины, начала и конца."))
+
+        traces = {}
+        for ft in tr_src.getFeatures():
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            pts, md = self._trace_xyz(g)
+            if pts is not None:
+                traces[_key(ft[t_hole])] = (pts, md)
+        if not traces:
+            raise QgsProcessingException(self.tr(
+                "Стволов с отметками не нашлось."))
+
+        fields = QgsFields()
+        fields.append(_field("hole", QVariant.String))
+        for nm in ("from_m", "to_m", "length_m"):
+            fields.append(_field(nm, QVariant.Double))
+        carry = []
+        if mode == 0:
+            for fd in tab.fields():
+                if fd.name() in (f_hole, f_from, f_to) or \
+                        fields.indexOf(fd.name()) >= 0:
+                    continue
+                fields.append(fd)
+                carry.append(fd.name())
+        elif mode == 2:
+            if not vals:
+                vals = [fd.name() for fd in tab.fields()
+                        if fd.isNumeric() and fd.name() not in
+                        (f_from, f_to)]
+            for nm in vals:
+                if fields.indexOf(nm) < 0:
+                    fields.append(_field(nm, QVariant.Double))
+            fields.append(_field("cover", QVariant.Double))
+        crs = tr_src.sourceCrs()
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.LineStringZ, crs)
+        sink_p, dest_p = self.parameterAsSink(
+            parameters, self.OUTPUT_POINTS, context, fields,
+            QgsWkbTypes.Type.PointZ, crs)
+        if sink is None or sink_p is None:
+            raise QgsProcessingException(self.tr(
+                "Не удалось создать слой интервалов."))
+
+        rows = {}
+        n_bad = 0
+        if tab is not None and mode in (0, 2):
+            for ft in tab.getFeatures():
+                a, b = _numv(ft[f_from]), _numv(ft[f_to])
+                if a is None or b is None or b <= a:
+                    n_bad += 1
+                    continue
+                rows.setdefault(_key(ft[f_hole]), []).append((a, b, ft))
+
+        def put(name, pts, md, a, b, extra):
+            seg = wells.segment(pts, md, a, b)
+            if len(seg) < 2:
+                return 0
+            attrs = [name, float(a), float(b), float(b - a)] + extra
+            out = QgsFeature(fields)
+            out.setGeometry(QgsGeometry(QgsLineString(
+                [QgsPoint(float(x), float(y), float(z))
+                 for x, y, z in seg])))
+            out.setAttributes(attrs)
+            sink.addFeature(out)
+            mid = wells.at_depth(pts, md, [(a + b) / 2.0])[0]
+            op = QgsFeature(fields)
+            op.setGeometry(QgsGeometry(QgsPoint(
+                float(mid[0]), float(mid[1]), float(mid[2]))))
+            op.setAttributes(attrs)
+            sink_p.addFeature(op)
+            return 1
+
+        made = beyond = 0
+        for name, (pts, md) in traces.items():
+            if feedback.isCanceled():
+                break
+            end = float(md[-1])
+            if mode == 0:
+                for a, b, ft in rows.get(name, []):
+                    # хорды узлов короче дуги на доли миллиметра, поэтому
+                    # проба до самого забоя кончается чуть дальше линии:
+                    # это не ошибка данных, предупреждать не о чем
+                    if b > end + 0.05:
+                        beyond += 1
+                    made += put(name, pts, md, a, min(b, end),
+                                [ft[c] for c in carry])
+            elif mode == 1:
+                for a, b in wells.equal_intervals(end, length):
+                    made += put(name, pts, md, a, b, [])
+            else:
+                r = rows.get(name, [])
+                if not r:
+                    continue
+                vv = np.array([[_numv(ft[c]) if _numv(ft[c]) is not None
+                                else np.nan for c in vals]
+                               for _a, _b, ft in r], dtype=float)
+                iv, cv, cover = wells.composite(
+                    [x[0] for x in r], [x[1] for x in r], vv, length,
+                    end=end)
+                for k, (a, b) in enumerate(iv):
+                    if cover[k] <= 0:
+                        continue
+                    extra = [None if not np.isfinite(x) else float(x)
+                             for x in cv[k]] + [float(cover[k])]
+                    made += put(name, pts, md, a, b, extra)
+        _set_output_name(context, dest, self.tr("Интервалы"))
+        _set_output_name(context, dest_p, self.tr("Середины интервалов"))
+        feedback.pushInfo(self.tr("Стволов: %d, интервалов: %d.")
+                          % (len(traces), made))
+        if n_bad:
+            feedback.pushWarning(self.tr(
+                "Строк таблицы без начала и конца или с концом не "
+                "дальше начала: %d, они пропущены.") % n_bad)
+        if beyond:
+            feedback.pushWarning(self.tr(
+                "Интервалов глубже забоя: %d. Они обрезаны по забою: "
+                "проверьте глубину скважины в устьях.") % beyond)
+        orphan = sorted(set(rows) - set(traces))
+        if orphan:
+            feedback.pushWarning(self.tr(
+                "Интервалы без ствола: %d скважин, например %s.")
+                % (len(orphan), ", ".join(orphan[:5])))
+        return {self.OUTPUT: dest, self.OUTPUT_POINTS: dest_p}
+
+
+HINTS_2_19 = {
+    "EXTENT": "Куда положить пример. Пусто означает взять охват окна "
+              "вида: участок ляжет туда, куда вы смотрите.",
+    "SEED": "Одно и то же зерно даёт одни и те же скважины и пробы. "
+            "Другое зерно - другие погрешности и содержания.",
+    "COLLARS": "Устья скважин: точки с Z и полями номера и глубины "
+               "скважины. Вход для 2.17.",
+    "SURVEY": "Инклинометрия: таблица без геометрии, глубина, азимут "
+              "и угол от горизонта с минусом вниз. Вход для 2.17.",
+    "ASSAYS": "Опробование: таблица без геометрии, от, до и золото "
+              "в граммах на тонну. Вход для 2.18.",
+}
+
+
+class DemoDrillingAlgorithm(IsolinerAlgorithm):
+    """Демонстрационное бурение по золоторудной жиле."""
+
+    EXTENT, SEED = "EXTENT", "SEED"
+    COLLARS, SURVEY, ASSAYS = "COLLARS", "SURVEY", "ASSAYS"
+
+    def name(self):
+        return "demo_drilling"
+
+    def displayName(self):
+        return self.tr("2.19 Демонстрационное бурение (демо)")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def createInstance(self):
+        return DemoDrillingAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Создаёт данные бурения по золоторудной жиле: устья, "
+            "инклинометрию и опробование, тремя слоями, как они "
+            "приходят из базы.\n\n"
+            "Жила простирается на северо-восток и падает на "
+            "юго-восток под 60 градусов, мощность меняется "
+            "по простиранию от 3 до 8 м. Двадцать скважин стоят "
+            "пятью профилями вкрест простирания и бурятся навстречу "
+            "падению под -60. По ходу ствол выполаживается и уходит "
+            "по азимуту, инклинометрия через 25 м с погрешностью "
+            "прибора. В зоне жилы пробы по метру, вне её по два, "
+            "местами пропуски опробования.\n\n"
+            "Порядок показа: 2.17 по устьям и инклинометрии, затем "
+            "2.18 с таблицей опробования, затем интервалы в сцену "
+            "трубами с цветом по полю au.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Охват (куда положить пример)"),
+            optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SEED, self.tr("Зерно случайности"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=1)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.COLLARS, self.tr("Устья скважин"),
+            QgsProcessing.SourceType.TypeVectorPoint))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.SURVEY, self.tr("Инклинометрия"),
+            QgsProcessing.SourceType.TypeVector))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.ASSAYS, self.tr("Опробование"),
+            QgsProcessing.SourceType.TypeVector))
+        _hints(self, HINTS_2_19)
+
+    def _process(self, parameters, context, feedback):
+        from qgis.core import QgsFields, QgsFeature, QgsPoint, QgsWkbTypes
+        from . import wells
+        crs = QgsProject.instance().crs()
+        ext = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        seed = self.parameterAsInt(parameters, self.SEED, context)
+        if ext is None or ext.isEmpty():
+            x0 = y0 = 0.0
+            feedback.pushInfo(self.tr(
+                "Пример положен от начала координат: задайте охват, "
+                "чтобы поставить его на своё место."))
+        else:
+            x0, y0 = ext.xMinimum(), ext.yMinimum()
+        d = wells.demo(seed=seed, x0=x0, y0=y0)
+
+        f_c = QgsFields()
+        f_c.append(_field("hole", QVariant.String))
+        f_c.append(_field("eoh", QVariant.Double))
+        sink_c, dest_c = self.parameterAsSink(
+            parameters, self.COLLARS, context, f_c,
+            QgsWkbTypes.Type.PointZ, crs)
+        for name, x, y, z, eoh in d["collars"]:
+            ft = QgsFeature(f_c)
+            ft.setGeometry(QgsGeometry(QgsPoint(x, y, z)))
+            ft.setAttributes([name, eoh])
+            sink_c.addFeature(ft)
+        f_s = QgsFields()
+        f_s.append(_field("hole", QVariant.String))
+        for nm in ("depth", "azimuth", "dip"):
+            f_s.append(_field(nm, QVariant.Double))
+        sink_s, dest_s = self.parameterAsSink(
+            parameters, self.SURVEY, context, f_s,
+            QgsWkbTypes.Type.NoGeometry, crs)
+        for row in d["survey"]:
+            ft = QgsFeature(f_s)
+            ft.setAttributes(list(row))
+            sink_s.addFeature(ft)
+        f_a = QgsFields()
+        f_a.append(_field("hole", QVariant.String))
+        for nm in ("from_m", "to_m", "au"):
+            f_a.append(_field(nm, QVariant.Double))
+        sink_a, dest_a = self.parameterAsSink(
+            parameters, self.ASSAYS, context, f_a,
+            QgsWkbTypes.Type.NoGeometry, crs)
+        for row in d["assays"]:
+            ft = QgsFeature(f_a)
+            ft.setAttributes(list(row))
+            sink_a.addFeature(ft)
+        _set_output_name(context, dest_c, self.tr("Устья скважин"))
+        _set_output_name(context, dest_s, self.tr("Инклинометрия"))
+        _set_output_name(context, dest_a, self.tr("Опробование"))
+        au = [r[3] for r in d["assays"]]
+        feedback.pushInfo(self.tr(
+            "Скважин: %d, замеров инклинометрии: %d, проб: %d, из них "
+            "с золотом от 1 г/т: %d.")
+            % (len(d["collars"]), len(d["survey"]), len(au),
+               sum(1 for v in au if v >= 1.0)))
+        feedback.pushInfo(self.tr(
+            "Порядок показа.\n"
+            "1. 2.17: устья, инклинометрия, угол от горизонта с минусом "
+            "вниз.\n"
+            "2. 2.18: стволы, способ «Интервалы из таблицы», таблица "
+            "опробования. Или «Композиты по длине» по 2 м.\n"
+            "3. Стволы и интервалы в 3D-просмотр. Интервалам в "
+            "свойствах слоя показ трубой, поле толщины au, а стиль "
+            "на карте градуированный по au."))
+        return {self.COLLARS: dest_c, self.SURVEY: dest_s,
+                self.ASSAYS: dest_a}
+
+
+HINTS_2_20 = {
+    "BLOCKS": "Блочная модель: точечный слой центров или таблица "
+              "без геометрии, например выгрузка Micromine, Datamine "
+              "или Surpac в CSV.",
+    "VALUE": "Числовое поле, из которого строится куб: содержание, "
+             "плотность, номер домена. Одно поле на прогон, куб на "
+             "поле.",
+    "XF": "Поле X центра блока. Пусто - X точки, а у таблицы поле "
+          "узнаётся по имени: EAST, X, XC и подобные.",
+    "YF": "Поле Y центра блока. Пусто - Y точки, а у таблицы поле "
+          "узнаётся по имени: NORTH, Y, YC и подобные.",
+    "ZF": "Поле Z центра блока. Пусто - Z точки, иначе поле "
+          "узнаётся по имени: RL, Z, ZC и подобные.",
+    "DXF": "Поле размера блока по X. Пусто - узнаётся по имени "
+           "(_EAST, DX, XINC), а без поля размер равен шагу центров.",
+    "DYF": "Поле размера блока по Y. Пусто - узнаётся по имени "
+           "(_NORTH, DY, YINC), а без поля размер равен шагу центров.",
+    "DZF": "Поле размера блока по Z. Пусто - узнаётся по имени "
+           "(_RL, DZ, ZINC), а без поля размер равен шагу центров.",
+    "CELL_XY": "Ячейка куба в плане, метры. Ноль - наименьший размер "
+               "блока: подблоки ложатся каждый в свою ячейку. Крупнее "
+               "- подблоки сводятся в ячейку средним по объёму.",
+    "CELL_Z": "Ячейка куба по вертикали, метры. Ноль - наименьший "
+              "размер блока по Z.",
+    "MIN_COVER": "Какая доля ячейки должна быть покрыта блоками, "
+                 "чтобы она получила значение. Меньше - край модели "
+                 "толще, но размазан по ячейкам, задетым углом блока.",
+    "OUTPUT": "Куб значений: канал на уровень, как у 2.02 и 2.06. "
+              "Из него 2.04 строит тело вокселями, а 2.11-2.14 "
+              "работают с оболочками.",
+}
+
+
+class BlocksToCubeAlgorithm(IsolinerAlgorithm):
+    """Блочная модель в куб: обратный ход к 2.03.
+
+    Математика лежит в blockmodel.py, имена полей - в colnames.py.
+    """
+
+    BLOCKS, VALUE = "BLOCKS", "VALUE"
+    XF, YF, ZF, DXF, DYF, DZF = "XF", "YF", "ZF", "DXF", "DYF", "DZF"
+    CELL_XY, CELL_Z, MIN_COVER = "CELL_XY", "CELL_Z", "MIN_COVER"
+    OUTPUT = "OUTPUT"
+
+    def name(self):
+        return "block_model_to_cube"
+
+    def displayName(self):
+        return self.tr("2.20 Блочная модель в куб")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def createInstance(self):
+        return BlocksToCubeAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Кладёт блочную модель на регулярную решётку куба.\n\n"
+            "Блочная модель приходит из Micromine, Datamine или Surpac "
+            "таблицей: центр блока, размер, значения. Поля центра "
+            "и размера можно не выбирать: они узнаются по именам, "
+            "EAST, NORTH, RL и _EAST, _NORTH, _RL у Micromine, XC, YC, "
+            "ZC и XINC, YINC, ZINC у Datamine. Без полей размера "
+            "размер блока равен шагу центров.\n\n"
+            "Блоки одного размера ложатся каждый в свою ячейку. "
+            "Подблоки у контактов сводятся в ячейку средним по объёму "
+            "пересечения, поэтому металл по кубу совпадает с металлом "
+            "по блокам.\n\n"
+            "Модель с поворотом осей блоков сначала разверните "
+            "в систему координат блоков.\n\n"
+            "Куб дальше идёт в 2.04 (тело вокселями), 2.11-2.14 "
+            "и в сцену. Обратный ход - 2.03.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        anyv = [QgsProcessing.SourceType.TypeVector]
+        num = QgsProcessingParameterField.DataType.Numeric
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.BLOCKS, self.tr("Блочная модель"), anyv))
+        self.addParameter(QgsProcessingParameterField(
+            self.VALUE, self.tr("Поле значения"), None, self.BLOCKS,
+            type=num))
+        for key, label in ((self.XF, "Поле X центра (пусто - по имени)"),
+                           (self.YF, "Поле Y центра (пусто - по имени)"),
+                           (self.ZF, "Поле Z центра (пусто - по имени)"),
+                           (self.DXF, "Поле размера по X (пусто - по "
+                                      "имени)"),
+                           (self.DYF, "Поле размера по Y (пусто - по "
+                                      "имени)"),
+                           (self.DZF, "Поле размера по Z (пусто - по "
+                                      "имени)")):
+            self.addParameter(_advanced(QgsProcessingParameterField(
+                key, self.tr(label), None, self.BLOCKS, type=num,
+                optional=True)))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CELL_XY, self.tr("Ячейка в плане, м (0 - по блокам)"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
+            minValue=0.0))
+        self.addParameter(QgsProcessingParameterNumber(
+            self.CELL_Z, self.tr("Ячейка по вертикали, м (0 - по "
+                                 "блокам)"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0,
+            minValue=0.0))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.MIN_COVER, self.tr("Доля покрытия ячейки"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.5,
+            minValue=0.01, maxValue=1.0)))
+        self.addParameter(QgsProcessingParameterRasterDestination(
+            self.OUTPUT, self.tr("Куб значений")))
+        _hints(self, HINTS_2_20)
+
+    def _process(self, parameters, context, feedback):
+        from . import blockmodel, colnames
+
+        src = self.parameterAsSource(parameters, self.BLOCKS, context)
+        if src is None:
+            raise QgsProcessingException(self.tr("Нет блочной модели."))
+        value = self.parameterAsString(parameters, self.VALUE, context)
+        names = [f.name() for f in src.fields()]
+        got = {}
+        for key, role in ((self.XF, "bx"), (self.YF, "by"),
+                          (self.ZF, "bz"), (self.DXF, "sx"),
+                          (self.DYF, "sy"), (self.DZF, "sz")):
+            chosen = self.parameterAsString(parameters, key, context)
+            got[role] = colnames.resolve(chosen, names, role,
+                                         taken=[value])
+        # точки: у них центр блока - сама геометрия
+        geom_pts = QgsWkbTypes.flatType(src.wkbType()) in (
+            QgsWkbTypes.Type.Point, QgsWkbTypes.Type.MultiPoint)
+        rows = []
+        n_bad = 0
+        for ft in src.getFeatures():
+            if feedback.isCanceled():
+                break
+            x = y = z = None
+            if geom_pts and not (self.parameterAsString(
+                    parameters, self.XF, context)):
+                g = ft.geometry()
+                if g is not None and not g.isEmpty():
+                    p = g.vertexAt(0)
+                    x, y = p.x(), p.y()
+                    z = p.z() if p.is3D() else None
+            if x is None and got["bx"] and got["by"]:
+                x, y = _numv(ft[got["bx"]]), _numv(ft[got["by"]])
+            if got["bz"] and (z is None or z != z):
+                z = _numv(ft[got["bz"]])
+            if x is None or y is None or z is None or z != z:
+                n_bad += 1
+                continue
+            v = _numv(ft[value])
+            rows.append((x, y, z,
+                         np.nan if v is None else v,
+                         *[(_numv(ft[got[r]]) if got[r] else None)
+                           for r in ("sx", "sy", "sz")]))
+        if not rows:
+            raise QgsProcessingException(self.tr(
+                "Нет блоков с координатами центра. Выберите поля X, Y "
+                "и Z или дайте слою точки с Z."))
+        a = np.array([[np.nan if c is None else c for c in r]
+                      for r in rows], dtype=float)
+        sizes = [a[:, 4 + i] if got[r] else None
+                 for i, r in enumerate(("sx", "sy", "sz"))]
+        cxy = self.parameterAsDouble(parameters, self.CELL_XY, context)
+        cz = self.parameterAsDouble(parameters, self.CELL_Z, context)
+        cover = self.parameterAsDouble(parameters, self.MIN_COVER,
+                                       context)
+        steps = blockmodel.block_steps(a[:, 0], a[:, 1], a[:, 2], *sizes)
+        cell = None
+        if cxy > 0 or cz > 0:
+            cell = (cxy if cxy > 0 else steps[0],
+                    cxy if cxy > 0 else steps[1],
+                    cz if cz > 0 else steps[2])
+        try:
+            r = blockmodel.blocks_to_cube(a[:, 0], a[:, 1], a[:, 2],
+                                          a[:, 3], *sizes, cell=cell,
+                                          min_cover=cover)
+        except ValueError as exc:
+            raise QgsProcessingException(self.tr(
+                "Куб не собрался: %s.") % exc)
+        vol = r["vol"][0]
+        nz, ny, nx = vol.shape
+        out = self.parameterAsOutputLayer(parameters, self.OUTPUT, context)
+        _write_grid_tiff(out, [vol[k] for k in range(nz)], r["gt"],
+                         src.sourceCrs().toWkt(), float("nan"), nx, ny,
+                         [self.tr("уровень %d") % (k + 1)
+                          for k in range(nz)],
+                         meta={"Z0": "%.6f" % r["z0"],
+                               "DZ": "%.6f" % r["dz"]})
+        _set_output_name(context, out, self.tr("Куб: %s") % value)
+        feedback.pushInfo(self.tr(
+            "Поля: X %s, Y %s, Z %s, размеры %s, %s, %s.")
+            % tuple((got[k] or "-") for k in
+                    ("bx", "by", "bz", "sx", "sy", "sz")))
+        feedback.pushInfo(self.tr(
+            "Блоков: %d. Куб %d x %d x %d, ячейка %.3f x %.3f x %.3f м, "
+            "заполнено ячеек %d.")
+            % (r["n_blocks"], nx, ny, nz, r["gt"][1], -r["gt"][5],
+               r["dz"], int(np.isfinite(vol).sum())))
+        fin = np.isfinite(a[:, 3])
+        if fin.any():
+            sz_ = [np.where(np.isfinite(s) & (s > 0), s, c)
+                   if s is not None else np.full(len(a), c)
+                   for s, c in zip(sizes, steps)]
+            bvol = sz_[0] * sz_[1] * sz_[2]
+            m_b = float(np.nansum(a[fin, 3] * bvol[fin]))
+            m_c = blockmodel.cube_metal(vol, r["cover"], r["gt"], r["dz"])
+            feedback.pushInfo(self.tr(
+                "Сверка: значение x объём по блокам %.6g, по кубу %.6g.")
+                % (m_b, m_c))
+        if r["n_multi"]:
+            feedback.pushInfo(self.tr(
+                "Блоков крупнее ячейки: %d, каждый лёг на несколько "
+                "ячеек.") % r["n_multi"])
+        if n_bad:
+            feedback.pushWarning(self.tr(
+                "Блоков без координат центра: %d, они пропущены.")
+                % n_bad)
+        return {self.OUTPUT: out}
+
+
 ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
@@ -7424,4 +8386,8 @@ ALGORITHMS = [
     ZonalShellStatsAlgorithm,
     FormationBodiesAlgorithm,
     DemoRiversAlgorithm,
+    DesurveyAlgorithm,
+    HoleIntervalsAlgorithm,
+    DemoDrillingAlgorithm,
+    BlocksToCubeAlgorithm,
 ]

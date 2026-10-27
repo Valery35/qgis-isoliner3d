@@ -192,7 +192,9 @@ the right. A tick says what to show. The scene is built by the refresh
 button, not by the tick itself: on a large project a rebuild takes
 seconds, and doing it on every click is pointless.
 
-Mouse: the left button rotates, the wheel zooms, the middle one pans.
+Mouse: the left button rotates, the wheel zooms, the middle one or the left with Ctrl pans. A right click puts the rotation centre at the point under the cursor. The same hint is shown under the scene when the window opens.
+
+The **Z ×** field on the toolbar is the vertical exaggeration, the same as in the scene properties. One means the true scale.
 
 ## The coordinate system
 
@@ -1121,6 +1123,105 @@ The set is meant to show lines as tubes. The discharge grows downstream tens of 
 | **River network** | Links of the network: lines with relief elevations, with fields of discharge, catchment area, Strahler order and length. For showing as tubes the thickness field is q. |
 | **Relief** | The relief the network runs over, with the depressions filled. In the scene it is the surface the channels lie on. |
 | **The random seed** | The same seed gives the same relief and the same network. Another seed gives another relief. |
+
+## 2.17 Borehole traces from downhole surveys
+
+Builds borehole traces from collars and downhole surveys the way they are exported from a database: a collar layer and a survey table, matched by the hole ID.
+
+Between stations the trace follows a circular arc whose end tangents match the surveys. This is the minimum curvature method used by Micromine, Datamine, Surpac and Leapfrog, and the traces agree with theirs. From the collar to the first station the trace follows the first station, past the last one it goes straight along it to the end of hole. A hole without a survey is vertical, with a warning.
+
+Databases record the angle in three ways: from the horizontal with down negative, where -90 means straight down, from the horizontal with down positive, and a zenith angle from the vertical, as in Russian surveys. The convention is chosen explicitly. A wrong convention sends the trace upwards or lays it flat, so check the first hole against a known one.
+
+The azimuth is taken from the grid north of the projection. The meridian convergence is not applied: if the azimuths in the database are true, correct them before the run.
+
+The output is lines with Z. The length of each equals the depth along the hole, so 2.18 cuts a trace by depths without a separate table.
+
+| Field | What it sets |
+|---|---|
+| **Устья скважин** | Устья скважин: точечный слой или таблица с координатами. У точечного слоя координаты берутся из геометрии, у таблицы - из полей X и Y. |
+| **Поле номера скважины** | Поле номера скважины в устьях. По нему устье сводится с инклинометрией. Пусто - узнаётся по имени: HOLE, HOLEID, BHID. |
+| **Поле отметки устья (пусто - Z геометрии)** | Поле отметки устья. Пусто - отметка из Z геометрии. Без неё ствол встанет на ноль, о чём будет сказано. |
+| **Поле глубины скважины** | Поле глубины скважины (забоя). Пусто - узнаётся по имени (EOH, DEPTH), а без такого поля ствол кончается на последнем замере инклинометрии. |
+| **Инклинометрия (таблица)** | Таблица инклинометрии: скважина, глубина по стволу, азимут, угол. Поля, которые не выбраны, узнаются по именам Micromine, Datamine и Surpac. Пусто - все скважины отвесные. |
+| **Поле номера скважины в инклинометрии** | Поле номера скважины в инклинометрии. Номера сводятся с устьями как текст без пробелов по краям. |
+| **Поле глубины замера** | Поле глубины замера по стволу, метры от устья, не отметка и не глубина по вертикали. |
+| **Поле азимута** | Поле азимута, градусы от севера сетки по часовой стрелке. Сближение меридианов не учитывается. |
+| **Поле угла** | Поле угла наклона, в соглашении, выбранном ниже. |
+| **Как записан угол** | Как записан угол. Перепутанное соглашение уводит ствол вверх или кладёт его горизонтально, поэтому проверьте по одной известной скважине. |
+| **Стволы скважин** | Стволы скважин: линии с настоящими Z от устья до забоя. Длина линии равна глубине по стволу, поэтому 2.18 режет её на интервалы без таблицы глубин. |
+| **Поле X (если нет геометрии)** | Поле X, если у слоя устьев нет геометрии. У точечного слоя не нужно. |
+| **Поле Y (если нет геометрии)** | Поле Y, если у слоя устьев нет геометрии. У точечного слоя не нужно. |
+| **Шаг узлов ствола, м** | Шаг узлов ствола вдоль дуги, метры. По узлам ствол рисуется, и по ним же 2.18 находит точки на глубинах. |
+
+## 2.18 Intervals along a borehole
+
+Cuts borehole traces into intervals in three ways.
+
+**Intervals from the table** put every sample row on the trace from its depth to its depth with all the fields of the table. The scene then shows the sampling as it is.
+
+**Equal intervals** cut the trace into pieces of the given length from the collar. The last piece to the end of hole is shorter when the length does not divide evenly.
+
+**Length-weighted composites** cut the same way and compute in each interval the mean of the table weighted by the length of overlap with a sample. A sample 0-1 m at 10 g/t and a sample 1-4 m at 2 g/t give a composite 0-4 m at 4 g/t, while a plain mean would give 6. A composite without a single sample gets an empty value, not a zero: a gap in sampling is not barren rock. The cover field shows the sampled share of the composite length.
+
+There are two outputs. Pieces of the trace with Z are shown in the scene as tubes with the thickness and colour by grade. Interval midpoints as points with the same fields go into 2.02, 2.06 and 2.07: this is the way from the assays to a cube and shells.
+
+| Field | What it sets |
+|---|---|
+| **Стволы скважин (линии с Z)** | Стволы скважин: линии с Z от устья к забою, например из 2.17. Глубина по стволу считается длиной линии от её начала. |
+| **Поле номера скважины в стволах** | Поле номера скважины в стволах. По нему ствол сводится со строками таблицы интервалов. |
+| **Как резать** | Интервалы из таблицы кладут каждую строку опробования на ствол как есть. Равные интервалы режут ствол на пробы заданной длины от устья до забоя. Композиты режут так же и считают в каждом среднее по таблице, взвешенное по длине. |
+| **Таблица интервалов** | Таблица интервалов: скважина, от, до и значения. Нужна для интервалов из таблицы и для композитов. |
+| **Поле номера скважины в таблице** | Поле номера скважины в таблице интервалов. Номера сводятся со стволами как текст. |
+| **Поле начала интервала** | Поле начала интервала, метры по стволу от устья, не отметка. |
+| **Поле конца интервала** | Поле конца интервала, метры по стволу. Строка с концом не дальше начала пропускается. |
+| **Поля для композитов (пусто - все числовые)** | Числовые поля для композитов. Пусто - все числовые, кроме начала и конца интервала. |
+| **Длина интервала, м** | Длина равного интервала или композита, метры. Последний интервал до забоя короче, если длина не делится нацело. |
+| **Интервалы** | Интервалы: куски ствола с Z от начала до конца интервала, с полями от, до, длина и значениями. В сцене их показывают трубами с толщиной или цветом по содержанию. |
+| **Середины интервалов** | Середины интервалов: точки с Z и теми же полями. Это вход для 2.02, 2.06 и 2.07. |
+
+## 2.19 A demonstration drilling (demo)
+
+Creates drilling data over a gold vein: collars, survey and assays, as three layers, the way they come from a database.
+
+The vein strikes northeast and dips southeast at 60 degrees, its thickness changes along the strike from 3 to 8 m. Twenty holes stand on five lines across the strike and are drilled against the dip at -60. Down the hole the trace flattens and drifts in azimuth, the survey is recorded every 25 m with an instrument error. In the vein zone the samples are one metre, outside it two, with occasional gaps in sampling.
+
+How to show it:
+
+1. 2.17 on the collars and survey, angle from the horizontal with down negative.
+2. 2.18 with the traces and the assay table, mode "Intervals from the table" or "Length-weighted composites" of 2 m.
+3. Traces and intervals into the 3D view. For the intervals choose the tube display and the thickness field au in the layer properties, and a graduated map style by au: the tube colour comes from it.
+
+| Field | What it sets |
+|---|---|
+| **Охват (куда положить пример)** | Куда положить пример. Пусто означает взять охват окна вида: участок ляжет туда, куда вы смотрите. |
+| **Устья скважин** | Устья скважин: точки с Z и полями номера и глубины скважины. Вход для 2.17. |
+| **Инклинометрия** | Инклинометрия: таблица без геометрии, глубина, азимут и угол от горизонта с минусом вниз. Вход для 2.17. |
+| **Опробование** | Опробование: таблица без геометрии, от, до и золото в граммах на тонну. Вход для 2.18. |
+| **Зерно случайности** | Одно и то же зерно даёт одни и те же скважины и пробы. Другое зерно - другие погрешности и содержания. |
+
+
+## 2.20 Block model to cube
+
+Puts a block model on the regular grid of a cube. The reverse of 2.03: there a cube becomes blocks, here blocks become a cube.
+
+A block model comes from Micromine, Datamine or Surpac as a table: block centre, size, values. A CSV table is opened in QGIS as delimited text, without geometry or with points at the centres. The centre and size fields need not be chosen: they are recognised by name. In Micromine these are EAST, NORTH, RL and _EAST, _NORTH, _RL, in Datamine XC, YC, ZC and XINC, YINC, ZINC. The log says which fields were taken. Without size fields the block size equals the spacing of the centres.
+
+Any table of x, y, z and a value on a regular grid lands the same way, for example an export of a geophysical inversion.
+
+Blocks of one size each land in their own cell. Sub-blocks at ore contacts are combined in a cell by the mean weighted by the overlap volume with each block. A plain mean would overstate small rich sub-blocks, the weighted one keeps the metal: the log prints a check of value times volume over the blocks and over the cube.
+
+A cell covered by blocks less than by half stays empty: the model edge is not smeared over cells a block touched with a corner.
+
+Unrotate a model with rotated block axes into the block coordinate system first: the grid of the cube follows the axes of the projection.
+
+| Field | What it sets |
+|---|---|
+| **Блочная модель** | Блочная модель: точечный слой центров или таблица без геометрии, например выгрузка Micromine, Datamine или Surpac в CSV. |
+| **Поле значения** | Числовое поле, из которого строится куб: содержание, плотность, номер домена. Одно поле на прогон, куб на поле. |
+| **Ячейка в плане, м (0 - по блокам)** | Ячейка куба в плане, метры. Ноль - наименьший размер блока: подблоки ложатся каждый в свою ячейку. Крупнее - подблоки сводятся в ячейку средним по объёму. |
+| **Ячейка по вертикали, м (0 - по блокам)** | Ячейка куба по вертикали, метры. Ноль - наименьший размер блока по Z. |
+| **Куб значений** | Куб значений: канал на уровень, как у 2.02 и 2.06. Из него 2.04 строит тело вокселями, а 2.11-2.14 работают с оболочками. |
+| **Доля покрытия ячейки** | Какая доля ячейки должна быть покрыта блоками, чтобы она получила значение. Меньше - край модели толще, но размазан по ячейкам, задетым углом блока. |
 
 ## From boreholes to reserves
 

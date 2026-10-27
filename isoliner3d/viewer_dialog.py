@@ -27,7 +27,7 @@ from .lights import soft_shader
 from .viewer3d import (    # noqa: F401
     LIGHT_DIR, MAX_VERTS_SCENE, MIN_VERTS_LAYER, PALETTE, _DRAWNL_KEY,
     _DRAWN_KEY,
-    _MAX_LINES, _MAX_POINT_LABELS, _Prof, _SCENE_KEY, _VOX_FACE_LIMIT,
+    _MAX_LINES, _MAX_LINE_VERTS, _MAX_POINT_LABELS, _Prof, _SCENE_KEY, _VOX_FACE_LIMIT,
     _auto_step, _band_count, _band_items, _bary_z, _closed_and_border,
     is_bed_grid, volume_beyond_box, bed_pairs,
     _css_rgba, _draw_on_top, _find_data, _flat_z, _halo_text_item,
@@ -102,6 +102,23 @@ class _OneStyle(dict):
 
     def values(self):
         return [self._value]
+
+
+def _line_vertices(feats):
+    """Сумма вершин линий слоя: по ней решается, резать ли слой."""
+    n = 0
+    for ft in feats:
+        g = ft.geometry()
+        if g is not None and not g.isEmpty():
+            n += g.constGet().nCoordinates()
+    return n
+
+
+def CAMERA_HINT():
+    """Подсказка по мыши в сцене, на языке интерфейса."""
+    return tr("Мышь в сцене: левая кнопка - вращение, Ctrl + левая "
+              "или средняя - сдвиг вида, колёсико - масштаб, щелчок "
+              "правой - центр вращения в эту точку.")
 
 
 class _PickView(gl.GLViewWidget):
@@ -640,7 +657,10 @@ class ViewerDialog(QDialog):
         self.legend_txt = QLabel("")
         self.legend_pix.hide()
         self.legend_txt.hide()
-        self.info = QLabel("")
+        # Подсказка по управлению камерой видна, пока сцена пуста.
+        # Сдвиг вида был и раньше, но о нём нигде не говорилось,
+        # и его не находили: «только вращение вокруг центра».
+        self.info = QLabel(CAMERA_HINT())
         self.info.setWordWrap(True)
 
         # --- вкладка «Слои»: растры проекта плюс закреплённая «Сцена»
@@ -1181,6 +1201,24 @@ class ViewerDialog(QDialog):
                   btn_copy, btn_png):
             b.setParent(self.tools)
             tb.addWidget(b)
+        # Вертикальное преувеличение на виду. В свойствах сцены его
+        # не находили и жаловались, что вид «сильно вытянут»: по
+        # умолчанию стоит пятикратное. Поле на плашке и поле
+        # в свойствах - одно значение, правка любого меняет другое.
+        lab_vex = QLabel(tr("Z ×"), self.tools)
+        lab_vex.setToolTip(tr("Вертикальное преувеличение. Единица - "
+                              "натуральный масштаб."))
+        self.vex_bar = QDoubleSpinBox(self.tools)
+        self.vex_bar.setRange(0.01, 10000.0)
+        self.vex_bar.setDecimals(2)
+        self.vex_bar.setSingleStep(0.5)
+        self.vex_bar.setValue(float(self.vex.value()))
+        self.vex_bar.setToolTip(lab_vex.toolTip())
+        self.vex_bar.setKeyboardTracking(False)
+        self.vex_bar.valueChanged.connect(self._vex_from_bar)
+        self.vex.valueChanged.connect(self._vex_to_bar)
+        tb.addWidget(lab_vex)
+        tb.addWidget(self.vex_bar)
         # Полуширина коридора и границы отметок переехали в свойства
         # сцены, к остальной обрезке: на плашке они занимали место
         # у кнопок, которыми пользуются постоянно, а правят их редко.
@@ -2085,8 +2123,10 @@ class ViewerDialog(QDialog):
         if not self._state_read:
             self._state_read = True
             if self._state_load():
+                # подсказка по мыши остаётся: это первое, что видно
+                # в окне, и без неё сдвиг вида не найти
                 self.info.setText(tr("Настройки сцены взяты "
-                                     "из проекта."))
+                                     "из проекта.") + " " + CAMERA_HINT())
 
     def _current_layer(self):
         """Слой выделенной строки или None для «Сцены»."""
@@ -3385,7 +3425,8 @@ class ViewerDialog(QDialog):
             tfield = (o.get("tfield") if o.get("line") == "tube"
                       else None)
             feats = list(lyr.getFeatures())
-            if len(feats) > _MAX_LINES:
+            if len(feats) > _MAX_LINES and \
+                    _line_vertices(feats) > _MAX_LINE_VERTS:
                 self._warn(
                     tr("В слое %s объектов %d, показаны первые %d.")
                     % (lyr.name(), len(feats), _MAX_LINES))
@@ -3584,6 +3625,20 @@ class ViewerDialog(QDialog):
             except Exception:  # nosec
                 pass
         self.view.update()
+
+    def _vex_from_bar(self, value):
+        """Поле на плашке правит преувеличение в свойствах сцены."""
+        if abs(float(self.vex.value()) - float(value)) > 1e-9:
+            self.vex.setValue(float(value))
+
+    def _vex_to_bar(self, value):
+        """Правка в свойствах сцены видна и на плашке."""
+        bar = getattr(self, "vex_bar", None)
+        if bar is None:
+            return
+        bar.blockSignals(True)
+        bar.setValue(float(value))
+        bar.blockSignals(False)
 
     def _schedule_rebuild(self, delay=250):
         """Пересобрать сцену чуть погодя, если это разрешено.

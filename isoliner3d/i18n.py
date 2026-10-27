@@ -3800,4 +3800,272 @@ TRANSLATIONS = {
         'A screen line looks the same at any distance and shows nothing by its thickness. A tube has a diameter in metres, and the field value reads by size.',
     'рельеф':
         'relief',
+    # 2.17-2.19 скважины, плашка сцены
+    '2.17 Стволы скважин по инклинометрии':
+        '2.17 Borehole traces from downhole surveys',
+    '2.18 Интервалы по стволу скважины':
+        '2.18 Intervals along a borehole',
+    '2.19 Демонстрационное бурение (демо)':
+        '2.19 A demonstration drilling (demo)',
+    'Z ×':
+        'Z ×',
+    'Вертикальное преувеличение. Единица - натуральный масштаб.':
+        'Vertical exaggeration. One is the true scale.',
+    'Мышь в сцене: левая кнопка - вращение, Ctrl + левая или средняя - сдвиг вида, колёсико - масштаб, щелчок правой - центр вращения в эту точку.':
+        'Mouse in the scene: left button - rotate, Ctrl + left or middle - pan, wheel - zoom, right click - rotate around this point.',
+    'Длина интервала, м':
+        'Interval length, m',
+    'Длина равного интервала или композита, метры. Последний интервал до забоя короче, если длина не делится нацело.':
+        'The length of an equal interval or a composite, metres. The last interval to the end of hole is shorter when the length does not divide evenly.',
+    'Для этого способа нужна таблица интервалов с полями скважины, начала и конца.':
+        'This mode needs an interval table with the hole, from and to fields.',
+    'Зенитный, от вертикали (0 - отвесно вниз)':
+        'Zenith angle, from the vertical (0 - straight down)',
+    'Инклинометрия':
+        'Downhole survey',
+    'Инклинометрия (таблица)':
+        'Downhole survey (table)',
+    'Инклинометрия без устья: %d скважин, например %s.':
+        'Survey without a collar: %d holes, for example %s.',
+    'Инклинометрия: таблица без геометрии, глубина, азимут и угол от горизонта с минусом вниз. Вход для 2.17.':
+        'Downhole survey: a table without geometry, depth, azimuth and the angle from the horizontal with down negative. Input for 2.17.',
+    'Интервалов глубже забоя: %d. Они обрезаны по забою: проверьте глубину скважины в устьях.':
+        'Intervals deeper than the end of hole: %d. They are cut at the end of hole: check the hole depth in the collars.',
+    'Интервалы':
+        'Intervals',
+    'Интервалы без ствола: %d скважин, например %s.':
+        'Intervals without a trace: %d holes, for example %s.',
+    'Интервалы из таблицы':
+        'Intervals from the table',
+    'Интервалы из таблицы кладут каждую строку опробования на ствол как есть. Равные интервалы режут ствол на пробы заданной длины от устья до забоя. Композиты режут так же и считают в каждом среднее по таблице, взвешенное по длине.':
+        'Intervals from the table put every sample row on the trace as it is. Equal intervals cut the trace into samples of the given length from the collar to the end of hole. Composites cut the same way and compute in each a length-weighted mean of the table.',
+    'Интервалы: куски ствола с Z от начала до конца интервала, с полями от, до, длина и значениями. В сцене их показывают трубами с толщиной или цветом по содержанию.':
+        'Intervals: pieces of the trace with Z from the start to the end of the interval, with the from, to, length and value fields. In the scene they are shown as tubes with the thickness or colour by grade.',
+    'Как записан угол':
+        'How the angle is recorded',
+    'Как записан угол. Перепутанное соглашение уводит ствол вверх или кладёт его горизонтально, поэтому проверьте по одной известной скважине.':
+        'How the angle is recorded. A wrong convention sends the trace upwards or lays it flat, so check it on one known hole.',
+    'Как резать':
+        'How to cut',
+    'Композиты по длине из таблицы':
+        'Length-weighted composites from the table',
+    'Куда положить пример. Пусто означает взять охват окна вида: участок ляжет туда, куда вы смотрите.':
+        'Where to put the example. Empty means the extent of the map view: the area lands where you are looking.',
+    'Не удалось создать слой интервалов.':
+        'Could not create the interval layer.',
+    'Не удалось создать слой стволов.':
+        'Could not create the trace layer.',
+    'Нет слоя устьев.':
+        'No collar layer.',
+    'Одно и то же зерно даёт одни и те же скважины и пробы. Другое зерно - другие погрешности и содержания.':
+        'The same seed gives the same holes and samples. Another seed gives other errors and grades.',
+    'Опробование':
+        'Assays',
+    'Опробование: таблица без геометрии, от, до и золото в граммах на тонну. Вход для 2.18.':
+        'Assays: a table without geometry, from, to and gold in grams per tonne. Input for 2.18.',
+    'От горизонта, вниз отрицательный (-90 - отвесно вниз)':
+        'From the horizontal, down negative (-90 - straight down)',
+    'От горизонта, вниз положительный (90 - отвесно вниз)':
+        'From the horizontal, down positive (90 - straight down)',
+    'Поле X (если нет геометрии)':
+        'X field (without geometry)',
+    'Поле X, если у слоя устьев нет геометрии. У точечного слоя не нужно.':
+        'The X field when the collar layer has no geometry. Not needed for a point layer.',
+    'Поле Y (если нет геометрии)':
+        'Y field (without geometry)',
+    'Поле Y, если у слоя устьев нет геометрии. У точечного слоя не нужно.':
+        'The Y field when the collar layer has no geometry. Not needed for a point layer.',
+    'Поле азимута':
+        'Azimuth field',
+    'Поле азимута, градусы от севера сетки по часовой стрелке. Сближение меридианов не учитывается.':
+        'The azimuth field, degrees clockwise from grid north. The meridian convergence is not applied.',
+    'Поле глубины замера':
+        'Survey depth field',
+    'Поле глубины замера по стволу, метры от устья, не отметка и не глубина по вертикали.':
+        'The field of the survey depth along the hole, metres from the collar, not an elevation and not a vertical depth.',
+    'Поле глубины скважины':
+        'Hole depth field',
+    'Поле конца интервала':
+        'Interval to field',
+    'Поле конца интервала, метры по стволу. Строка с концом не дальше начала пропускается.':
+        'The field of the interval end, metres along the hole. A row whose end is not beyond its start is skipped.',
+    'Поле начала интервала':
+        'Interval from field',
+    'Поле начала интервала, метры по стволу от устья, не отметка.':
+        'The field of the interval start, metres along the hole from the collar, not an elevation.',
+    'Поле номера скважины':
+        'Hole ID field',
+    'Поле номера скважины в инклинометрии':
+        'Hole ID field in the survey',
+    'Поле номера скважины в инклинометрии. Номера сводятся с устьями как текст без пробелов по краям.':
+        'The hole ID field in the survey. IDs are matched with the collars as text without leading and trailing spaces.',
+    'Поле номера скважины в стволах':
+        'Hole ID field in the traces',
+    'Поле номера скважины в стволах. По нему ствол сводится со строками таблицы интервалов.':
+        'The hole ID field in the traces. It matches a trace with the rows of the interval table.',
+    'Поле номера скважины в таблице':
+        'Hole ID field in the table',
+    'Поле номера скважины в таблице интервалов. Номера сводятся со стволами как текст.':
+        'The hole ID field in the interval table. IDs are matched with the traces as text.',
+    'Поле отметки устья (пусто - Z геометрии)':
+        'Collar elevation field (empty - Z of the geometry)',
+    'Поле отметки устья. Пусто - отметка из Z геометрии. Без неё ствол встанет на ноль, о чём будет сказано.':
+        'The collar elevation field. Empty - the elevation comes from the Z of the geometry. Without it the trace starts at zero, with a warning.',
+    'Поле угла':
+        'Angle field',
+    'Поле угла наклона, в соглашении, выбранном ниже.':
+        'The inclination angle field, in the convention chosen below.',
+    'Поля для композитов (пусто - все числовые)':
+        'Fields for composites (empty - all numeric)',
+    'Порядок показа.\n1. 2.17: устья, инклинометрия, угол от горизонта с минусом вниз.\n2. 2.18: стволы, способ «Интервалы из таблицы», таблица опробования. Или «Композиты по длине» по 2 м.\n3. Стволы и интервалы в 3D-просмотр. Интервалам в свойствах слоя показ трубой, поле толщины au, а стиль на карте градуированный по au.':
+        'How to show it.\n1. 2.17: collars, survey, angle from the horizontal with down negative.\n2. 2.18: traces, mode "Intervals from the table", the assay table. Or "Length-weighted composites" of 2 m.\n3. Traces and intervals into the 3D view. For the intervals choose the tube display in the layer properties, thickness field au, and a graduated map style by au.',
+    'Пропущено устьев: %d (нет номера, координат или глубины).':
+        'Collars skipped: %d (no ID, coordinates or depth).',
+    'Равные интервалы заданной длины':
+        'Equal intervals of the given length',
+    'Режет стволы скважин на интервалы.\n\nТри способа. Интервалы из таблицы: каждая строка опробования ложится на ствол от своей глубины до своей со всеми полями. Равные интервалы: ствол режется на пробы заданной длины от устья. Композиты: так же, но в каждом интервале считается среднее по таблице, взвешенное по длине пересечения. Простое среднее завысило бы короткую богатую пробу.\n\nКомпозит без единой пробы получает пустое значение, а не ноль, поле cover показывает опробованную долю его длины.\n\nНа выходе куски ствола с Z и середины интервалов точками. Куски показывают в сцене трубами, точки идут в интерполяцию 2.02, 2.06 и 2.07.':
+        'Cuts borehole traces into intervals.\n\nThree modes. Intervals from the table: every sample row lands on the trace from its depth to its depth with all its fields. Equal intervals: the trace is cut into samples of the given length from the collar. Composites: the same, but each interval gets the mean of the table weighted by the length of overlap. A plain mean would overstate a short rich sample.\n\nA composite without a single sample gets an empty value, not a zero, and the cover field shows the sampled share of its length.\n\nThe outputs are pieces of the trace with Z and the interval midpoints as points. The pieces are shown in the scene as tubes, the points go into the interpolation of 2.02, 2.06 and 2.07.',
+    'Середины интервалов':
+        'Interval midpoints',
+    'Середины интервалов: точки с Z и теми же полями. Это вход для 2.02, 2.06 и 2.07.':
+        'Interval midpoints: points with Z and the same fields. This is the input for 2.02, 2.06 and 2.07.',
+    'Скважин без инклинометрии: %d. Они построены отвесными, а без глубины забоя пропущены.':
+        'Holes without a survey: %d. They are built vertical, and skipped without an end-of-hole depth.',
+    'Скважин: %d, замеров инклинометрии: %d, проб: %d, из них с золотом от 1 г/т: %d.':
+        'Holes: %d, survey stations: %d, samples: %d, of them with gold from 1 g/t: %d.',
+    'Создаёт данные бурения по золоторудной жиле: устья, инклинометрию и опробование, тремя слоями, как они приходят из базы.\n\nЖила простирается на северо-восток и падает на юго-восток под 60 градусов, мощность меняется по простиранию от 3 до 8 м. Двадцать скважин стоят пятью профилями вкрест простирания и бурятся навстречу падению под -60. По ходу ствол выполаживается и уходит по азимуту, инклинометрия через 25 м с погрешностью прибора. В зоне жилы пробы по метру, вне её по два, местами пропуски опробования.\n\nПорядок показа: 2.17 по устьям и инклинометрии, затем 2.18 с таблицей опробования, затем интервалы в сцену трубами с цветом по полю au.':
+        'Creates drilling data over a gold vein: collars, survey and assays, as three layers, the way they come from a database.\n\nThe vein strikes northeast and dips southeast at 60 degrees, its thickness changes along the strike from 3 to 8 m. Twenty holes stand on five lines across the strike and are drilled against the dip at -60. Down the hole the trace flattens and drifts in azimuth, the survey is every 25 m with an instrument error. In the vein zone the samples are one metre, outside it two, with occasional gaps in sampling.\n\nHow to show it: 2.17 on the collars and survey, then 2.18 with the assay table, then the intervals into the scene as tubes coloured by the au field.',
+    'Стволов с отметками не нашлось.':
+        'No traces with elevations were found.',
+    'Стволов: %d, интервалов: %d.':
+        'Traces: %d, intervals: %d.',
+    'Стволов: %d.':
+        'Traces: %d.',
+    'Стволы скважин':
+        'Borehole traces',
+    'Стволы скважин (линии с Z)':
+        'Borehole traces (lines with Z)',
+    'Стволы скважин: линии с Z от устья к забою, например из 2.17. Глубина по стволу считается длиной линии от её начала.':
+        'Borehole traces: lines with Z from the collar to the end of hole, for example from 2.17. The depth along the hole is the line length from its start.',
+    'Стволы скважин: линии с настоящими Z от устья до забоя. Длина линии равна глубине по стволу, поэтому 2.18 режет её на интервалы без таблицы глубин.':
+        'Borehole traces: lines with true Z from the collar to the end of hole. The line length equals the depth along the hole, so 2.18 cuts it into intervals without a depth table.',
+    'Строит стволы скважин по устьям и инклинометрии.\n\nМежду замерами ствол идёт дугой окружности, касательные к которой на концах совпадают с замерами: метод минимальной кривизны, им считают Micromine, Datamine, Surpac и Leapfrog. От устья до первого замера ствол идёт по первому замеру, за последним - по нему же до забоя. Скважина без инклинометрии отвесная.\n\nУгол записывают по-разному: от горизонта с минусом вниз (-90 отвесно вниз), от горизонта с плюсом вниз или зенитный угол от вертикали. Соглашение выбирается явно.\n\nНа выходе линии с Z, длина каждой равна глубине по стволу. Дальше 2.18 режет их на интервалы опробования или композиты, а сцена показывает трубами.':
+        'Builds borehole traces from collars and downhole surveys.\n\nBetween stations the trace follows a circular arc whose end tangents match the surveys: the minimum curvature method, used by Micromine, Datamine, Surpac and Leapfrog. From the collar to the first station the trace follows the first station, past the last one it goes straight along it to the end of hole. A hole without a survey is vertical.\n\nThe angle is recorded in different ways: from the horizontal with down negative (-90 straight down), from the horizontal with down positive, or a zenith angle from the vertical. The convention is chosen explicitly.\n\nThe output is lines with Z, the length of each equals the depth along the hole. Then 2.18 cuts them into sample intervals or composites, and the scene shows them as tubes.',
+    'Строк инклинометрии с пустыми или нечисловыми значениями: %d, они пропущены.':
+        'Survey rows with empty or non-numeric values: %d, they are skipped.',
+    'Строк таблицы без начала и конца или с концом не дальше начала: %d, они пропущены.':
+        'Table rows without a start and end or with the end not beyond the start: %d, they are skipped.',
+    'Таблица интервалов':
+        'Interval table',
+    'Таблица интервалов: скважина, от, до и значения. Нужна для интервалов из таблицы и для композитов.':
+        'The interval table: hole, from, to and values. Needed for intervals from the table and for composites.',
+    'У инклинометрии не выбраны поля: скважина, глубина, азимут и угол.':
+        'The survey fields are not chosen: hole, depth, azimuth and angle.',
+    'Устьев без отметки: %d. Они поставлены на ноль: выберите поле отметки или дайте устьям Z.':
+        'Collars without an elevation: %d. They are placed at zero: choose the elevation field or give the collars Z.',
+    'Устья скважин':
+        'Collars',
+    'Устья скважин: точечный слой или таблица с координатами. У точечного слоя координаты берутся из геометрии, у таблицы - из полей X и Y.':
+        'Collars: a point layer or a table with coordinates. A point layer gives the coordinates from the geometry, a table from the X and Y fields.',
+    'Устья скважин: точки с Z и полями номера и глубины скважины. Вход для 2.17.':
+        'Collars: points with Z and the hole ID and hole depth fields. Input for 2.17.',
+    'Числовые поля для композитов. Пусто - все числовые, кроме начала и конца интервала.':
+        'Numeric fields for composites. Empty - all numeric ones except the interval start and end.',
+    'Шаг узлов ствола вдоль дуги, метры. По узлам ствол рисуется, и по ним же 2.18 находит точки на глубинах.':
+        'The step of trace nodes along the arc, metres. The trace is drawn by the nodes, and 2.18 finds points at depths by them too.',
+    'Шаг узлов ствола, м':
+        'Trace node step, m',
+    'Замеров инклинометрии':
+        'Survey stations',
+    'Глубина по стволу, м':
+        'Depth along the hole, m',
+    'Азимут, град':
+        'Azimuth, deg',
+    'Угол, град':
+        'Angle, deg',
+    'Золото, г/т':
+        'Gold, g/t',
+    'Доля опробованной длины':
+        'Sampled share of the length',
+    # 2.20 блочная модель, поля по имени
+    '2.20 Блочная модель в куб':
+        '2.20 Block model to cube',
+    'Блоков крупнее ячейки: %d, каждый лёг на несколько ячеек.':
+        'Blocks larger than a cell: %d, each landed on several cells.',
+    'Блоков: %d. Куб %d x %d x %d, ячейка %.3f x %.3f x %.3f м, заполнено ячеек %d.':
+        'Blocks: %d. Cube %d x %d x %d, cell %.3f x %.3f x %.3f m, cells filled %d.',
+    'Блоков без координат центра: %d, они пропущены.':
+        'Blocks without centre coordinates: %d, they are skipped.',
+    'Блочная модель: точечный слой центров или таблица без геометрии, например выгрузка Micromine, Datamine или Surpac в CSV.':
+        'Block model: a point layer of centres or a table without geometry, for example a Micromine, Datamine or Surpac export to CSV.',
+    'Доля покрытия ячейки':
+        'Cell cover share',
+    'Какая доля ячейки должна быть покрыта блоками, чтобы она получила значение. Меньше - край модели толще, но размазан по ячейкам, задетым углом блока.':
+        'What share of a cell must be covered by blocks for it to get a value. Less gives a thicker model edge, smeared over cells touched by a block corner.',
+    'Кладёт блочную модель на регулярную решётку куба.\n\nБлочная модель приходит из Micromine, Datamine или Surpac таблицей: центр блока, размер, значения. Поля центра и размера можно не выбирать: они узнаются по именам, EAST, NORTH, RL и _EAST, _NORTH, _RL у Micromine, XC, YC, ZC и XINC, YINC, ZINC у Datamine. Без полей размера размер блока равен шагу центров.\n\nБлоки одного размера ложатся каждый в свою ячейку. Подблоки у контактов сводятся в ячейку средним по объёму пересечения, поэтому металл по кубу совпадает с металлом по блокам.\n\nМодель с поворотом осей блоков сначала разверните в систему координат блоков.\n\nКуб дальше идёт в 2.04 (тело вокселями), 2.11-2.14 и в сцену. Обратный ход - 2.03.':
+        'Puts a block model on the regular grid of a cube.\n\nA block model comes from Micromine, Datamine or Surpac as a table: block centre, size, values. The centre and size fields need not be chosen: they are recognised by name, EAST, NORTH, RL and _EAST, _NORTH, _RL in Micromine, XC, YC, ZC and XINC, YINC, ZINC in Datamine. Without size fields the block size equals the spacing of the centres.\n\nBlocks of one size each land in their own cell. Sub-blocks at contacts are combined in a cell by the mean weighted by the overlap volume, so the metal of the cube matches the metal of the blocks.\n\nUnrotate a model with rotated block axes into the block coordinate system first.\n\nThe cube then goes to 2.04 (voxel body), 2.11-2.14 and the scene. The reverse is 2.03.',
+    'Куб значений: канал на уровень, как у 2.02 и 2.06. Из него 2.04 строит тело вокселями, а 2.11-2.14 работают с оболочками.':
+        'Value cube: a band per level, as from 2.02 and 2.06. From it 2.04 builds a voxel body, and 2.11-2.14 work with shells.',
+    'Куб не собрался: %s.':
+        'The cube could not be built: %s.',
+    'Куб: %s':
+        'Cube: %s',
+    'Не найдено поле номера скважины в стволах: выберите его.':
+        'No hole ID field found in the traces: choose it.',
+    'Не найдено поле номера скважины в устьях: выберите его.':
+        'No hole ID field found in the collars: choose it.',
+    'Нет блоков с координатами центра. Выберите поля X, Y и Z или дайте слою точки с Z.':
+        'No blocks with centre coordinates. Choose the X, Y and Z fields or give the layer points with Z.',
+    'Нет блочной модели.':
+        'No block model.',
+    'Поле X центра блока. Пусто - X точки, а у таблицы поле узнаётся по имени: EAST, X, XC и подобные.':
+        'The X field of the block centre. Empty - the X of the point, and for a table the field is recognised by name: EAST, X, XC and the like.',
+    'Поле Y центра блока. Пусто - Y точки, а у таблицы поле узнаётся по имени: NORTH, Y, YC и подобные.':
+        'The Y field of the block centre. Empty - the Y of the point, and for a table the field is recognised by name: NORTH, Y, YC and the like.',
+    'Поле Z центра блока. Пусто - Z точки, иначе поле узнаётся по имени: RL, Z, ZC и подобные.':
+        'The Z field of the block centre. Empty - the Z of the point, otherwise the field is recognised by name: RL, Z, ZC and the like.',
+    'Поле глубины скважины (забоя). Пусто - узнаётся по имени (EOH, DEPTH), а без такого поля ствол кончается на последнем замере инклинометрии.':
+        'The field of the hole depth (end of hole). Empty - recognised by name (EOH, DEPTH), and without such a field the trace ends at the last survey station.',
+    'Поле номера скважины в устьях. По нему устье сводится с инклинометрией. Пусто - узнаётся по имени: HOLE, HOLEID, BHID.':
+        'The hole ID field in the collars. It matches a collar with its survey. Empty - recognised by name: HOLE, HOLEID, BHID.',
+    'Поле размера блока по X. Пусто - узнаётся по имени (_EAST, DX, XINC), а без поля размер равен шагу центров.':
+        'The block size field along X. Empty - recognised by name (_EAST, DX, XINC), and without the field the size equals the spacing of the centres.',
+    'Поле размера блока по Y. Пусто - узнаётся по имени (_NORTH, DY, YINC), а без поля размер равен шагу центров.':
+        'The block size field along Y. Empty - recognised by name (_NORTH, DY, YINC), and without the field the size equals the spacing of the centres.',
+    'Поле размера блока по Z. Пусто - узнаётся по имени (_RL, DZ, ZINC), а без поля размер равен шагу центров.':
+        'The block size field along Z. Empty - recognised by name (_RL, DZ, ZINC), and without the field the size equals the spacing of the centres.',
+    'Поле X центра (пусто - по имени)':
+        'Centre X field (empty - by name)',
+    'Поле Y центра (пусто - по имени)':
+        'Centre Y field (empty - by name)',
+    'Поле Z центра (пусто - по имени)':
+        'Centre Z field (empty - by name)',
+    'Поле размера по X (пусто - по имени)':
+        'Size field along X (empty - by name)',
+    'Поле размера по Y (пусто - по имени)':
+        'Size field along Y (empty - by name)',
+    'Поле размера по Z (пусто - по имени)':
+        'Size field along Z (empty - by name)',
+    'Поля таблицы: скважина %s, от %s, до %s.':
+        'Table fields: hole %s, from %s, to %s.',
+    'Поля устьев: скважина %s, глубина %s, X %s, Y %s, Z %s. Инклинометрия: скважина %s, глубина %s, азимут %s, угол %s.':
+        'Collar fields: hole %s, depth %s, X %s, Y %s, Z %s. Survey: hole %s, depth %s, azimuth %s, angle %s.',
+    'Поля: X %s, Y %s, Z %s, размеры %s, %s, %s.':
+        'Fields: X %s, Y %s, Z %s, sizes %s, %s, %s.',
+    'Сверка: значение x объём по блокам %.6g, по кубу %.6g.':
+        'Check: value x volume over the blocks %.6g, over the cube %.6g.',
+    'Таблица инклинометрии: скважина, глубина по стволу, азимут, угол. Поля, которые не выбраны, узнаются по именам Micromine, Datamine и Surpac. Пусто - все скважины отвесные.':
+        'The survey table: hole, depth along the hole, azimuth, angle. Fields that are not chosen are recognised by Micromine, Datamine and Surpac names. Empty - all holes are vertical.',
+    'Числовое поле, из которого строится куб: содержание, плотность, номер домена. Одно поле на прогон, куб на поле.':
+        'The numeric field the cube is built from: grade, density, domain number. One field per run, a cube per field.',
+    'Ячейка в плане, м (0 - по блокам)':
+        'Plan cell, m (0 - by the blocks)',
+    'Ячейка куба в плане, метры. Ноль - наименьший размер блока: подблоки ложатся каждый в свою ячейку. Крупнее - подблоки сводятся в ячейку средним по объёму.':
+        'The plan cell of the cube, metres. Zero - the smallest block size: sub-blocks each land in their own cell. Larger - sub-blocks are combined in a cell by the volume-weighted mean.',
+    'Ячейка куба по вертикали, метры. Ноль - наименьший размер блока по Z.':
+        'The vertical cell of the cube, metres. Zero - the smallest block size along Z.',
+    'Ячейка по вертикали, м (0 - по блокам)':
+        'Vertical cell, m (0 - by the blocks)',
+    'точка':
+        'point',
 }

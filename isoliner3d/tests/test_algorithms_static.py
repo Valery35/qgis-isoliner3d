@@ -45,6 +45,10 @@ EXPECTED = {
     "ZonalShellStatsAlgorithm": ("zonal_shell_stats", "2.14"),
     "FormationBodiesAlgorithm": ("formation_bodies", "2.15"),
     "DemoRiversAlgorithm": ("demo_rivers", "2.16"),
+    "DesurveyAlgorithm": ("desurvey_holes", "2.17"),
+    "HoleIntervalsAlgorithm": ("hole_intervals", "2.18"),
+    "DemoDrillingAlgorithm": ("demo_drilling", "2.19"),
+    "BlocksToCubeAlgorithm": ("block_model_to_cube", "2.20"),
 }
 
 
@@ -343,7 +347,11 @@ def test_every_tool_has_field_hints():
              ("GridToShellAlgorithm", "HINTS_2_13"),
              ("ZonalShellStatsAlgorithm", "HINTS_2_14"),
              ("FormationBodiesAlgorithm", "HINTS_2_15"),
-             ("DemoRiversAlgorithm", "HINTS_2_16"))
+             ("DemoRiversAlgorithm", "HINTS_2_16"),
+             ("DesurveyAlgorithm", "HINTS_2_17"),
+             ("HoleIntervalsAlgorithm", "HINTS_2_18"),
+             ("DemoDrillingAlgorithm", "HINTS_2_19"),
+             ("BlocksToCubeAlgorithm", "HINTS_2_20"))
     tree = ast.parse(src)
     dicts = {}
     for node in tree.body:
