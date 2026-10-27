@@ -3236,7 +3236,7 @@ def test_axes_labels_are_capped():
     assert "cap = " in body and "n >= cap" in body
     # подпись с множителем из настроек короба
     assert 'tick_label(val, bo["mult"]' in body
-    assert "box_edges(lo, hi," in body and "tick_marks(lo, hi" in body
+    assert "box_edges(" in body and "tick_marks(lo, hi" in body
 
 
 def test_every_scene_setting_is_saved_and_restored():

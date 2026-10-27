@@ -4162,4 +4162,14 @@ TRANSLATIONS = {
         'Label multiplier: plan, Z',
     'Охват короба':
         'Box extent',
+    'Привязка: %s, точка начала %.0f, %.0f.':
+        'Georeference: %s, origin %.0f, %.0f.',
+    'без системы':
+        'no coordinate system',
+    'подписи к ближним':
+        'labels to the near edges',
+    'Деления и подписи переходят на рёбра короба со стороны камеры, когда сцену поворачивают, и не прячутся за моделью. Снятая галка оставляет их у начала координат, как в выгрузке.':
+        'Ticks and labels move to the box edges facing the camera when the scene is rotated, and do not hide behind the model. Unticked, they stay at the origin, as in the export.',
+    'Подписи короба не переставились: %s':
+        'Box labels were not moved: %s',
 }

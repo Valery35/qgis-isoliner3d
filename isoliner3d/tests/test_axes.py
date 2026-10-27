@@ -225,6 +225,36 @@ def test_custom_range_per_axis():
                                                         (4, 5, 6))
 
 
+def test_labels_go_to_the_edges_facing_the_camera():
+    from isoliner3d.axes import near_sides, tick_marks, box_edges
+    lo, hi = (0, 0, 0), (100, 200, 50)
+    # камера с северо-востока и сверху
+    sd = near_sides(lo, hi, (500, 900, 300))
+    assert sd == {"x": (1, 0), "y": (1, 0), "z": (1, 0)}
+    m = tick_marks(lo, hi, sides=sd)
+    xs = [(a, b) for ax, _v, a, b in m if ax == 0]
+    # деления X на северном ребре, штрих уходит дальше на север
+    assert all(a[1] == 200 and b[1] > 200 and a[2] == 0 for a, b in xs)
+    zs = [(a, b) for ax, _v, a, b in m if ax == 2]
+    assert all(a[0] == 100 and a[1] == 0 and b[0] > 100 for a, b in zs)
+    # камера снизу переносит плановые подписи наверх
+    assert near_sides(lo, hi, (-50, -50, -300))["x"] == (0, 1)
+    # три оси идут цепочкой: X и Y сходятся в ближнем углу,
+    # Y и Z - в боковом
+    ex, ey, ez = box_edges(lo, hi, "axes", sd)
+    assert (100.0, 200.0, 0.0) in ex and (100.0, 200.0, 0.0) in ey
+    assert ez[0] == (100.0, 0.0, 0.0) and (100.0, 0.0, 0.0) in ey
+
+
+def test_origin_sides_keep_the_old_layout():
+    from isoliner3d.axes import tick_marks, ORIGIN_SIDES
+    lo, hi = (0, 0, 0), (100, 200, 50)
+    assert tick_marks(lo, hi) == tick_marks(lo, hi, sides=ORIGIN_SIDES)
+    for ax, _v, a, b in tick_marks(lo, hi):
+        other = 1 if ax == 0 else 0
+        assert b[other] < lo[other]
+
+
 def _run():
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

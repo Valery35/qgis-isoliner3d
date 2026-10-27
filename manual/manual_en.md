@@ -220,6 +220,7 @@ extent**. All the settings are saved into the project.
 **The coordinate box** is set up for the task:
 
 - **Edges**: all twelve, three axes from the origin corner as on a drawing, or no edges. Three axes do not block the body.
+- **Labels to the near edges**: when the scene is rotated, ticks and labels move to the edges facing the camera and do not hide behind the model. The vertical axis is labelled along a side edge so as not to stand in front of the body. The scene is not rebuilt for this. Unticked, the labels stay at the origin, as in the GLB export.
 - **Grid** on the floor, the walls or both, and its step.
 - **Tick step** in plan and along Z separately. Zero takes a round step from the span, on a section the elevation step is usually set, for example 50 m.
 - **Label multiplier** in plan and along Z. The ticks stay in place, the number in the label changes: 0.001 gives kilometres, -1 along Z gives depth as positive numbers.
@@ -410,6 +411,8 @@ in Blender and in Windows. The vertical exaggeration is asked for: the
 true heights are the ones to compute with, the model as it looks on the
 screen is the one to show. The coordinate box with its labels goes out
 together with the scene.
+
+In plan the GLB stores an offset from an origin rounded to a kilometre, while the elevations are true. Numbers in a GLB have seven digits, and at a coordinate of 6 400 000 their precision is half a metre: the model would shiver on approach. The origin and the coordinate system are written into the file metadata, a globe places the model by them, and the true coordinate is the offset plus the origin. The origin is also printed in the line under the scene after the export. Blender and browser viewers show the model at zero, whole.
 
 **STL** and **OBJ** are for CAD, where a closed shell is needed to make
 a solid from. The box and the labels do not go there, and the

@@ -178,8 +178,40 @@ def north_arrow(lo, hi, size=None):
 
 EDGE_MODES = ("all", "axes", "none")
 
+# Стороны короба для подписей: какое из четырёх параллельных рёбер
+# несёт деления оси. Индекс 0 - наименьшая координата, 1 - наибольшая.
+# «x» - ребро оси X: (сторона по Y, сторона по Z); «y» - ребро оси Y:
+# (сторона по X, сторона по Z); «z» - вертикальное ребро: (сторона по
+# X, сторона по Y).
+ORIGIN_SIDES = {"x": (0, 0), "y": (0, 0), "z": (0, 0)}
 
-def box_edges(lo, hi, mode="all"):
+
+def near_sides(lo, hi, cam):
+    """Рёбра для подписей, ближние к камере.
+
+    Подписи у начала координат после поворота уходят за модель или
+    за дальнюю стенку короба. Здесь плановые оси подписываются по ребру
+    со стороны камеры, а вертикальная - по боковому ребру контура:
+    ближнему по X и дальнему по Y. Тогда три ребра идут цепочкой:
+    ось X, ближний угол, ось Y, боковой угол, ось Z, и вертикаль
+    не встаёт перед моделью.
+
+    Камера ниже середины короба переносит плановые подписи наверх.
+    """
+    lo = [float(v) for v in lo]
+    hi = [float(v) for v in hi]
+    mid = [(lo[k] + hi[k]) / 2.0 for k in range(3)]
+    xn = 1 if float(cam[0]) > mid[0] else 0
+    yn = 1 if float(cam[1]) > mid[1] else 0
+    zb = 0 if float(cam[2]) >= mid[2] else 1
+    return {"x": (yn, zb), "y": (xn, zb), "z": (xn, 1 - yn)}
+
+
+def _pick(lo, hi, axis, side):
+    return float(hi[axis]) if side else float(lo[axis])
+
+
+def box_edges(lo, hi, mode="all", sides=None):
     """Рёбра короба по охвату сцены.
 
     `mode` "all" - все двенадцать, "axes" - три ребра из угла начала
@@ -189,10 +221,14 @@ def box_edges(lo, hi, mode="all"):
     if mode == "none":
         return []
     if mode == "axes":
+        sd = sides or ORIGIN_SIDES
         x0, y0, z0 = [float(v) for v in lo]
         x1, y1, z1 = [float(v) for v in hi]
-        o = (x0, y0, z0)
-        return [(o, (x1, y0, z0)), (o, (x0, y1, z0)), (o, (x0, y0, z1))]
+        ya, za = _pick(lo, hi, 1, sd["x"][0]), _pick(lo, hi, 2, sd["x"][1])
+        xb, zb = _pick(lo, hi, 0, sd["y"][0]), _pick(lo, hi, 2, sd["y"][1])
+        xc, yc = _pick(lo, hi, 0, sd["z"][0]), _pick(lo, hi, 1, sd["z"][1])
+        return [((x0, ya, za), (x1, ya, za)), ((xb, y0, zb), (xb, y1, zb)),
+                ((xc, yc, z0), (xc, yc, z1))]
     x0, y0, z0 = [float(v) for v in lo]
     x1, y1, z1 = [float(v) for v in hi]
     pts = [(x, y, z) for x in (x0, x1) for y in (y0, y1)
@@ -206,7 +242,7 @@ def box_edges(lo, hi, mode="all"):
     return segs
 
 
-def tick_marks(lo, hi, want=5, length=None, steps=None):
+def tick_marks(lo, hi, want=5, length=None, steps=None, sides=None):
     """Штрихи на рёбрах короба.
 
     Возвращает список (ось, значение, начало, конец). Штрих стоит
@@ -224,13 +260,23 @@ def tick_marks(lo, hi, want=5, length=None, steps=None):
     # вертикальную тоже в плане: отметку она обозначает высотой,
     # а не длиной штриха.
     away = {0: 1, 1: 0, 2: 0}
+    sd = sides or ORIGIN_SIDES
+    # точка ребра для каждой оси: две прочие координаты по сторонам
+    fixed = {0: {1: sd["x"][0], 2: sd["x"][1]},
+             1: {0: sd["y"][0], 2: sd["y"][1]},
+             2: {0: sd["z"][0], 1: sd["z"][1]}}
     out = []
     for axis in range(3):
         other = away[axis]
+        base = list(lo)
+        for k, side in fixed[axis].items():
+            base[k] = _pick(lo, hi, k, side)
+        # наружу: от наибольшей стороны в плюс, от наименьшей в минус
+        out_dir = 1.0 if fixed[axis][other] else -1.0
         for val in nice_ticks(lo[axis], hi[axis], want, steps[axis]):
-            a = list(lo)
+            a = list(base)
             a[axis] = val
             b = list(a)
-            b[other] = lo[other] - ln
+            b[other] = a[other] + out_dir * ln
             out.append((axis, val, tuple(a), tuple(b)))
     return out

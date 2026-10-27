@@ -14,10 +14,19 @@ Blender, Windows и большинство программ, куда геоло
 Пишется вручную, без сторонних библиотек: glTF это JSON плюс двоичный
 кусок, и для набора треугольников с цветами в вершинах этого достаточно.
 
-Координаты пишутся настоящие, из проекта, без центрирования сцены
-и без вертикального преувеличения: преувеличение это способ смотреть,
-а не свойство модели. Оси переставляются в порядок glTF (Y вверх),
-иначе модель ложится на бок в любом просмотрщике.
+Вертикальное преувеличение по умолчанию не применяется:
+преувеличение это способ смотреть, а не свойство модели. Оси
+переставляются в порядок glTF (Y вверх), иначе модель ложится на бок
+в любом просмотрщике.
+
+Привязка. Вершины в glTF хранятся числами float32, а это семь значащих
+цифр: на координате 6 400 000 шаг выходит полметра, и при подлёте
+модель дрожит. Поэтому в плане пишется сдвиг от точки начала, круглой
+до километра, а отметки остаются настоящими. Точка начала и система
+координат лежат в метаданных файла (`asset.extras.isoliner3d`): по ним
+глобус ставит модель на место, а настоящая координата вершины - это
+сдвиг плюс точка начала. Просмотрщики без привязки видят модель
+у нуля, целиком и без дрожи.
 """
 
 import json
@@ -65,7 +74,28 @@ def _materials(need_blend):
     return [base, soft]
 
 
-def build_glb(parts, name="Isoliner3D"):
+def georef_origin(parts, step=1000.0):
+    """Точка начала в плане: середина охвата, круглая до `step` метров.
+
+    Круглая - чтобы её было легко прочитать и записать руками.
+    Отметка остаётся нулём: высоты пишутся настоящие, они и так малы.
+    """
+    lo, hi = None, None
+    for part in parts:
+        v = np.asarray(part.get("verts", ()), dtype=float)
+        if v.ndim != 2 or not len(v):
+            continue
+        a, b = v[:, :2].min(axis=0), v[:, :2].max(axis=0)
+        lo = a if lo is None else np.minimum(lo, a)
+        hi = b if hi is None else np.maximum(hi, b)
+    if lo is None:
+        return (0.0, 0.0, 0.0)
+    mid = (lo + hi) / 2.0
+    return (float(np.round(mid[0] / step) * step),
+            float(np.round(mid[1] / step) * step), 0.0)
+
+
+def build_glb(parts, name="Isoliner3D", georef=None):
     """Собрать GLB из набора частей.
 
     Каждая часть это словарь с ключами `verts` (N, 3) и `faces` (M, 3)
@@ -74,8 +104,27 @@ def build_glb(parts, name="Isoliner3D"):
 
     Линии нужны координатному коробу: рёбра и штрихи писать
     треугольниками незачем, а без них в файле нет масштаба.
-    Возвращает байты файла.
+
+    `georef` - словарь привязки: `crs` (код, например EPSG:32640),
+    `wkt`, `origin` (x, y, z или None - тогда считается по охвату),
+    `vex` (применённое преувеличение). Без него координаты пишутся
+    как есть, без сдвига. Возвращает байты файла.
     """
+    shift = np.zeros(3)
+    extras = None
+    if georef is not None:
+        origin = georef.get("origin") or georef_origin(parts)
+        shift = np.asarray(origin, dtype=float)
+        extras = {"isoliner3d": {
+            "crs": georef.get("crs") or "",
+            "crs_wkt": georef.get("wkt") or "",
+            "origin": [float(x) for x in shift],
+            "axes": "gltf x = east, gltf y = up, gltf z = -north",
+            "units": "m",
+            "real_xyz": "east = x + origin[0], north = -z + origin[1], "
+                        "elevation = y + origin[2]",
+            "vertical_exaggeration": float(georef.get("vex") or 1.0),
+        }}
     buf = bytearray()
     views, accessors, meshes, nodes = [], [], [], []
     # Прозрачность в цвете вершин просмотрщик не смотрит, пока
@@ -93,7 +142,10 @@ def build_glb(parts, name="Isoliner3D"):
         return len(views) - 1
 
     for part in parts:
-        v = np.asarray(part["verts"], dtype=np.float32)
+        # сдвиг считается в float64 и только потом сводится к float32:
+        # иначе полметра теряются ещё до вычитания
+        v = (np.asarray(part["verts"], dtype=float) - shift
+             ).astype(np.float32)
         raw = part.get("faces")
         mode = _TRIANGLES
         if raw is None:
@@ -143,7 +195,8 @@ def build_glb(parts, name="Isoliner3D"):
                       "name": part.get("name", "part")})
 
     gltf = {
-        "asset": {"version": "2.0", "generator": name},
+        "asset": dict({"version": "2.0", "generator": name},
+                      **({"extras": extras} if extras else {})),
         "scene": 0,
         "scenes": [{"nodes": list(range(len(nodes)))}],
         "nodes": nodes,
@@ -166,9 +219,9 @@ def build_glb(parts, name="Isoliner3D"):
     return bytes(out)
 
 
-def write_glb(path, parts, name="Isoliner3D"):
+def write_glb(path, parts, name="Isoliner3D", georef=None):
     """Записать GLB в файл. Возвращает размер в байтах."""
-    data = build_glb(parts, name)
+    data = build_glb(parts, name, georef)
     with open(path, "wb") as fh:
         fh.write(data)
     return len(data)

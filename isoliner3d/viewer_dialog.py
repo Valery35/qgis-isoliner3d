@@ -135,6 +135,27 @@ class _PickView(gl.GLViewWidget):
 
     bg_top = None      # верхний цвет градиента, доли единицы
     bg_bottom = None   # нижний
+    camera_cb = None   # камера сдвинулась: подписи короба к ближним рёбрам
+
+    def _cam_watch(self):
+        """Заметить поворот камеры и позвать обработчик чуть позже.
+
+        Сигнала о повороте у вида нет, а отрисовка идёт на каждом
+        кадре поворота: здесь сравнивается положение камеры. Обработчик
+        зовётся таймером, а не прямо из отрисовки: менять элементы сцены
+        посреди кадра нельзя.
+        """
+        if self.camera_cb is None:
+            return
+        try:
+            p = self.cameraPosition()
+            key = (round(p.x(), 2), round(p.y(), 2), round(p.z(), 2))
+        except Exception:  # nosec - без камеры подписи стоят как есть
+            return
+        if key != getattr(self, "_cam_key", None):
+            self._cam_key = key
+            from qgis.PyQt.QtCore import QTimer
+            QTimer.singleShot(120, self.camera_cb)
 
     def paint(self, *, region, viewport, useItemNames=False):
         """Отрисовка вида с градиентным фоном.
@@ -147,6 +168,7 @@ class _PickView(gl.GLViewWidget):
         Градиент кладётся полосами по высоте кадра: их немного,
         и цена такой заливки не отличается от сплошной.
         """
+        self._cam_watch()
         if self.bg_top is None or self.bg_bottom is None:
             return super().paint(region=region, viewport=viewport,
                                  useItemNames=useItemNames)
@@ -649,7 +671,8 @@ class ViewerDialog(QDialog):
 
         box_grid = QGroupBox(tr("Координатный короб"))
         f3 = QFormLayout(box_grid)
-        f3.addRow(tr("Рёбра"), self.box_edge_mode)
+        f3.addRow(tr("Рёбра"), self._pair(self.box_edge_mode,
+                                          self.box_near))
         f3.addRow(tr("Сетка"), self.grid_planes)
         f3.addRow(tr("Шаг сетки, м"), self.grid_step)
         f3.addRow(tr("Шаг делений: план, Z"),
@@ -1161,6 +1184,7 @@ class ViewerDialog(QDialog):
         self.view.setBackgroundColor((250, 250, 248))
         self._bg_apply()
         self.view.pick_cb = self._pick_at
+        self.view.camera_cb = self._axes_follow_camera
         self.view.pivot_cb = self._pivot_at
         self.view.dbl_cb = self._draw_close
         self.view.undo_cb = self._draw_undo
@@ -1752,7 +1776,13 @@ class ViewerDialog(QDialog):
                 _log(tr("Часть %s: вершин %d, граней %d, линий %d")
                      % (part.get("name", "?"), len(part["verts"]),
                         n_f, n_l))
-            size = write_glb(fn, parts)
+            crs = self._scene_crs()
+            georef = {"crs": crs.authid() if crs.isValid() else "",
+                      "wkt": crs.toWkt() if crs.isValid() else "",
+                      "vex": vex if keep_vex else 1.0}
+            size = write_glb(fn, parts, georef=georef)
+            from .gltf import georef_origin
+            org = georef_origin(parts)
             # Итог показываем в окне, а не только в журнале: иначе
             # неудачу от удачи не отличить, и человек открывает
             # прежний файл, гадая, почему ничего не изменилось.
@@ -1763,7 +1793,9 @@ class ViewerDialog(QDialog):
                 % (len(parts) - n_box,
                    tr("есть") if n_box else tr("нету"),
                    tr("есть") if keep_vex else tr("нету"),
-                   size / (1024.0 * 1024.0)))
+                   size / (1024.0 * 1024.0))
+                + " " + tr("Привязка: %s, точка начала %.0f, %.0f.")
+                % (georef["crs"] or tr("без системы"), org[0], org[1]))
         except Exception as err:
             self.info.setText(tr("Выгрузка не удалась: %s") % err)
             _log(tr("Выгрузка не удалась: %s") % err)
@@ -1836,6 +1868,7 @@ class ViewerDialog(QDialog):
                 "grid_step": float(self.grid_step.value()),
                 "axes_on": bool(self.btn_axes.isChecked()),
                 "box_edges": self.box_edge_mode.currentData(),
+                "box_near": bool(self.box_near.isChecked()),
                 "tick_xy": float(self.tick_xy.value()),
                 "tick_z": float(self.tick_z.value()),
                 "mult_xy": float(self.mult_xy.value()),
@@ -1891,6 +1924,7 @@ class ViewerDialog(QDialog):
             self.btn_axes.setChecked(bool(state.get("axes_on", False)))
             ke = _find_data(self.box_edge_mode, state.get("box_edges"))
             self.box_edge_mode.setCurrentIndex(max(ke, 0))
+            self.box_near.setChecked(bool(state.get("box_near", True)))
             self.tick_xy.setValue(float(state.get("tick_xy", 0.0)))
             self.tick_z.setValue(float(state.get("tick_z", 0.0)))
             self.mult_xy.setValue(float(state.get("mult_xy", 1.0)))
@@ -4134,6 +4168,13 @@ class ViewerDialog(QDialog):
         self.box_edge_mode.setToolTip(tr(
             "Три оси из угла начала не загораживают сцену, как оси "
             "на чертеже. Без рёбер остаются сетка и деления."))
+        self.box_near = QCheckBox(tr("подписи к ближним"))
+        self.box_near.setChecked(True)
+        self.box_near.setToolTip(tr(
+            "Деления и подписи переходят на рёбра короба со стороны "
+            "камеры, когда сцену поворачивают, и не прячутся за моделью. "
+            "Снятая галка оставляет их у начала координат, как "
+            "в выгрузке."))
         self.tick_xy = QDoubleSpinBox()
         self.tick_z = QDoubleSpinBox()
         for w in (self.tick_xy, self.tick_z):
@@ -4185,8 +4226,9 @@ class ViewerDialog(QDialog):
         grid.addRow("", fill)
         self.box_range_w.setEnabled(False)
         self.box_range_on.toggled.connect(self.box_range_w.setEnabled)
-        for w in [self.box_edge_mode, self.tick_xy, self.tick_z,
-                  self.mult_xy, self.mult_z, self.box_range_on,
+        for w in [self.box_edge_mode, self.box_near, self.tick_xy,
+                  self.tick_z, self.mult_xy, self.mult_z,
+                  self.box_range_on,
                   self.grid_planes, self.grid_step] + self.box_range:
             sig = getattr(w, "currentIndexChanged", None) or \
                 getattr(w, "valueChanged", None) or w.toggled
@@ -4225,6 +4267,7 @@ class ViewerDialog(QDialog):
                      float(self.mult_z.value())),
             "range": ([float(w.value()) for w in self.box_range]
                       if self.box_range_on.isChecked() else None),
+            "near": bool(self.box_near.isChecked()),
         }
 
     def _export_box(self, lo, hi, _segs):
@@ -4318,11 +4361,17 @@ class ViewerDialog(QDialog):
                     (float(p[2]) - cz) * vex)
 
         bo = self._box_opts()
-        segs = [(put(a), put(b)) for a, b in box_edges(lo, hi,
-                                                        bo["edges"])]
+        self._axes_live = {"lo": lo, "hi": hi, "put": put, "bo": bo,
+                           "cz": cz, "cx": cx, "cy": cy, "vex": vex,
+                           "edges": None, "ticks": None, "labels": []}
+        sides = self._axes_sides(lo, hi, cx, cy, cz, vex, bo)
+        self._axes_live["sides"] = sides
+        segs = [(put(a), put(b)) for a, b in box_edges(
+            lo, hi, bo["edges"], sides)]
         # Короб идёт и в выгрузку: без него в файле нет масштаба.
         # Настоящие отметки, как и у прочих частей: преувеличение
-        # накладывается на выгрузке целиком.
+        # накладывается на выгрузке целиком. В выгрузке подписи
+        # у начала: файл не знает, откуда на него посмотрят.
         self._export_box(lo, hi, segs)
         if segs:
             pos = np.array([q for seg in segs for q in seg], dtype=float)
@@ -4331,6 +4380,7 @@ class ViewerDialog(QDialog):
                                      color=(0.35, 0.38, 0.45, 0.65),
                                      glOptions='translucent')
             self._add_item(item)
+            self._axes_live["edges"] = item
 
         # Сетка на выбранных плоскостях: пол даёт масштаб в плане,
         # стены по отметкам, что для разреза важнее.
@@ -4350,14 +4400,16 @@ class ViewerDialog(QDialog):
                     glOptions='translucent'))
                 _log(tr("Сетка: линий %d.") % len(gsegs))
 
-        marks = tick_marks(lo, hi, want=5, steps=bo["steps"])
+        marks = tick_marks(lo, hi, want=5, steps=bo["steps"], sides=sides)
         if not marks:
             return
         tp = np.array([q for _a, _v, s0, s1 in marks
                        for q in (put(s0), put(s1))], dtype=float)
-        self._add_item(gl.GLLinePlotItem(
+        tick_item = gl.GLLinePlotItem(
             pos=tp, mode='lines', width=1.4, antialias=True,
-            color=(0.25, 0.28, 0.36, 0.9), glOptions='translucent'))
+            color=(0.25, 0.28, 0.36, 0.9), glOptions='translucent')
+        self._add_item(tick_item)
+        self._axes_live["ticks"] = tick_item
         # Стрелка севера: на повёрнутой сцене стороны света теряются
         # мгновенно, а по одной подписи их не восстановить.
         arrow = north_arrow(lo, hi)
@@ -4382,9 +4434,58 @@ class ViewerDialog(QDialog):
                 _log(tr("Подписей осей больше %d, остальные "
                         "не ставим: они забили бы сцену.") % cap)
                 break
-            self._add_item(TextItem(
+            lab = TextItem(
                 pos=put(s1), text=tick_label(val, bo["mult"][_axis]),
-                color=(30, 30, 30, 255), font=fnt))
+                color=(30, 30, 30, 255), font=fnt)
+            self._add_item(lab)
+            self._axes_live["labels"].append(lab)
+
+    def _axes_sides(self, lo, hi, cx, cy, cz, vex, bo):
+        """Рёбра подписей: ближние к камере или у начала."""
+        from .axes import near_sides, ORIGIN_SIDES
+        if not bo.get("near"):
+            return ORIGIN_SIDES
+        try:
+            p = self.view.cameraPosition()
+            cam = (p.x() + cx, p.y() + cy,
+                   p.z() / (vex or 1.0) + cz)
+        except Exception:  # nosec - без камеры подписи у начала
+            return ORIGIN_SIDES
+        return near_sides(lo, hi, cam)
+
+    def _axes_follow_camera(self):
+        """Переставить подписи и штрихи короба к ближним рёбрам.
+
+        Сцена не пересобирается: подписей десятки, а пересборка
+        с телами - секунды. Число делений и их порядок от стороны
+        не зависят, меняются только места.
+        """
+        import numpy as np
+        live = getattr(self, "_axes_live", None)
+        if not live or not live["bo"].get("near"):
+            return
+        lo, hi, put, bo = live["lo"], live["hi"], live["put"], live["bo"]
+        sides = self._axes_sides(lo, hi, live["cx"], live["cy"],
+                                 live["cz"], live["vex"], bo)
+        if sides == live.get("sides"):
+            return
+        live["sides"] = sides
+        from .axes import box_edges, tick_marks
+        try:
+            if live["edges"] is not None:
+                segs = box_edges(lo, hi, bo["edges"], sides)
+                live["edges"].setData(pos=np.array(
+                    [put(q) for seg in segs for q in seg], dtype=float))
+            marks = tick_marks(lo, hi, want=5, steps=bo["steps"],
+                               sides=sides)
+            if live["ticks"] is not None and marks:
+                live["ticks"].setData(pos=np.array(
+                    [put(q) for _a, _v, s0, s1 in marks
+                     for q in (s0, s1)], dtype=float))
+            for lab, (_a, _v, _s0, s1) in zip(live["labels"], marks):
+                lab.setData(pos=put(s1))
+        except Exception as err:  # nosec - подписи останутся на месте
+            _log(tr("Подписи короба не переставились: %s") % err)
 
     def _cap_cut(self, v, f):
         """Крышка на срезе оболочки.
@@ -6646,6 +6747,8 @@ class ViewerDialog(QDialog):
         # пересчитываться в одну и ту же
         self._crs_now = None
         self._crs_now = self._pick_scene_crs()
+        # подписи прошлой сборки не переставляем: их элементов уже нет
+        self._axes_live = None
         for m in self._items:
             self.view.removeItem(m)
         self._items = []
