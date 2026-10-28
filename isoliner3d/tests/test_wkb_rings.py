@@ -62,3 +62,27 @@ def test_2d_needs_zfix_and_m_is_skipped():
 def test_curves_fall_back():
     w = b"\x01" + struct.pack("<II", 1008, 0)      # CircularString Z
     assert vc.wkb_rings(w) is None
+
+
+def test_triangle_mesh_reads_in_one_go():
+    rng = np.random.default_rng(3)
+    v = rng.normal(size=(30, 3)) * 1000.0 + [493000.0, 6340000.0, 130.0]
+    f = rng.integers(0, 30, size=(50, 3))
+    f = f[(f[:, 0] != f[:, 1]) & (f[:, 1] != f[:, 2])
+          & (f[:, 0] != f[:, 2])]
+    w = mesh_wkb(v, f)
+    tv, tf = vc.wkb_triangles(w)
+    assert tf.shape == (len(f), 3)
+    assert np.allclose(tv, v[f].reshape(-1, 3))
+    # те же кольца, что у общего разбора, без замыкающей точки
+    rings = vc.wkb_rings(w)
+    assert np.allclose(np.vstack([r[:3] for r in rings]), tv)
+
+
+def test_non_triangle_falls_back():
+    outer = [(0, 0, 5), (4, 0, 5), (4, 4, 5), (0, 4, 5), (0, 0, 5)]
+    poly = b"\x01" + struct.pack("<III", 1003, 1, len(outer)) + _ring_z(
+        outer)
+    w = b"\x01" + struct.pack("<II", 1006, 1) + poly
+    assert vc.wkb_triangles(w) is None
+    assert len(vc.wkb_rings(w)) == 1

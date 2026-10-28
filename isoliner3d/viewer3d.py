@@ -34,7 +34,7 @@ from .viewer_core import (    # noqa: F401
     field_color, flat_marker_mesh, is_available, is_bed_grid, layer_lift,
     ramp_colors, volume_beyond_box, bed_pairs, split_by_alpha, symbol_alpha,
     shade_colors, tri_cache_clear, tri_cache_size, walk_rings, wkb_rings,
-    z_range_mask)
+    wkb_triangles, z_range_mask)
 
 
 from .i18n import tr
@@ -372,6 +372,13 @@ def _tris_from_geometry(geom, both_sides=True):
     начинают спорить за глубину, отчего появляются полосы.
     """
     import numpy as np
+    try:
+        fast = wkb_triangles(geom.asWkb())
+    except Exception:
+        fast = None
+    if fast is not None:
+        v_all, f_all = fast
+        return _faces_up(v_all, f_all) if both_sides else (v_all, f_all)
     verts, faces, base = [], [], 0
     for ring in _parts_xyz(geom):
         v, f = _tessellate_ring3d(ring)
@@ -384,15 +391,23 @@ def _tris_from_geometry(geom, both_sides=True):
         return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)
     v_all, f_all = np.vstack(verts), np.vstack(faces)
     if both_sides and len(f_all):
-        a = v_all[f_all[:, 0]]
-        b = v_all[f_all[:, 1]]
-        c = v_all[f_all[:, 2]]
-        nz = ((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1])
-              - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0]))
-        flip = nz < 0
-        if flip.any():
-            f_all = f_all.copy()
-            f_all[flip] = f_all[flip][:, ::-1]
+        return _faces_up(v_all, f_all)
+    return v_all, f_all
+
+
+def _faces_up(v_all, f_all):
+    """Грани нормалью вверх: см. `_tris_from_geometry`."""
+    if not len(f_all):
+        return v_all, f_all
+    a = v_all[f_all[:, 0]]
+    b = v_all[f_all[:, 1]]
+    c = v_all[f_all[:, 2]]
+    nz = ((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1])
+          - (b[:, 1] - a[:, 1]) * (c[:, 0] - a[:, 0]))
+    flip = nz < 0
+    if flip.any():
+        f_all = f_all.copy()
+        f_all[flip] = f_all[flip][:, ::-1]
     return v_all, f_all
 
 

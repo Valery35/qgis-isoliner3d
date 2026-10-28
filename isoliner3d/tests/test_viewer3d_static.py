@@ -2940,13 +2940,15 @@ def test_face_orientation_flips_only_downward():
     """Грань нормалью вверх остаётся, грань вниз разворачивается."""
     import numpy as np
     src = _viewer_src()
-    start = src.index("    v_all, f_all = np.vstack(verts), np.vstack(faces)")
-    end = src.index("    return v_all, f_all", start)
-    end += len("    return v_all, f_all")
-    body = src[start:end].replace(
-        "    v_all, f_all = np.vstack(verts), np.vstack(faces)\n", "")
+    # разворот вынесен в _faces_up: им пользуются и общий разбор
+    # колец, и быстрый разбор меша из треугольников
+    assert "return _faces_up(v_all, f_all)" in src
+    start = src.index("def _faces_up(v_all, f_all):")
+    end = src.index("\n\n\n", start)
     ns = {"np": np}
-    exec(compile("def orient(v_all, f_all, both_sides=True):\n" + body,
+    exec(compile(src[start:end] + "\n\n"
+                 "def orient(v_all, f_all, both_sides=True):\n"
+                 "    return _faces_up(v_all, f_all)\n",
                  "viewer3d", "exec"), ns)          # nosec
     v = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], float)
     up = np.array([[0, 1, 2]], np.int64)

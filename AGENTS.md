@@ -51,8 +51,8 @@ v3.2.0`, домен codeload из контейнера доступен.
 |---|---|
 | `viewer_dialog.py` | 7747 |
 | `algorithms.py` | 8944 |
-| `viewer3d.py` | 863 |
-| `viewer_core.py` | 1399 |
+| `viewer3d.py` | 878 |
+| `viewer_core.py` | 1446 |
 | `i18n.py` | 4247 |
 
 Инструменты:

@@ -902,6 +902,51 @@ def _bary_z(tri, xs, ys):
     return l1 * z1 + l2 * z2 + l3 * z3
 
 
+_TRI_PART_TYPES = {1003, 1017, 0x80000003, 0x80000011}
+_TRI_MULTI_TYPES = {1006, 1015, 1016, 0x80000006, 0x8000000F,
+                    0x80000010}
+
+
+def wkb_triangles(wkb):
+    """Меш из WKB, если каждая часть - треугольник: (вершины, грани).
+
+    Тела 2.04, 2.11-2.15 и оболочки сцены пишутся мультиполигоном
+    с Z, по треугольнику на часть. У тела толщ Василия таких частей
+    восемьдесят тысяч, и разбор по кольцам шёл двадцать секунд, всё
+    это время окно QGIS стояло. Здесь записи одинаковой длины
+    читаются разом, без цикла по частям.
+
+    Возвращает None, если геометрия не такая: другой порядок байт
+    у частей, кольцо не из четырёх точек, нет Z, есть M. Тогда идёт
+    общий разбор.
+    """
+    import numpy as np
+    buf = bytes(wkb)
+    if len(buf) < 9 or buf[0] != 1:
+        return None
+    head = np.frombuffer(buf, dtype="<u4", count=2, offset=1)
+    if int(head[0]) not in _TRI_MULTI_TYPES:
+        return None
+    n = int(head[1])
+    rec = 1 + 4 + 4 + 4 + 4 * 3 * 8
+    if n <= 0 or len(buf) != 9 + n * rec:
+        return None
+    raw = np.frombuffer(buf, dtype=np.uint8, offset=9).reshape(n, rec)
+    if not (raw[:, 0] == 1).all():
+        return None
+    meta = raw[:, 1:13].copy().view("<u4").reshape(n, 3)
+    if not np.isin(meta[:, 0], list(_TRI_PART_TYPES)).all():
+        return None
+    if not ((meta[:, 1] == 1) & (meta[:, 2] == 4)).all():
+        return None
+    xyz = raw[:, 13:].copy().view("<f8").reshape(n, 4, 3)
+    v = xyz[:, :3, :].reshape(-1, 3)
+    if not np.isfinite(v).all():
+        return None
+    f = np.arange(3 * n, dtype=np.int64).reshape(n, 3)
+    return v, f
+
+
 def wkb_rings(wkb, zfix=None):
     """Кольца и линии геометрии прямо из WKB: список массивов (k, 3).
 
@@ -998,7 +1043,9 @@ def _flat_z(geom, tol=1e-6):
     вершин объявлялся плоским, и скат превращался в плиту.
     """
     try:
-        got = wkb_rings(geom.asWkb())
+        wkb = geom.asWkb()
+        tri = wkb_triangles(wkb)
+        got = [tri[0]] if tri is not None else wkb_rings(wkb)
     except Exception:
         got = None
     if got is not None:
