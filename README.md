@@ -112,13 +112,14 @@ values: a grid band is a horizontal level.
 | 2.12 Selection by a shell | Points, lines and polygons inside a body: volume, tonnage and the weighted grade of the selection | The selected features |
 | 2.13 A shell from a bed grid | A closed body from a grid by a tool rather than a button: the chain to reserves fits a model | Bodies with volumes |
 | 2.14 Zonal statistics of shells | How many points, lines and their lengths fell into every body. Numbers in the attributes, repeated runs add up | Bodies with count fields |
-| 2.15 Formation bodies from outlines | Formations lying side by side, from sections, a map with relief elevations and inclined cuts together. Every point of the volume goes to one formation | A formation cube and formation bodies with volume |
+| 2.15 Formation bodies from outlines and boreholes | Formations lying side by side or in beds, from sections, a map with relief elevations, inclined cuts and borehole intervals together. Every point of the volume goes to one formation | A formation cube and formation bodies with volume |
 | 2.16 A demonstration river network (demo) | A relief and a river network with a discharge on every link, an example for showing lines as tubes | A river network and a relief |
 | 2.17 Borehole traces from downhole surveys | Collars and a survey table by minimum curvature, as in Micromine and Datamine. Three ways of recording the angle | Traces as lines with Z |
 | 2.18 Intervals along a borehole | Sample intervals from a table, equal intervals and length-weighted composites | Pieces of the trace and midpoints |
 | 2.19 A demonstration drilling (demo) | Collars, survey and assays over a gold vein, an example for 2.17 and 2.18 | Three layers |
 | 2.20 Block model to cube | A block model from Micromine, Datamine or Surpac, or an x, y, z table of an inversion, on the grid of a cube. Sub-blocks are averaged by volume | A cube of values |
 | 2.21 2D inversion section into the volume | An x, y, z table along a profile becomes a wall of cells in the scene, a bent profile and several profiles in one table | Section cells with Z |
+| 2.22 Demo formations in boreholes (demo) | Borehole intervals over a layered site: beds, a pinch-out and a lens, with the site outline | Borehole intervals and the site outline |
 
 A bed grid assembled by the first tool is read by the 3D window as a body:
 computed and looked at right away.

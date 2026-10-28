@@ -6926,11 +6926,25 @@ HINTS_2_15 = {
               "поверхности с отметками рельефа, наклонные сечения, "
               "всё вместе. Каждый контур опробуется в своей плоскости, "
               "и плоскость берётся из самих вершин. Плоский чертёжный "
-              "разрез не годится: у него нет настоящих отметок.",
+              "разрез не годится: у него нет настоящих отметок. Можно "
+              "не задавать, если есть интервалы скважин.",
     "FIELD": "Поле кода толщи. Одинаковый код на разрезе и на карте "
              "значит одну толщу. Пусто или поля в слое нет - кодом "
              "служит имя слоя: так удобно, когда каждая толща лежит "
              "своим слоем.",
+    "INTERVALS": "Интервалы скважин: линии с настоящими Z, по линии "
+                 "на интервал журнала. Выход 2.18 или своя разбивка. "
+                 "Стволы могут быть наклонными, пропуски в журнале "
+                 "допустимы.",
+    "INT_FIELD": "Поле с кодом толщи или грунта. Код тот же, что "
+                 "у контуров, значит та же толща. Пусто - поле ищется "
+                 "по имени: soil_type, lith, unit, слой, толща.",
+    "INT_HOLE": "Поле номера скважины. Пусто - ищется по имени (hole, "
+                "well_id, скважина), а без такого поля интервалы "
+                "собираются в скважину по стыкам концов.",
+    "CONTOUR": "Контур участка или карьера в плане. Тела обрезаются "
+               "по нему. Контур, который не накрывает данные, "
+               "не учитывается, и в журнале об этом предупреждение.",
     "CELL": "Шаг сетки по площади. Ноль берёт сотую долю охвата. "
             "Контакт ложится с точностью до половины ячейки, а время "
             "растёт с числом ячеек.",
@@ -6946,6 +6960,27 @@ HINTS_2_15 = {
 }
 
 
+def _features_unchecked(src):
+    """Объекты источника без проверки геометрии.
+
+    Вертикальный интервал скважины в плане нулевой длины, и проверка
+    QGIS считает такую линию ошибочной: при настройке «остановить на
+    ошибочной геометрии» инструмент падал на первом же интервале.
+    """
+    from qgis.core import QgsFeatureRequest, QgsProcessingFeatureSource
+    flag = getattr(QgsProcessingFeatureSource,
+                   "FlagSkipGeometryValidityChecks", None)
+    if flag is None:
+        from qgis.core import Qgis
+        flag = Qgis.ProcessingFeatureSourceFlag.SkipGeometryValidityChecks
+    return src.getFeatures(QgsFeatureRequest(), flag)
+
+
+def _line_parts(g):
+    """Части линии с вершинами QgsPoint: у мультилинии их несколько."""
+    return [list(part.vertices()) for part in g.constParts()]
+
+
 class FormationBodiesAlgorithm(IsolinerAlgorithm):
     """Тела толщ по контурам в любых плоскостях.
 
@@ -6957,13 +6992,15 @@ class FormationBodiesAlgorithm(IsolinerAlgorithm):
     """
 
     INPUTS, FIELD, CELL, CELLZ = "INPUTS", "FIELD", "CELL", "CELLZ"
+    INTERVALS, INT_FIELD, INT_HOLE = "INTERVALS", "INT_FIELD", "INT_HOLE"
+    CONTOUR = "CONTOUR"
     OUTPUT_CUBE, OUTPUT = "OUTPUT_CUBE", "OUTPUT"
 
     def name(self):
         return "formation_bodies"
 
     def displayName(self):
-        return self.tr("2.15 Тела толщ по контурам")
+        return self.tr("2.15 Тела толщ по контурам и скважинам")
 
     def group(self):
         return self.tr(GROUP5)
@@ -6982,6 +7019,12 @@ class FormationBodiesAlgorithm(IsolinerAlgorithm):
             "Строит тела толщ по контурам в любых плоскостях: "
             "вертикальным разрезам, карте на дневной поверхности, "
             "наклонным сечениям. Слоёв на входе может быть несколько.\n\n"
+            "Вместо контуров или вместе с ними годятся интервалы "
+            "скважин: линии с Z, у каждой код толщи или грунта. Это "
+            "выход 2.18 или своя разбивка журнала. Каждая толща "
+            "становится своим телом. Толща, которой нет в части "
+            "скважин, выклинивается между скважинами, линза "
+            "замыкается.\n\n"
             "Для толщ, которые лежат рядом и граничат по крутым "
             "контактам. 2.08 строит пласты, лежащие друг над другом, "
             "и на таких толщах растягивает каждую на общую площадь.\n\n"
@@ -6997,9 +7040,14 @@ class FormationBodiesAlgorithm(IsolinerAlgorithm):
             "разрезами идёт от одного к другому, а не расплывается. "
             "Карта держит контакт у поверхности, в глубину его ведут "
             "разрезы.\n\n"
-            "Сверху тела обрезаются рельефом по отметкам карты и верху "
-            "разрезов, снизу по нижней отметке данных, в плане "
-            "по выпуклой оболочке данных.\n\n"
+            "По скважинам решётка частая вдоль ствола и редкая "
+            "в плане, по расстоянию между скважинами. Тогда пласт в метр "
+            "держится в скважине, а между скважинами контакт идёт "
+            "плавно, без бугров вокруг каждой.\n\n"
+            "Сверху тела обрезаются рельефом по отметкам карты, верху "
+            "разрезов и устьям скважин, снизу по нижней отметке данных, "
+            "в плане по выпуклой оболочке данных и по контуру участка, "
+            "если он задан.\n\n"
             "В журнал печатается невязка у контактов по каждой толще. "
             "Большая невязка значит, что контуры разных плоскостей "
             "спорят между собой.") + _credit())
@@ -7007,10 +7055,25 @@ class FormationBodiesAlgorithm(IsolinerAlgorithm):
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterMultipleLayers(
             self.INPUTS, self.tr("Слои контуров (полигоны с Z)"),
-            layerType=QgsProcessing.SourceType.TypeVectorPolygon))
+            layerType=QgsProcessing.SourceType.TypeVectorPolygon,
+            optional=True))
         self.addParameter(QgsProcessingParameterString(
             self.FIELD, self.tr("Поле кода толщи (пусто - имя слоя)"),
             defaultValue="code", optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.INTERVALS, self.tr("Интервалы скважин (линии с Z)"),
+            [QgsProcessing.SourceType.TypeVectorLine], optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.INT_FIELD, self.tr("Поле толщи в интервалах (пусто - "
+                                    "по имени)"), None, self.INTERVALS,
+            optional=True))
+        self.addParameter(QgsProcessingParameterField(
+            self.INT_HOLE, self.tr("Поле номера скважины (пусто - "
+                                   "по имени)"), None, self.INTERVALS,
+            optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            self.CONTOUR, self.tr("Контур участка в плане"),
+            [QgsProcessing.SourceType.TypeVectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterNumber(
             self.CELL, self.tr("Шаг сетки по площади, м (0 - от данных)"),
             QgsProcessingParameterNumber.Type.Double,
@@ -7096,35 +7159,137 @@ class FormationBodiesAlgorithm(IsolinerAlgorithm):
                 "полигоны с настоящими Z.") % n_flat)
         return rings, codes
 
+    @staticmethod
+    def _transform(src_crs, crs):
+        from qgis.core import QgsCoordinateTransform, QgsProject
+        if src_crs.isValid() and crs.isValid() and src_crs != crs:
+            return QgsCoordinateTransform(src_crs, crs,
+                                          QgsProject.instance())
+        return None
+
+    def _intervals(self, src, f_code, f_hole, crs, feedback):
+        """Интервалы скважин: [(номер, код, вершины (k, 3))]."""
+        names = src.fields().names()
+        i_code = names.index(f_code) if f_code in names else -1
+        i_hole = names.index(f_hole) if f_hole in names else -1
+        tr_ = self._transform(src.sourceCrs(), crs)
+        items, n_flat, n_nocode = [], 0, 0
+        for ft in _features_unchecked(src):
+            if feedback.isCanceled():
+                break
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            if tr_ is not None:
+                g = QgsGeometry(g)
+                if g.transform(tr_) != 0:
+                    continue
+            attrs = ft.attributes()
+            code = attrs[i_code] if i_code >= 0 else None
+            if code is None or str(code).strip() in ("", "NULL"):
+                n_nocode += 1
+                continue
+            key = attrs[i_hole] if i_hole >= 0 else None
+            for line in _line_parts(g):
+                pts = np.array([(v.x(), v.y(), v.z()) for v in line],
+                               dtype=float)
+                if len(pts) < 2:
+                    continue
+                if not np.isfinite(pts).all():
+                    n_flat += 1
+                    continue
+                items.append((key, str(code).strip(), pts))
+        if n_flat:
+            feedback.pushWarning(self.tr(
+                "Интервалов без высоты: %d, они пропущены. Нужны "
+                "линии с настоящими Z.") % n_flat)
+        if n_nocode:
+            feedback.pushInfo(self.tr(
+                "Интервалов без кода толщи: %d, они пропущены.")
+                % n_nocode)
+        return items
+
+    def _contour(self, src, crs):
+        """Наибольший внешний контур слоя в плане (N, 2) или None."""
+        tr_ = self._transform(src.sourceCrs(), crs)
+        best, best_area = None, 0.0
+        for ft in _features_unchecked(src):
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            if tr_ is not None:
+                g = QgsGeometry(g)
+                if g.transform(tr_) != 0:
+                    continue
+            polys = g.asMultiPolygon() if g.isMultipart() \
+                else [g.asPolygon()]
+            for poly in polys:
+                if not poly or len(poly[0]) < 4:
+                    continue
+                r = np.array([(p.x(), p.y()) for p in poly[0]])
+                a = 0.5 * abs(np.dot(r[:, 0], np.roll(r[:, 1], 1))
+                              - np.dot(r[:, 1], np.roll(r[:, 0], 1)))
+                if a > best_area:
+                    best, best_area = r, a
+        return best
+
     def _process(self, parameters, context, feedback):
         from qgis.core import QgsFields, QgsFeature, QgsWkbTypes
-        from . import domains
+        from . import colnames, domains
         from .cadmesh import mesh_wkb
 
         layers = self.parameterAsLayerList(parameters, self.INPUTS,
-                                           context)
+                                           context) or []
         layers = [lyr for lyr in layers if hasattr(lyr, "getFeatures")]
-        if not layers:
+        isrc = self.parameterAsSource(parameters, self.INTERVALS, context)
+        if not layers and isrc is None:
             raise QgsProcessingException(self.tr(
-                "Нет ни одного слоя контуров."))
+                "Нужны слои контуров или интервалы скважин."))
         field = (self.parameterAsString(parameters, self.FIELD,
                                         context) or "").strip()
         cell = self.parameterAsDouble(parameters, self.CELL, context)
         cellz = self.parameterAsDouble(parameters, self.CELLZ, context)
         cube_path = self.parameterAsOutputLayer(parameters,
                                                 self.OUTPUT_CUBE, context)
-        crs = layers[0].crs()
+        crs = layers[0].crs() if layers else isrc.sourceCrs()
 
-        rings, codes = self._rings(layers, field, crs, feedback)
-        if not rings:
-            raise QgsProcessingException(self.tr(
-                "Контуров с высотой не нашлось."))
-        uniq = sorted(set(codes), key=str)
+        rings, codes = [], []
+        if layers:
+            rings, codes = self._rings(layers, field, crs, feedback)
+            if not rings and isrc is None:
+                raise QgsProcessingException(self.tr(
+                    "Контуров с высотой не нашлось."))
+        holes = []
+        if isrc is not None:
+            names = isrc.fields().names()
+            f_code = colnames.resolve(self.parameterAsString(
+                parameters, self.INT_FIELD, context), names, "unit")
+            f_hole = colnames.resolve(self.parameterAsString(
+                parameters, self.INT_HOLE, context), names, "hole",
+                taken=[f_code])
+            if not f_code:
+                raise QgsProcessingException(self.tr(
+                    "В интервалах не нашлось поля толщи. Укажите его "
+                    "явно."))
+            feedback.pushInfo(self.tr(
+                "Интервалы: толща по полю %s, скважина по полю %s.")
+                % (f_code, f_hole or self.tr("нет, по стыкам "
+                                             "интервалов")))
+            items = self._intervals(isrc, f_code, f_hole, crs, feedback)
+            holes = domains.group_intervals(items)
+            if not holes and not rings:
+                raise QgsProcessingException(self.tr(
+                    "Интервалов с высотой и кодом толщи не нашлось."))
+            feedback.pushInfo(self.tr("Скважин: %d, интервалов: %d.")
+                              % (len(holes), len(items)))
+        hole_pts = [p for h in holes for _c, p in h]
+        uniq = sorted(set(codes) | {c for h in holes for c, _p in h},
+                      key=str)
         if len(uniq) < 2:
             feedback.pushWarning(self.tr(
                 "Толща одна: контактов нет, тело займёт всю область "
                 "данных."))
-        allp = np.vstack(rings)
+        allp = np.vstack(rings + hole_pts)
         span = float(max(np.ptp(allp[:, 0]), np.ptp(allp[:, 1])))
         if cell <= 0:
             cell = max(span / 100.0, 0.1)
@@ -7132,6 +7297,36 @@ class FormationBodiesAlgorithm(IsolinerAlgorithm):
                               % cell)
         if cellz <= 0:
             cellz = cell / 2.0
+            if holes:
+                # пласты в скважинах бывают в метр: сорок уровней
+                # на высоту данных
+                cellz = min(cellz, max(float(np.ptp(allp[:, 2])) / 40.0,
+                                       0.1))
+            feedback.pushInfo(self.tr("Шаг по вертикали от данных: "
+                                      "%.2f м.") % cellz)
+
+        outline = None
+        csrc = self.parameterAsSource(parameters, self.CONTOUR, context)
+        if csrc is not None:
+            outline = self._contour(csrc, crs)
+            share = (domains.outline_share(outline, allp[:, :2])
+                     if outline is not None else 0.0)
+            if outline is None:
+                feedback.pushWarning(self.tr(
+                    "В слое контура нет полигона, контур не учтён."))
+            elif share <= 0.0:
+                ox, oy = outline.mean(axis=0)
+                dx, dy = allp[:, 0].mean(), allp[:, 1].mean()
+                feedback.pushWarning(self.tr(
+                    "Контур участка не накрывает ни одной точки данных: "
+                    "центр контура в %.1f км от данных. Проверьте "
+                    "систему координат слоя. Контур не учтён.")
+                    % (np.hypot(ox - dx, oy - dy) / 1000.0))
+                outline = None
+            elif share < 0.999:
+                feedback.pushInfo(self.tr(
+                    "Контур участка накрывает %.0f%% точек данных, "
+                    "тела за контуром обрезаны.") % (100.0 * share))
         nx = int(np.ceil(np.ptp(allp[:, 0]) / cell))
         ny = int(np.ceil(np.ptp(allp[:, 1]) / cell))
         nz = int(np.ceil(np.ptp(allp[:, 2]) / cellz)) + 1
@@ -7141,7 +7336,7 @@ class FormationBodiesAlgorithm(IsolinerAlgorithm):
                 "Увеличьте шаг.") % (nx, ny, nz, len(uniq)))
         feedback.pushInfo(self.tr(
             "Контуров: %d, толщ: %d (%s). Сетка %d x %d x %d, "
-            "ячейка %.1f м, по вертикали %.1f м.")
+            "ячейка %.1f м, по вертикали %.2f м.")
             % (len(rings), len(uniq), ", ".join(uniq), nx, ny, nz,
                cell, cellz))
 
@@ -7149,15 +7344,26 @@ class FormationBodiesAlgorithm(IsolinerAlgorithm):
             feedback.setProgress(30.0 * i / max(n, 1))
         try:
             m = domains.build(rings, codes, cell=cell, cellz=cellz,
-                              progress=_prog)
+                              progress=_prog, holes=holes,
+                              outline=outline)
         except ValueError:
             raise QgsProcessingException(self.tr(
                 "Ни один контур не лёг в плоскость."))
+        if m["hole_spacing"]:
+            feedback.pushInfo(self.tr(
+                "Скважины стоят через %.0f м. Решётка интерполяции "
+                "частая вдоль ствола, по горизонтали до %.0f м.")
+                % (m["hole_spacing"], m["hole_spacing"] / 2.0))
+        if not m["rock"].any():
+            raise QgsProcessingException(self.tr(
+                "Область горной массы пуста: рельеф ниже данных или "
+                "контур мимо данных."))
         names = {domains.WALL: self.tr("разрез"),
                  domains.PLAN: self.tr("план"),
                  domains.SLANT: self.tr("наклонное сечение")}
-        feedback.pushInfo(self.tr("Плоскостей: %d (%s).") % (
-            len(m["kinds"]), ", ".join(names[k] for k in m["kinds"])))
+        if m["kinds"]:
+            feedback.pushInfo(self.tr("Плоскостей: %d (%s).") % (
+                len(m["kinds"]), ", ".join(names[k] for k in m["kinds"])))
         if m["spacing"]:
             feedback.pushInfo(self.tr(
                 "Разрезы параллельны, шаг между ними %.0f м. Решётка "
@@ -8571,6 +8777,139 @@ class InversionSectionAlgorithm(IsolinerAlgorithm):
         return {self.OUTPUT: dest}
 
 
+
+HINTS_2_22 = {
+    "EXTENT": "Куда положить пример. Пусто означает взять охват окна "
+              "вида: участок ляжет туда, куда вы смотрите.",
+    "SEED": "Одно и то же зерно даёт одну и ту же расстановку "
+            "скважин. Другое зерно - другие сдвиги скважин от сетки.",
+    "OUTPUT": "Интервалы скважин: вертикальные линии с Z, по линии "
+              "на толщу в скважине, с полями номера скважины, грунта "
+              "и глубин. Вход для 2.15.",
+    "OUTPUT_CONTOUR": "Контур участка в плане, чуть меньше охвата "
+                      "скважин. Вход «Контур участка» для 2.15: тела "
+                      "обрезаются по нему.",
+}
+
+
+class DemoLayersAlgorithm(IsolinerAlgorithm):
+    """Демонстрационные толщи по скважинам: пласты, выклинивание, линза."""
+
+    EXTENT, SEED = "EXTENT", "SEED"
+    OUTPUT, OUTPUT_CONTOUR = "OUTPUT", "OUTPUT_CONTOUR"
+
+    def name(self):
+        return "demo_layers"
+
+    def displayName(self):
+        return self.tr("2.22 Демонстрационные толщи по скважинам (демо)")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def createInstance(self):
+        return DemoLayersAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Создаёт интервалы скважин по участку с пластами, как "
+            "журнал разведки карьера: сверху почвенно-растительный "
+            "слой, под ним песок мелкий, песок крупный и глина.\n\n"
+            "Песок мелкий выклинивается на восток, песок крупный "
+            "лежит линзой в середине участка. Девяносто скважин "
+            "глубиной 20 м стоят сеткой через 50 м со сдвигами, "
+            "рельеф пологий. Вторым слоем идёт контур участка.\n\n"
+            "Порядок показа: 2.15 с этими интервалами и контуром, "
+            "затем тела толщ и интервалы в сцену. Интервалам показ "
+            "трубой, стиль по полю soil_type.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterExtent(
+            self.EXTENT, self.tr("Охват (куда положить пример)"),
+            optional=True))
+        self.addParameter(_advanced(QgsProcessingParameterNumber(
+            self.SEED, self.tr("Зерно случайности"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=1)))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT, self.tr("Интервалы скважин"),
+            QgsProcessing.SourceType.TypeVectorLine))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            self.OUTPUT_CONTOUR, self.tr("Контур участка"),
+            QgsProcessing.SourceType.TypeVectorPolygon))
+        _hints(self, HINTS_2_22)
+
+    def _process(self, parameters, context, feedback):
+        from qgis.core import (QgsFields, QgsFeature, QgsPoint,
+                               QgsLineString, QgsPolygon, QgsWkbTypes)
+        from . import domains
+        crs = QgsProject.instance().crs()
+        ext = self.parameterAsExtent(parameters, self.EXTENT, context, crs)
+        seed = self.parameterAsInt(parameters, self.SEED, context)
+        if ext is None or ext.isEmpty():
+            x0 = y0 = 0.0
+            feedback.pushInfo(self.tr(
+                "Пример положен от начала координат: задайте охват, "
+                "чтобы поставить его на своё место."))
+        else:
+            x0, y0 = ext.xMinimum(), ext.yMinimum()
+        rows = domains.demo_holes(seed=seed, x0=x0, y0=y0)
+
+        fields = QgsFields()
+        fields.append(_field("well_id", QVariant.String))
+        fields.append(_field("soil_type", QVariant.String))
+        fields.append(_field("top_depth", QVariant.Double))
+        fields.append(_field("bottom_depth", QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, self.OUTPUT, context, fields,
+            QgsWkbTypes.Type.LineStringZ, crs)
+        if sink is None:
+            raise QgsProcessingException(self.tr(
+                "Не удалось создать слой интервалов."))
+        made = 0
+        for well, code, a, b, v in rows:
+            ft = QgsFeature(fields)
+            ft.setGeometry(QgsGeometry(QgsLineString(
+                [QgsPoint(*map(float, p)) for p in v])))
+            ft.setAttributes([well, code, a, b])
+            if sink.addFeature(ft):
+                made += 1
+        if not made:
+            raise QgsProcessingException(self.tr(
+                "Ни один объект не записан."))
+
+        f_c = QgsFields()
+        f_c.append(_field("name", QVariant.String))
+        sink_c, dest_c = self.parameterAsSink(
+            parameters, self.OUTPUT_CONTOUR, context, f_c,
+            QgsWkbTypes.Type.Polygon, crs)
+        if sink_c is not None:
+            ring = [(25.0, 25.0), (575.0, 25.0), (575.0, 375.0),
+                    (25.0, 375.0), (25.0, 25.0)]
+            poly = QgsPolygon(QgsLineString(
+                [QgsPoint(x0 + x, y0 + y) for x, y in ring]))
+            ft = QgsFeature(f_c)
+            ft.setGeometry(QgsGeometry(poly))
+            ft.setAttributes([self.tr("Участок")])
+            sink_c.addFeature(ft)
+        _set_output_name(context, dest, self.tr("Интервалы скважин"))
+        _set_output_name(context, dest_c, self.tr("Контур участка"))
+        feedback.pushInfo(self.tr("Скважин: %d, интервалов: %d.")
+                          % (len({r[0] for r in rows}), made))
+        feedback.pushInfo(self.tr(
+            "Порядок показа.\n"
+            "1. 2.15: интервалы скважин, поле толщи soil_type, контур "
+            "участка. Слои контуров не нужны.\n"
+            "2. Тела толщ и интервалы в 3D-просмотр. Интервалам "
+            "в свойствах слоя показ трубой, стиль на карте по полю "
+            "soil_type."))
+        return {self.OUTPUT: dest, self.OUTPUT_CONTOUR: dest_c}
+
 ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
@@ -8601,4 +8940,5 @@ ALGORITHMS = [
     DemoDrillingAlgorithm,
     BlocksToCubeAlgorithm,
     InversionSectionAlgorithm,
+    DemoLayersAlgorithm,
 ]

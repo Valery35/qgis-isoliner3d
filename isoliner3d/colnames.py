@@ -16,7 +16,7 @@
 ROLES = {
     # скважины
     "hole": ("hole", "holeid", "hole_id", "bhid", "dhid", "well",
-             "скважина", "скв", "номер"),
+             "well_id", "wellid", "скважина", "скв", "номер"),
     "collar_x": ("east", "x", "xcollar", "easting", "x_collar"),
     "collar_y": ("north", "y", "ycollar", "northing", "y_collar"),
     "collar_z": ("rl", "z", "zcollar", "elevation", "elev", "z_collar"),
@@ -29,6 +29,11 @@ ROLES = {
     "from": ("from", "from_m", "depth_from", "fromdepth", "samp_from",
              "от"),
     "to": ("to", "to_m", "depth_to", "todepth", "samp_to", "до"),
+    # интервалы скважин: код толщи или грунта
+    "unit": ("unit", "lith", "litho", "lithology", "soil_type", "soil",
+             "rock", "rocktype", "rock_type", "formation", "geology",
+             "geol", "code", "layer", "толща", "слой", "порода",
+             "литология", "грунт"),
     # разрез 2D-инверсии: номер профиля
     "line": ("line", "line_id", "lineid", "profile", "prof", "profile_id",
              "профиль", "линия", "пр"),

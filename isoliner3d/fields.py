@@ -104,6 +104,11 @@ LABELS = {
     "dip": "Угол, град",
     "au": "Золото, г/т",
     "cover": "Доля опробованной длины",
+    # 2.22: толщи по скважинам
+    "well_id": "Скважина",
+    "soil_type": "Грунт",
+    "top_depth": "Кровля, глубина, м",
+    "bottom_depth": "Подошва, глубина, м",
 }
 
 # Поля с переменной приставкой: 2.14 называет их по слою, который
@@ -122,7 +127,7 @@ SUFFIX_LABELS = {
 METRIC = {
     "x", "y", "z", "top", "bot", "z_from", "z_to", "thick",
     "dx", "dy", "dz", "from_m", "to_m", "zmin", "zmax", "length_m",
-    "eoh", "depth",
+    "eoh", "depth", "top_depth", "bottom_depth",
 }
 METRIC_SUFFIX = ("_len",)
 METRIC_DECIMALS = 2

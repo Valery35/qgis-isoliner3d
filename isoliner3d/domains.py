@@ -245,6 +245,260 @@ def sample_plane(rings, codes, idx, all_codes, step, cap, tol=None):
     return pts, vals, (c, e1, e2, n)
 
 
+def _orient_down(pts):
+    """Интервал сверху вниз: первая вершина выше последней."""
+    p = np.asarray(pts, dtype=float)[:, :3]
+    return p[::-1] if p[0, 2] < p[-1, 2] else p
+
+
+def hole_runs(intervals):
+    """Ствол из интервалов: ломаная, глубины и пачки одного кода.
+
+    `intervals` - [(код, вершины (k, 3))] одной скважины в любом
+    порядке и направлении. Интервалы ставятся сверху вниз по отметке
+    верха, соседние одного кода сливаются в пачку: граница между
+    ними не контакт.
+
+    Возвращает (вершины ствола (N, 3), глубины по стволу (N,),
+    пачки [(код, от, до)]).
+    """
+    segs = sorted(((c, _orient_down(p)) for c, p in intervals),
+                  key=lambda t: -t[1][0, 2])
+    verts, md, runs = [], [], []
+    s = 0.0
+    for code, p in segs:
+        d = np.concatenate([[0.0], np.cumsum(np.linalg.norm(
+            np.diff(p, axis=0), axis=1))])
+        start = s
+        if verts and np.linalg.norm(verts[-1] - p[0]) > 1e-6:
+            # разрыв опробования: глубина идёт по прямой через пропуск
+            s += float(np.linalg.norm(verts[-1] - p[0]))
+            start = s
+        for k in range(len(p)):
+            if verts and k == 0 and np.linalg.norm(verts[-1] - p[0]) \
+                    <= 1e-6:
+                continue
+            verts.append(p[k])
+            md.append(start + d[k])
+        s = start + d[-1]
+        if runs and runs[-1][0] == code and abs(runs[-1][2] - start) \
+                <= 1e-6:
+            runs[-1] = (code, runs[-1][1], s)
+        else:
+            runs.append((code, start, s))
+    return np.array(verts), np.array(md), runs
+
+
+def _at_md(verts, md, s):
+    """Точки ствола на глубинах `s`."""
+    s = np.clip(np.asarray(s, dtype=float), md[0], md[-1])
+    return np.column_stack([np.interp(s, md, verts[:, k])
+                            for k in range(3)])
+
+
+def sample_holes(holes, all_codes, step, cap):
+    """Опробование стволов: точки и поле каждой толщи вдоль них.
+
+    То же поле, что в плоскостях контуров (`sample_plane`), только
+    одномерное: расстояние по стволу до КОНТАКТОВ толщи со знаком.
+    Внутри пачки толщи плюс, до ближайшего её контакта со своей
+    стороны. Верх и низ ствола контактом не считаются: там кончились
+    данные, а не толща. В чужой пачке минус, до ближайшей пачки этой
+    толщи в той же скважине. Толща, которой в скважине нет, получает
+    `-cap`: здесь её нет, а насколько далеко она, скважина не знает.
+
+    На каждом контакте ставится точка, где поле обеих толщ ноль.
+
+    `holes` - список скважин, скважина - [(код, вершины (k, 3))].
+    Возвращает (точки (N, 3), {код: значения (N,)}, устья (M, 3)).
+    """
+    pts, vals = [], {c: [] for c in all_codes}
+    collars = []
+    for intervals in holes:
+        if not intervals:
+            continue
+        verts, md, runs = hole_runs(intervals)
+        if len(verts) < 2:
+            continue
+        collars.append(verts[0])
+        bounds = [r[1] for r in runs] + [runs[-1][2]]
+        samples, own = [], []
+        for ri, (code, a, b) in enumerate(runs):
+            n = max(int(np.ceil((b - a) / step)), 1)
+            ss = a + (np.arange(n) + 0.5) * (b - a) / n
+            samples.append(ss)
+            own.append(np.full(n, ri))
+        contacts = [ri for ri in range(1, len(runs))
+                    if runs[ri][0] != runs[ri - 1][0]]
+        for ri in contacts:
+            samples.append(np.array([bounds[ri]]))
+            own.append(np.array([-1 - ri]))     # контакт перед пачкой ri
+        ss = np.concatenate(samples)
+        ow = np.concatenate(own)
+        pts.append(_at_md(verts, md, ss))
+        for c in all_codes:
+            mine = [ri for ri, r in enumerate(runs) if r[0] == c]
+            v = np.empty(len(ss))
+            for k, (s, o) in enumerate(zip(ss, ow)):
+                if o < 0:
+                    ri = -1 - o
+                    v[k] = 0.0 if c in (runs[ri][0], runs[ri - 1][0]) \
+                        else -min(cap, min((abs(s - x) for m in mine
+                                            for x in runs[m][1:]),
+                                           default=cap))
+                    continue
+                code, a, b = runs[o]
+                if code == c:
+                    d = []
+                    if o > 0 and runs[o - 1][0] != c:
+                        d.append(s - a)
+                    if o < len(runs) - 1 and runs[o + 1][0] != c:
+                        d.append(b - s)
+                    v[k] = min(min(d), cap) if d else cap
+                elif mine:
+                    v[k] = -min(cap, min(min(abs(s - runs[m][1]),
+                                             abs(s - runs[m][2]))
+                                         for m in mine))
+                else:
+                    v[k] = -cap
+            vals[c].append(v)
+    if not pts:
+        return np.zeros((0, 3)), {c: np.zeros(0) for c in all_codes}, \
+            np.zeros((0, 3))
+    return (np.vstack(pts), {c: np.concatenate(v) for c, v in vals.items()},
+            np.array(collars))
+
+
+def hole_spacing(collars):
+    """Обычное расстояние между соседними скважинами в плане (медиана)."""
+    c = np.asarray(collars, dtype=float)[:, :2]
+    if len(c) < 2:
+        return None
+    d = np.hypot(c[:, None, 0] - c[None, :, 0], c[:, None, 1] - c[None, :, 1])
+    np.fill_diagonal(d, np.inf)
+    nn = d.min(axis=1)
+    nn = nn[np.isfinite(nn) & (nn > 1e-6)]
+    return float(np.median(nn)) if len(nn) else None
+
+
+def group_intervals(items, tol=0.01):
+    """Интервалы в скважины.
+
+    `items` - [(номер скважины или None, код, вершины (k, 3))]. Номер
+    есть - скважину собирают интервалы с одним номером. Номера нет -
+    интервалы сцепляются концами: низ одного там же, где верх
+    следующего, с точностью `tol`. Так собирается и наклонная
+    скважина без поля номера.
+
+    Возвращает список скважин, скважина - [(код, вершины)].
+    """
+    named, loose = {}, []
+    for key, code, p in items:
+        p = np.asarray(p, dtype=float)[:, :3]
+        if len(p) < 2 or not np.isfinite(p).all():
+            continue
+        if key is None or str(key).strip() in ("", "NULL"):
+            loose.append((code, p))
+        else:
+            named.setdefault(str(key).strip(), []).append((code, p))
+    out = list(named.values())
+    if loose:
+        parent = list(range(len(loose)))
+
+        def root(i):
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        ends = {}
+        for i, (_c, p) in enumerate(loose):
+            for v in (p[0], p[-1]):
+                k = tuple(np.round(v / tol).astype(np.int64))
+                if k in ends:
+                    parent[root(i)] = root(ends[k])
+                else:
+                    ends[k] = i
+        by = {}
+        for i, it in enumerate(loose):
+            by.setdefault(root(i), []).append(it)
+        out.extend(by.values())
+    return out
+
+
+DEMO_CODES = ("Почвенно-растительный слой", "Песок мелкий",
+              "Песок крупный", "Глина")
+
+
+def demo_relief(x, y, z0=140.0):
+    """Рельеф демо-участка: пологие увалы."""
+    return z0 + 2.0 * np.sin(x / 150.0) + 1.5 * np.cos(y / 120.0)
+
+
+def demo_thickness(x, y):
+    """Мощности толщ демо над глиной: ПРС, песок мелкий, песок крупный.
+
+    Песок мелкий выклинивается на восток: к x = 480 м его нет.
+    Песок крупный - линза в середине участка.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    prs = 0.8 + 0.3 * np.sin(x / 60.0 + y / 90.0)
+    fine = np.clip(6.0 - x / 80.0, 0.0, None) * (1.0 + 0.2 * np.cos(
+        y / 70.0))
+    lens = 6.0 * np.clip(1.0 - ((x - 300.0) / 170.0) ** 2
+                         - ((y - 200.0) / 110.0) ** 2, 0.0, None)
+    return prs, fine, lens
+
+
+def demo_unit(x, y, z):
+    """Номер толщи демо в точке (по DEMO_CODES), над рельефом -1."""
+    top = demo_relief(x, y)
+    prs, fine, lens = demo_thickness(x, y)
+    d = top - np.asarray(z, dtype=float)
+    out = np.full(np.shape(d), 3)
+    out = np.where(d < prs + fine + lens, 2, out)
+    out = np.where(d < prs + fine, 1, out)
+    out = np.where(d < prs, 0, out)
+    return np.where(d < 0, -1, out)
+
+
+def demo_holes(seed=1, x0=0.0, y0=0.0, depth=20.0, spacing=50.0,
+               nx=13, ny=9):
+    """Вертикальные скважины по демо-участку, интервалами толщ.
+
+    Скважины стоят сеткой через `spacing` со сдвигом до пятой доли
+    шага. Интервал - толща от кровли до подошвы в скважине,
+    выклиненная толща в скважине не пишется.
+
+    Возвращает [(номер скважины, код, от, до, вершины (2, 3))].
+    """
+    rng = np.random.default_rng(seed)
+    out = []
+    n = 0
+    for j in range(ny):
+        for i in range(nx):
+            x = i * spacing + rng.uniform(-0.2, 0.2) * spacing
+            y = j * spacing + rng.uniform(-0.2, 0.2) * spacing
+            if not (0.0 <= x <= (nx - 1) * spacing
+                    and 0.0 <= y <= (ny - 1) * spacing):
+                continue
+            n += 1
+            top = float(demo_relief(x, y))
+            prs, fine, lens = (float(v) for v in demo_thickness(x, y))
+            bounds = np.cumsum([0.0, prs, fine, lens])
+            bounds = np.round(np.minimum(np.append(bounds, depth),
+                                         depth), 1)
+            for k in range(4):
+                a, b = float(bounds[k]), float(bounds[k + 1])
+                if b - a < 0.05:
+                    continue
+                v = np.array([[x0 + x, y0 + y, top - a],
+                              [x0 + x, y0 + y, top - b]])
+                out.append(("C-%03d" % n, DEMO_CODES[k], a, b, v))
+    return out
+
+
 def relief_points(rings, groups, step):
     """Точки рельефа: вершины плана и верх разрезов.
 
@@ -296,6 +550,20 @@ def hull_distance(ring, x, y):
     ins = _inside(rs, rz, xs, ys)
     d = _dist_to_ring(rs, rz, xs, ys)
     return np.where(ins, d, -d).reshape(np.shape(x))
+
+
+def outline_share(outline, xy):
+    """Доля точек `xy` (N, 2) внутри контура `outline` (M, 2) в плане.
+
+    Контур карьера из другой системы координат или с другого участка
+    не накрывает ни одной скважины, и тела обрезались бы в ноль.
+    По этой доле инструмент узнаёт такой контур заранее.
+    """
+    r = np.asarray(outline, dtype=float)
+    p = np.asarray(xy, dtype=float).reshape(-1, 2)
+    if len(r) < 3 or not len(p):
+        return 0.0
+    return float(np.mean(_inside(r[:, 0], r[:, 1], p[:, 0], p[:, 1])))
 
 
 def auto_levels(extent, grid, step):
@@ -371,11 +639,14 @@ def section_frame(rings, groups, step):
 
 
 def build(rings, codes, cell, cellz=None, step=None, cap=None,
-          levels=None, progress=None):
+          levels=None, progress=None, holes=None, outline=None):
     """Поле каждой толщи, рельеф и классы на воксельной сетке.
 
     `rings` - контуры (N, 3) в любых плоскостях, `codes` - код толщи
     у каждого. `cell` - шаг сетки в плане, `cellz` - по вертикали.
+    `holes` - скважины с интервалами (см. `sample_holes`), можно
+    вместо контуров или вместе с ними. `outline` - контур (N, 2)
+    в плане: горная масса только внутри него.
 
     Возвращает словарь:
         gt, z0, dz, shape - сетка куба (уровень, строка, столбец);
@@ -391,18 +662,28 @@ def build(rings, codes, cell, cellz=None, step=None, cap=None,
         relief            - точки рельефа.
     """
     rings = [np.asarray(r, dtype=float)[:, :3] for r in rings]
-    all_codes = sorted(set(codes), key=lambda v: str(v))
+    holes = [h for h in (holes or []) if h]
+    hole_codes = {c for h in holes for c, _p in h}
+    all_codes = sorted(set(codes) | hole_codes, key=lambda v: str(v))
     cell = float(cell)
     cellz = float(cellz or cell)
     step = float(step or cell)
-    allp = np.vstack(rings)
+    hole_pts = [np.asarray(p, dtype=float)[:, :3] for h in holes
+                for _c, p in h]
+    if not rings and not hole_pts:
+        raise ValueError("no data")
+    allp = np.vstack(rings + hole_pts)
     x0, y0, zb = allp.min(axis=0)
     x1, y1, zt = allp.max(axis=0)
     span = float(max(x1 - x0, y1 - y0, zt - zb))
     if cap is None:
         cap = max(10.0 * step, 0.1 * span)
     tol = max(step, 0.01 * span)
-    groups = plane_groups(rings, tol)
+    groups = plane_groups(rings, tol) if rings else []
+    # по стволу опробуем мельче, чем по площади: слои в скважине
+    # бывают в метр, а шаг по площади - десятки метров
+    hstep = min(step, cellz)
+    h_pts, h_vals, collars = sample_holes(holes, all_codes, hstep, cap)
 
     # Карта и разрезы интерполируются вместе. Пробовали иначе: поле по
     # одним разрезам, а невязку на карте прибавлять на всю глубину.
@@ -415,6 +696,8 @@ def build(rings, codes, cell, cellz=None, step=None, cap=None,
     # снята с дневной поверхности, и между вершинами отметка идёт
     # по рельефу. Поэтому рельеф строится первым.
     relief = relief_points(rings, groups, step)
+    if len(collars):
+        relief = np.vstack([relief, collars]) if len(relief) else collars
     gx = max(int(np.ceil((x1 - x0) / cell)), 2)
     gy = max(int(np.ceil((y1 - y0) / cell)), 2)
     gt = (float(x0), cell, 0.0, float(y0) + gy * cell, 0.0, -cell)
@@ -438,6 +721,10 @@ def build(rings, codes, cell, cellz=None, step=None, cap=None,
             vals[c].append(v[c])
         if progress is not None:
             progress(gi + 1, len(groups))
+    if len(h_pts):
+        pts.append(h_pts)
+        for c in all_codes:
+            vals[c].append(h_vals[c])
     if not pts:
         raise ValueError("no planar outlines")
     pts = np.vstack(pts)
@@ -454,6 +741,22 @@ def build(rings, codes, cell, cellz=None, step=None, cap=None,
     nodes = np.column_stack([XX.ravel(), YY.ravel(), ZZ.ravel()])
 
     frame = section_frame(rings, groups, step)
+    spacing_h = hole_spacing(collars) if len(collars) else None
+    target = step
+    if frame["spacing"] is None and spacing_h:
+        # Только скважины, без параллельных разрезов. В плане данные
+        # редкие (скважины через десятки метров), по стволу густые
+        # (через метр). Изотропная решётка дала бы либо бугор вокруг
+        # каждой скважины, либо размытый по вертикали контакт. Поэтому
+        # отметка растягивается так, что шаг по стволу становится
+        # равен шагу между скважинами, и решётка дробится до половины
+        # этого шага: контакт между скважинами идёт плавно, а в самих
+        # скважинах держится до опробования.
+        kz = spacing_h / max(hstep, 1e-9)
+        frame = {"to": (lambda p, k=kz: np.asarray(p, dtype=float)
+                        .reshape(-1, 3) * np.array([1.0, 1.0, k])),
+                 "grid": frame["grid"], "spacing": None, "kz": kz}
+        target = 0.5 * spacing_h
     to = frame["to"]
     q_pts = to(pts)
     q_all = np.vstack([q_pts, to(allp)])
@@ -461,7 +764,7 @@ def build(rings, codes, cell, cellz=None, step=None, cap=None,
     ext = np.maximum(hi - lo, 1e-9)
     grid3 = frame["grid"](ext)
     if levels is None:
-        levels = auto_levels(ext, grid3, step)
+        levels = auto_levels(ext, grid3, target)
     q_nodes = to(nodes)
     field = {}
     misfit = {}
@@ -481,6 +784,9 @@ def build(rings, codes, cell, cellz=None, step=None, cap=None,
     from .section3d import convex_hull_ring
     hull = convex_hull_ring(allp)
     hd = hull_distance(hull, MX, MY) if hull else np.full(MX.shape, np.inf)
+    if outline is not None and len(outline) >= 3:
+        hd = np.minimum(hd, hull_distance(np.asarray(outline)[:, :2],
+                                          MX, MY))
     if top_lat is not None:
         topz = mba.surface_on_grid(top_lat, gt, gx, gy)
     else:
@@ -514,7 +820,8 @@ def build(rings, codes, cell, cellz=None, step=None, cap=None,
             "rock": rock, "groups": groups, "kinds": kinds,
             "relief": relief, "topz": topz, "samples": n_samples,
             "misfit": misfit, "grid3": grid3,
-            "spacing": frame["spacing"],
+            "spacing": frame["spacing"], "hole_spacing": spacing_h,
+            "kz": frame.get("kz"), "holes": len(collars),
             "levels": levels, "cap": cap}
 
 

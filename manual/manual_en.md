@@ -192,7 +192,7 @@ the right. A tick says what to show. The scene is built by the refresh
 button, not by the tick itself: on a large project a rebuild takes
 seconds, and doing it on every click is pointless.
 
-Mouse: the left button rotates, the wheel zooms, the middle one or the left with Ctrl pans. A right click puts the rotation centre at the point under the cursor. The same hint is shown under the scene when the window opens.
+Mouse: the left button rotates, the wheel zooms, the middle one or the left with Ctrl pans. A right click puts the rotation centre at the point under the cursor. The wheel with Ctrl changes the field of view: a wide angle gives a stronger perspective, a narrow one almost a plan. The house button on the view toolbar brings back the 60 degree field of view, the angle and the framing to the scene. The same hint is shown under the scene when the window opens.
 
 The **Z ×** field on the toolbar is the vertical exaggeration, the same as in the scene properties. One means the true scale.
 
@@ -217,7 +217,7 @@ Opened by a button on the toolbar. The sections are **View**,
 **Clipping**, **Appearance**, **The coordinate box** and **Box
 extent**. All the settings are saved into the project.
 
-**The coordinate box** is set up for the task:
+**The coordinate box** is set up for the task. The tick in the group title turns the whole box on and off, edges with ticks and labels, like the box button on the view toolbar:
 
 - **Edges**: all twelve, three axes from the origin corner as on a drawing, or no edges. Three axes do not block the body.
 - **Labels to the near edges**: when the scene is rotated, ticks and labels move to the edges facing the camera and do not hide behind the model. The vertical axis is labelled along a side edge so as not to stand in front of the body. The scene is not rebuilt for this. Unticked, the labels stay at the origin, as in the GLB export.
@@ -1093,9 +1093,11 @@ Ten chains that come round again and again in the work. Numbers with a
 dot are Isoliner3D tools, names without a number are the neighbouring
 Isoliner.
 
-## 2.15 Formation bodies from outlines
+## 2.15 Formation bodies from outlines and boreholes
 
 Builds bodies of formations from outlines in any planes: vertical sections, the map on the ground surface, inclined cuts. There may be several input layers.
+
+Instead of outlines or together with them, borehole intervals will do: lines with Z, each with a formation or soil code. This is the output of 2.18 or your own split of the log. Every formation becomes its own body. A formation missing from some holes pinches out between the holes, a lens closes.
 
 For formations that lie side by side and meet along steep contacts. 2.08 builds beds lying one above another, and on such formations it stretches each over the common area.
 
@@ -1103,16 +1105,26 @@ Every formation gets a field: the signed distance to its contacts, plus inside, 
 
 If the sections are parallel, the interpolation lattice is dense in their plane and sparse across. Then a contact between the sections runs from one to the other instead of blurring. The map holds a contact near the surface, the sections carry it into depth.
 
-From above the bodies are clipped by the relief built from the map elevations and the tops of the sections, from below by the lowest elevation of the data, in plan by the convex hull of the data.
+With boreholes the lattice is dense along the hole and sparse in plan, by the spacing between the holes. Then a one-metre bed holds in the hole, and between the holes the contact runs smoothly, without bumps around each hole.
+
+From above the bodies are clipped by the relief built from the map elevations, the tops of the sections and the collars, from below by the lowest elevation of the data, in plan by the convex hull of the data and by the site outline, if given.
 
 The log shows the misfit at the contacts for every formation. A large misfit means that outlines in different planes disagree.
 
 The code of a formation must match on the sections and on the map: that is how the tool knows it is one formation. A contact is found by the shared edges of neighbouring outlines in one plane, so neighbouring outlines should be drawn with snapped vertices, without gaps.
 
+Borehole intervals are one line per log interval, from the top to the bottom, with real elevations. The output of 2.18 (samples with a lithology field) will do, or your own split of the log: lines with the fields well_id, soil_type and the top and bottom depths. The formation field and the hole number field are found by name. Without a hole number the intervals are joined into a hole where their ends meet, so inclined holes are joined too. The default vertical step is a fortieth of the data height, so that a one-metre bed does not fall between the levels.
+
+The site or pit outline clips the bodies in plan. If the outline covers no hole, most often it is in another coordinate system or from another site: the tool writes a warning with the distance to the data and builds without the outline.
+
 | Field | What it sets |
 |---|---|
-| **Outline layers (polygons with Z)** | Outline layers: polygons with real Z, in any planes. Vertical sections, a map of the formations on the ground surface with the relief elevations, inclined cuts, all together. Every outline is sampled in its own plane, and the plane is taken from its vertices. A flat drawn section is no good: it has no real elevations. |
+| **Outline layers (polygons with Z)** | Outline layers: polygons with real Z, in any planes. Vertical sections, a map of the formations on the ground surface with the relief elevations, inclined cuts, all together. Every outline is sampled in its own plane, and the plane is taken from its vertices. A flat drawn section is no good: it has no real elevations. May be left empty if there are borehole intervals. |
 | **Formation code field (empty - layer name)** | The formation code field. The same code on a section and on the map means one formation. Empty or no such field in a layer - the layer name serves as the code: handy when every formation lies in its own layer. |
+| **Borehole intervals (lines with Z)** | Borehole intervals: lines with real Z, one line per log interval. The output of 2.18 or your own split. Holes may be inclined, gaps in the log are allowed. |
+| **Formation field in the intervals (empty - by name)** | Field with the formation or soil code. The same code as in the outlines means the same formation. Empty - the field is looked up by name: soil_type, lith, unit, слой, толща. |
+| **Hole number field (empty - by name)** | Hole number field. Empty - it is looked up by name (hole, well_id, скважина), and without such a field the intervals are joined into holes where their ends meet. |
+| **Site outline in plan** | Outline of the site or the pit in plan. The bodies are clipped by it. An outline that does not cover the data is ignored, with a warning in the log. |
 | **Area grid step, m (0 - from the data)** | The grid step over the area. Zero takes a hundredth of the extent. A contact lands within half a cell, and the time grows with the number of cells. |
 | **Vertical step, m (0 - half the area step)** | The vertical grid step. Zero takes half the area step: formations are usually steeper vertically than along the strike. |
 | **Formation cube** | Formation cube: every voxel holds the number of its formation, above the relief and outside the data it is empty. The scene shows it as a cube, 2.03 turns it into a block model. |
@@ -1150,22 +1162,22 @@ The output is lines with Z. The length of each equals the depth along the hole, 
 
 | Field | What it sets |
 |---|---|
-| **Устья скважин** | Устья скважин: точечный слой или таблица с координатами. У точечного слоя координаты берутся из геометрии, у таблицы - из полей X и Y. |
-| **Поле номера скважины** | Поле номера скважины в устьях. По нему устье сводится с инклинометрией. Пусто - узнаётся по имени: HOLE, HOLEID, BHID. |
-| **Поле отметки устья (пусто - Z геометрии)** | Поле отметки устья. Пусто - отметка из Z геометрии. Без неё ствол встанет на ноль, о чём будет сказано. |
-| **Поле глубины скважины** | Поле глубины скважины (забоя). Пусто - узнаётся по имени (EOH, DEPTH), а без такого поля ствол кончается на последнем замере инклинометрии. |
-| **Поле азимута у устья (пусто - по имени)** | Азимут скважины у устья из паспорта. Наклонная скважина идёт под ним с устья до первого замера. Пусто - узнаётся по имени (AZIMUTH, AZI, BRG). |
-| **Поле угла у устья (пусто - по имени)** | Угол скважины у устья из паспорта, в том же соглашении, что инклинометрия. Пусто - узнаётся по имени (DIP, ANGLE). Замер на глубине 0 важнее паспорта. |
-| **Инклинометрия (таблица)** | Таблица инклинометрии: скважина, глубина по стволу, азимут, угол. Поля, которые не выбраны, узнаются по именам Micromine, Datamine и Surpac. Пусто - все скважины отвесные. |
-| **Поле номера скважины в инклинометрии** | Поле номера скважины в инклинометрии. Номера сводятся с устьями как текст без пробелов по краям. |
-| **Поле глубины замера** | Поле глубины замера по стволу, метры от устья, не отметка и не глубина по вертикали. |
-| **Поле азимута** | Поле азимута, градусы от севера сетки по часовой стрелке. Сближение меридианов не учитывается. |
-| **Поле угла** | Поле угла наклона, в соглашении, выбранном ниже. |
-| **Как записан угол** | Как записан угол. Перепутанное соглашение уводит ствол вверх или кладёт его горизонтально, поэтому проверьте по одной известной скважине. |
-| **Стволы скважин** | Стволы скважин: линии с настоящими Z от устья до забоя. Длина линии равна глубине по стволу, поэтому 2.18 режет её на интервалы без таблицы глубин. |
-| **Поле X (если нет геометрии)** | Поле X, если у слоя устьев нет геометрии. У точечного слоя не нужно. |
-| **Поле Y (если нет геометрии)** | Поле Y, если у слоя устьев нет геометрии. У точечного слоя не нужно. |
-| **Шаг узлов ствола, м** | Шаг узлов ствола вдоль дуги, метры. По узлам ствол рисуется, и по ним же 2.18 находит точки на глубинах. |
+| **Collars** | Collars: a point layer or a table with coordinates. A point layer gives the coordinates from the geometry, a table from the X and Y fields. |
+| **Hole ID field** | The hole ID field in the collars. It matches a collar with its survey. Empty - recognised by name: HOLE, HOLEID, BHID. |
+| **Collar elevation field (empty - Z of the geometry)** | The collar elevation field. Empty - the elevation comes from the Z of the geometry. Without it the trace starts at zero, with a warning. |
+| **Hole depth field** | The field of the hole depth (end of hole). Empty - recognised by name (EOH, DEPTH), and without such a field the trace ends at the last survey station. |
+| **Collar azimuth field (empty - by name)** | The hole azimuth at the collar from the passport. An inclined hole follows it from the collar to the first station. Empty - recognised by name (AZIMUTH, AZI, BRG). |
+| **Collar angle field (empty - by name)** | The hole angle at the collar from the passport, in the same convention as the survey. Empty - recognised by name (DIP, ANGLE). A station at depth 0 takes precedence over the passport. |
+| **Downhole survey (table)** | The survey table: hole, depth along the hole, azimuth, angle. Fields that are not chosen are recognised by Micromine, Datamine and Surpac names. Empty - all holes are vertical. |
+| **Hole ID field in the survey** | The hole ID field in the survey. IDs are matched with the collars as text without leading and trailing spaces. |
+| **Survey depth field** | The field of the survey depth along the hole, metres from the collar, not an elevation and not a vertical depth. |
+| **Azimuth field** | The azimuth field, degrees clockwise from grid north. The meridian convergence is not applied. |
+| **Angle field** | The inclination angle field, in the convention chosen below. |
+| **How the angle is recorded** | How the angle is recorded. A wrong convention sends the trace upwards or lays it flat, so check it on one known hole. |
+| **Borehole traces** | Borehole traces: lines with true Z from the collar to the end of hole. The line length equals the depth along the hole, so 2.18 cuts it into intervals without a depth table. |
+| **X field (without geometry)** | The X field when the collar layer has no geometry. Not needed for a point layer. |
+| **Y field (without geometry)** | The Y field when the collar layer has no geometry. Not needed for a point layer. |
+| **Trace node step, m** | The step of trace nodes along the arc, metres. The trace is drawn by the nodes, and 2.18 finds points at depths by them too. |
 
 ## 2.18 Intervals along a borehole
 
@@ -1181,17 +1193,17 @@ There are two outputs. Pieces of the trace with Z are shown in the scene as tube
 
 | Field | What it sets |
 |---|---|
-| **Стволы скважин (линии с Z)** | Стволы скважин: линии с Z от устья к забою, например из 2.17. Глубина по стволу считается длиной линии от её начала. |
-| **Поле номера скважины в стволах** | Поле номера скважины в стволах. По нему ствол сводится со строками таблицы интервалов. |
-| **Как резать** | Интервалы из таблицы кладут каждую строку опробования на ствол как есть. Равные интервалы режут ствол на пробы заданной длины от устья до забоя. Композиты режут так же и считают в каждом среднее по таблице, взвешенное по длине. |
-| **Таблица интервалов** | Таблица интервалов: скважина, от, до и значения. Нужна для интервалов из таблицы и для композитов. |
-| **Поле номера скважины в таблице** | Поле номера скважины в таблице интервалов. Номера сводятся со стволами как текст. |
-| **Поле начала интервала** | Поле начала интервала, метры по стволу от устья, не отметка. |
-| **Поле конца интервала** | Поле конца интервала, метры по стволу. Строка с концом не дальше начала пропускается. |
-| **Поля для композитов (пусто - все числовые)** | Числовые поля для композитов. Пусто - все числовые, кроме начала и конца интервала. |
-| **Длина интервала, м** | Длина равного интервала или композита, метры. Последний интервал до забоя короче, если длина не делится нацело. |
-| **Интервалы** | Интервалы: куски ствола с Z от начала до конца интервала, с полями от, до, длина и значениями. В сцене их показывают трубами с толщиной или цветом по содержанию. |
-| **Середины интервалов** | Середины интервалов: точки с Z и теми же полями. Это вход для 2.02, 2.06 и 2.07. |
+| **Borehole traces (lines with Z)** | Borehole traces: lines with Z from the collar to the end of hole, for example from 2.17. The depth along the hole is the line length from its start. |
+| **Hole ID field in the traces** | The hole ID field in the traces. It matches a trace with the rows of the interval table. |
+| **How to cut** | Intervals from the table put every sample row on the trace as it is. Equal intervals cut the trace into samples of the given length from the collar to the end of hole. Composites cut the same way and compute in each a length-weighted mean of the table. |
+| **Interval table** | The interval table: hole, from, to and values. Needed for intervals from the table and for composites. |
+| **Hole ID field in the table** | The hole ID field in the interval table. IDs are matched with the traces as text. |
+| **Interval from field** | The field of the interval start, metres along the hole from the collar, not an elevation. |
+| **Interval to field** | The field of the interval end, metres along the hole. A row whose end is not beyond its start is skipped. |
+| **Fields for composites (empty - all numeric)** | Numeric fields for composites. Empty - all numeric ones except the interval start and end. |
+| **Interval length, m** | The length of an equal interval or a composite, metres. The last interval to the end of hole is shorter when the length does not divide evenly. |
+| **Intervals** | Intervals: pieces of the trace with Z from the start to the end of the interval, with the from, to, length and value fields. In the scene they are shown as tubes with the thickness or colour by grade. |
+| **Interval midpoints** | Interval midpoints: points with Z and the same fields. This is the input for 2.02, 2.06 and 2.07. |
 
 ## 2.19 A demonstration drilling (demo)
 
@@ -1207,11 +1219,11 @@ How to show it:
 
 | Field | What it sets |
 |---|---|
-| **Охват (куда положить пример)** | Куда положить пример. Пусто означает взять охват окна вида: участок ляжет туда, куда вы смотрите. |
-| **Устья скважин** | Устья скважин: точки с Z и полями номера и глубины скважины. Вход для 2.17. |
-| **Инклинометрия** | Инклинометрия: таблица без геометрии, глубина, азимут и угол от горизонта с минусом вниз. Вход для 2.17. |
-| **Опробование** | Опробование: таблица без геометрии, от, до и золото в граммах на тонну. Вход для 2.18. |
-| **Зерно случайности** | Одно и то же зерно даёт одни и те же скважины и пробы. Другое зерно - другие погрешности и содержания. |
+| **Extent (where to put the example)** | Where to put the example. Empty means the extent of the map view: the area lands where you are looking. |
+| **Collars** | Collars: points with Z and the hole ID and hole depth fields. Input for 2.17. |
+| **Downhole survey** | Downhole survey: a table without geometry, depth, azimuth and the angle from the horizontal with down negative. Input for 2.17. |
+| **Assays** | Assays: a table without geometry, from, to and gold in grams per tonne. Input for 2.18. |
+| **The random seed** | The same seed gives the same holes and samples. Another seed gives other errors and grades. |
 
 
 ## 2.20 Block model to cube
@@ -1230,12 +1242,12 @@ Unrotate a model with rotated block axes into the block coordinate system first:
 
 | Field | What it sets |
 |---|---|
-| **Блочная модель** | Блочная модель: точечный слой центров или таблица без геометрии, например выгрузка Micromine, Datamine или Surpac в CSV. |
-| **Поле значения** | Числовое поле, из которого строится куб: содержание, плотность, номер домена. Одно поле на прогон, куб на поле. |
-| **Ячейка в плане, м (0 - по блокам)** | Ячейка куба в плане, метры. Ноль - наименьший размер блока: подблоки ложатся каждый в свою ячейку. Крупнее - подблоки сводятся в ячейку средним по объёму. |
-| **Ячейка по вертикали, м (0 - по блокам)** | Ячейка куба по вертикали, метры. Ноль - наименьший размер блока по Z. |
-| **Куб значений** | Куб значений: канал на уровень, как у 2.02 и 2.06. Из него 2.04 строит тело вокселями, а 2.11-2.14 работают с оболочками. |
-| **Доля покрытия ячейки** | Какая доля ячейки должна быть покрыта блоками, чтобы она получила значение. Меньше - край модели толще, но размазан по ячейкам, задетым углом блока. |
+| **Block model** | Block model: a point layer of centres or a table without geometry, for example a Micromine, Datamine or Surpac export to CSV. |
+| **The value field** | The numeric field the cube is built from: grade, density, domain number. One field per run, a cube per field. |
+| **Plan cell, m (0 - by the blocks)** | The plan cell of the cube, metres. Zero - the smallest block size: sub-blocks each land in their own cell. Larger - sub-blocks are combined in a cell by the volume-weighted mean. |
+| **Vertical cell, m (0 - by the blocks)** | The vertical cell of the cube, metres. Zero - the smallest block size along Z. |
+| **A cube of values** | Value cube: a band per level, as from 2.02 and 2.06. From it 2.04 builds a voxel body, and 2.11-2.14 work with shells. |
+| **Cell cover share** | What share of a cell must be covered by blocks for it to get a value. Less gives a thicker model edge, smeared over cells touched by a block corner. |
 
 ## 2.21 2D inversion section into the volume
 
@@ -1253,8 +1265,23 @@ Export for geophysicists: CSV in UTF-8, comma separator, decimal point, a header
 
 | Field | What it sets |
 |---|---|
-| **Разрез инверсии (таблица x, y, z)** | Разрез 2D-инверсии: таблица x, y, z и значения, где x и y лежат на профиле. Точечный слой с Z тоже годится. |
-| **Разрез инверсии** | Ячейки разреза: вертикальные грани с Z и всеми полями таблицы. В сцене показываются телом, цвет из стиля слоя, например градуированного по значению. |
+| **Inversion section (x, y, z table)** | A 2D inversion section: a table of x, y, z and values, where x and y lie on the profile. A point layer with Z works too. |
+| **Inversion section** | Section cells: vertical faces with Z and all the fields of the table. In the scene they are shown as a body, the colour from the layer style, for example graduated by the value. |
+
+## 2.22 Demo formations in boreholes (demo)
+
+Creates borehole intervals over a layered site, like the exploration log of a pit: topsoil on top, below it fine sand, coarse sand and clay.
+
+The fine sand pinches out to the east, the coarse sand lies as a lens in the middle of the site. Ninety holes 20 m deep stand on a 50 m grid with offsets, the relief is gentle. The second layer is the site outline.
+
+Demo order: 2.15 with these intervals and the outline, then the formation bodies and the intervals into the scene. Show the intervals as tubes, style by the soil_type field.
+
+| Field | What it sets |
+|---|---|
+| **Extent (where to put the example)** | Where to put the example. Empty means the extent of the map view: the area lands where you are looking. |
+| **Borehole intervals** | Borehole intervals: vertical lines with Z, one line per formation in a hole, with fields for the hole number, the soil and the depths. Input for 2.15. |
+| **Site outline** | Site outline in plan, slightly smaller than the extent of the holes. The "Site outline" input of 2.15: the bodies are clipped by it. |
+| **The random seed** | The same seed gives the same layout of holes. Another seed gives other offsets of the holes from the grid. |
 
 ## From boreholes to reserves
 
@@ -1416,7 +1443,7 @@ noticeably more on a coarse one.
 
 ### Formations side by side, not one above another
 
-2.08 builds beds: each has a roof and a floor over the plan, and the beds lie one above another. If formations lie side by side and meet along steep contacts, like volcanic formations on a section across the strike, 2.08 stretches each over the common area. For them there is **2.15 Formation bodies from outlines**: sections, a map of the formations with the relief elevations and inclined cuts go in together, and every point of the volume goes to one formation.
+2.08 builds beds: each has a roof and a floor over the plan, and the beds lie one above another. If formations lie side by side and meet along steep contacts, like volcanic formations on a section across the strike, 2.08 stretches each over the common area. For them there is **2.15 Formation bodies from outlines and boreholes**: sections, a map of the formations with the relief elevations and inclined cuts go in together, and every point of the volume goes to one formation.
 
 ## A surface from cross sections
 

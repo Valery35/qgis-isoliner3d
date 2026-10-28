@@ -117,8 +117,9 @@ def _line_vertices(feats):
 def CAMERA_HINT():
     """Подсказка по мыши в сцене, на языке интерфейса."""
     return tr("Мышь в сцене: левая кнопка - вращение, Ctrl + левая "
-              "или средняя - сдвиг вида, колёсико - масштаб, щелчок "
-              "правой - центр вращения в эту точку.")
+              "или средняя - сдвиг вида, колёсико - масштаб, Ctrl + "
+              "колёсико - угол обзора, щелчок правой - центр вращения "
+              "в эту точку. Кнопка с домиком возвращает вид.")
 
 
 class _PickView(gl.GLViewWidget):
@@ -669,7 +670,16 @@ class ViewerDialog(QDialog):
         f4.addRow("", self.smooth_edges)
         sv.addWidget(box_look)
 
-        box_grid = QGroupBox(tr("Координатный короб"))
+        box_grid = self.box_grid = QGroupBox(tr("Координатный короб"))
+        # Галка в заголовке группы - тот же выключатель, что кнопка
+        # короба на панели. Без неё в свойствах было «Без рёбер», и
+        # Иван выключал короб им: рёбра пропадали, деления оставались.
+        box_grid.setCheckable(True)
+        box_grid.setChecked(False)
+        box_grid.setToolTip(tr(
+            "Показать координатный короб: рёбра, деления и подписи. То "
+            "же, что кнопка короба на панели вида."))
+        box_grid.toggled.connect(self._box_show_from_props)
         f3 = QFormLayout(box_grid)
         f3.addRow(tr("Рёбра"), self._pair(self.box_edge_mode,
                                           self.box_near))
@@ -1102,8 +1112,13 @@ class ViewerDialog(QDialog):
                                         "и подписи по осям"),
                              lambda *_a: self._schedule_rebuild(0),
                              checkable=True)
+        self.btn_axes.toggled.connect(self._box_show_from_button)
+        self._box_show_from_button(self.btn_axes.isChecked())
         btn_top = tool("top", tr("Вид сверху, план"),
                        lambda: self._set_view(90, -90, plan=True))
+        btn_home = tool("home", tr("Сбросить вид: угол обзора, ракурс "
+                                   "и кадр по сцене"),
+                        self._reset_view)
         self.btn_ortho = tool(
             "ortho", tr("Параллельная проекция вместо перспективной"),
             self._set_ortho, True)
@@ -1229,7 +1244,8 @@ class ViewerDialog(QDialog):
         sep.setFrameShadow(getattr(getattr(QFrame, "Shadow", QFrame),
                                    "Sunken"))
         tb.addWidget(sep)
-        for b in (btn_top, self.btn_ortho, self.btn_axes, self.btn_draw,
+        for b in (btn_top, btn_home, self.btn_ortho, self.btn_axes,
+                  self.btn_draw,
                   self.btn_undo,
                   self.btn_done, self.btn_line, self.btn_sketch,
                   btn_clip_off,
@@ -1992,6 +2008,27 @@ class ViewerDialog(QDialog):
             self.btn_ortho.setChecked(True)
         opts['elevation'] = elevation
         opts['azimuth'] = azimuth
+        self.view.update()
+
+    def _reset_view(self, *_a):
+        """Вернуть камеру: раствор 60 градусов, ракурс и кадр по сцене.
+
+        Ctrl + колёсико в pyqtgraph меняет угол обзора. Иван наткнулся
+        на него случайно: сцена вытянулась рыбьим глазом, а вернуть
+        было нечем, кроме как переоткрыть окно. Угол оставлен, кому-то
+        широкий обзор нужен, а возврат теперь есть.
+        """
+        opts = self.view.opts
+        opts['fov'] = 60.0
+        opts['elevation'] = 30.0
+        opts['azimuth'] = -60.0
+        c = opts['center']
+        c.setX(0.0)
+        c.setY(0.0)
+        c.setZ(0.0)
+        span = float(self._view_span or 0.0)
+        if span > 0:
+            opts['distance'] = span * 1.5
         self.view.update()
 
     def closeEvent(self, ev):
@@ -4233,6 +4270,24 @@ class ViewerDialog(QDialog):
             sig = getattr(w, "currentIndexChanged", None) or \
                 getattr(w, "valueChanged", None) or w.toggled
             sig.connect(lambda *_a: self._schedule_rebuild())
+
+    def _box_show_from_props(self, on):
+        """Галка короба в свойствах включает и кнопку на панели."""
+        if bool(self.btn_axes.isChecked()) == bool(on):
+            return
+        self.btn_axes.blockSignals(True)
+        self.btn_axes.setChecked(bool(on))
+        self.btn_axes.blockSignals(False)
+        self._schedule_rebuild(0)
+
+    def _box_show_from_button(self, on):
+        """Кнопка короба на панели ставит галку в свойствах."""
+        box = getattr(self, "box_grid", None)
+        if box is None or box.isChecked() == bool(on):
+            return
+        box.blockSignals(True)
+        box.setChecked(bool(on))
+        box.blockSignals(False)
 
     @staticmethod
     def _pair(a, b):

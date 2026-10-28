@@ -3657,12 +3657,12 @@ TRANSLATIONS = {
         'The field that ties an outline to a bed. An outline with an empty '
         'value applies to all beds.',
     # 2.15: тела толщ по контурам
-    '2.15 Тела толщ по контурам':
-        '2.15 Formation bodies from outlines',
+    '2.15 Тела толщ по контурам и скважинам':
+        '2.15 Formation bodies from outlines and boreholes',
     'Контуров без высоты: %d, они пропущены. Нужны полигоны с настоящими Z.':
         'Outlines without heights: %d, they are skipped. Polygons with real Z are needed.',
-    'Контуров: %d, толщ: %d (%s). Сетка %d x %d x %d, ячейка %.1f м, по вертикали %.1f м.':
-        'Outlines: %d, formations: %d (%s). Grid %d x %d x %d, cell %.1f m, vertically %.1f m.',
+    'Контуров: %d, толщ: %d (%s). Сетка %d x %d x %d, ячейка %.1f м, по вертикали %.2f м.':
+        'Outlines: %d, formations: %d (%s). Grid %d x %d x %d, cell %.1f m, vertically %.2f m.',
     'Куб толщ':
         'Formation cube',
     'Куб толщ: в каждом вокселе номер толщи, над рельефом и вне данных пусто. Сцена показывает его как куб, 2.03 переводит в блочную модель.':
@@ -3687,12 +3687,12 @@ TRANSLATIONS = {
         'A grid of %d x %d x %d for %d formations is too large. Increase the step.',
     'Слои контуров (полигоны с Z)':
         'Outline layers (polygons with Z)',
-    'Слои контуров: полигоны с настоящими Z, в любых плоскостях. Вертикальные разрезы, карта толщ на дневной поверхности с отметками рельефа, наклонные сечения, всё вместе. Каждый контур опробуется в своей плоскости, и плоскость берётся из самих вершин. Плоский чертёжный разрез не годится: у него нет настоящих отметок.':
-        'Outline layers: polygons with real Z, in any planes. Vertical sections, a map of the formations on the ground surface with the relief elevations, inclined cuts, all together. Every outline is sampled in its own plane, and the plane is taken from its vertices. A flat drawn section is no good: it has no real elevations.',
+    'Слои контуров: полигоны с настоящими Z, в любых плоскостях. Вертикальные разрезы, карта толщ на дневной поверхности с отметками рельефа, наклонные сечения, всё вместе. Каждый контур опробуется в своей плоскости, и плоскость берётся из самих вершин. Плоский чертёжный разрез не годится: у него нет настоящих отметок. Можно не задавать, если есть интервалы скважин.':
+        'Outline layers: polygons with real Z, in any planes. Vertical sections, a map of the formations on the ground surface with the relief elevations, inclined cuts, all together. Every outline is sampled in its own plane, and the plane is taken from its vertices. A flat drawn section is no good: it has no real elevations. May be left empty if there are borehole intervals.',
     'Слой %s: поля %s нет, кодом толщи служит имя слоя.':
         'Layer %s: there is no field %s, the layer name serves as the formation code.',
-    'Строит тела толщ по контурам в любых плоскостях: вертикальным разрезам, карте на дневной поверхности, наклонным сечениям. Слоёв на входе может быть несколько.\n\nДля толщ, которые лежат рядом и граничат по крутым контактам. 2.08 строит пласты, лежащие друг над другом, и на таких толщах растягивает каждую на общую площадь.\n\nУ каждой толщи строится поле: расстояние до её контактов со знаком, внутри плюс, снаружи минус. Внешний край контура контактом не считается: низ разреза и обрез карты проведены там, где кончились данные. Поле интерполируется в объёме мультисеточными B-сплайнами, и каждый воксель отходит толще с наибольшим полем. Щелей и нахлёстов между телами нет по построению.\n\nЕсли разрезы параллельны, решётка интерполяции частая в их плоскости и редкая поперёк. Тогда контакт между разрезами идёт от одного к другому, а не расплывается. Карта держит контакт у поверхности, в глубину его ведут разрезы.\n\nСверху тела обрезаются рельефом по отметкам карты и верху разрезов, снизу по нижней отметке данных, в плане по выпуклой оболочке данных.\n\nВ журнал печатается невязка у контактов по каждой толще. Большая невязка значит, что контуры разных плоскостей спорят между собой.':
-        'Builds bodies of formations from outlines in any planes: vertical sections, the map on the ground surface, inclined cuts. There may be several input layers.\n\nFor formations that lie side by side and meet along steep contacts. 2.08 builds beds lying one above another, and on such formations it stretches each over the common area.\n\nEvery formation gets a field: the signed distance to its contacts, plus inside, minus outside. The outer edge of an outline is not a contact: the bottom of a section and the edge of the map are drawn where the data ended. The field is interpolated in the volume with multilevel B-splines, and every voxel goes to the formation with the largest field. There are no gaps or overlaps between the bodies by construction.\n\nIf the sections are parallel, the interpolation lattice is dense in their plane and sparse across. Then a contact between the sections runs from one to the other instead of blurring. The map holds a contact near the surface, the sections carry it into depth.\n\nFrom above the bodies are clipped by the relief built from the map elevations and the tops of the sections, from below by the lowest elevation of the data, in plan by the convex hull of the data.\n\nThe log shows the misfit at the contacts for every formation. A large misfit means that outlines in different planes disagree.',
+    'Строит тела толщ по контурам в любых плоскостях: вертикальным разрезам, карте на дневной поверхности, наклонным сечениям. Слоёв на входе может быть несколько.\n\nВместо контуров или вместе с ними годятся интервалы скважин: линии с Z, у каждой код толщи или грунта. Это выход 2.18 или своя разбивка журнала. Каждая толща становится своим телом. Толща, которой нет в части скважин, выклинивается между скважинами, линза замыкается.\n\nДля толщ, которые лежат рядом и граничат по крутым контактам. 2.08 строит пласты, лежащие друг над другом, и на таких толщах растягивает каждую на общую площадь.\n\nУ каждой толщи строится поле: расстояние до её контактов со знаком, внутри плюс, снаружи минус. Внешний край контура контактом не считается: низ разреза и обрез карты проведены там, где кончились данные. Поле интерполируется в объёме мультисеточными B-сплайнами, и каждый воксель отходит толще с наибольшим полем. Щелей и нахлёстов между телами нет по построению.\n\nЕсли разрезы параллельны, решётка интерполяции частая в их плоскости и редкая поперёк. Тогда контакт между разрезами идёт от одного к другому, а не расплывается. Карта держит контакт у поверхности, в глубину его ведут разрезы.\n\nПо скважинам решётка частая вдоль ствола и редкая в плане, по расстоянию между скважинами. Тогда пласт в метр держится в скважине, а между скважинами контакт идёт плавно, без бугров вокруг каждой.\n\nСверху тела обрезаются рельефом по отметкам карты, верху разрезов и устьям скважин, снизу по нижней отметке данных, в плане по выпуклой оболочке данных и по контуру участка, если он задан.\n\nВ журнал печатается невязка у контактов по каждой толще. Большая невязка значит, что контуры разных плоскостей спорят между собой.':
+        'Builds bodies of formations from outlines in any planes: vertical sections, the map on the ground surface, inclined cuts. There may be several input layers.\n\nInstead of outlines or together with them, borehole intervals will do: lines with Z, each with a formation or soil code. This is the output of 2.18 or your own split of the log. Every formation becomes its own body. A formation missing from some holes pinches out between the holes, a lens closes.\n\nFor formations that lie side by side and meet along steep contacts. 2.08 builds beds lying one above another, and on such formations it stretches each over the common area.\n\nEvery formation gets a field: the signed distance to its contacts, plus inside, minus outside. The outer edge of an outline is not a contact: the bottom of a section and the edge of the map are drawn where the data ended. The field is interpolated in the volume with multilevel B-splines, and every voxel goes to the formation with the largest field. There are no gaps or overlaps between the bodies by construction.\n\nIf the sections are parallel, the interpolation lattice is dense in their plane and sparse across. Then a contact between the sections runs from one to the other instead of blurring. The map holds a contact near the surface, the sections carry it into depth.\n\nWith boreholes the lattice is dense along the hole and sparse in plan, by the spacing between the holes. Then a one-metre bed holds in the hole, and between the holes the contact runs smoothly, without bumps around each hole.\n\nFrom above the bodies are clipped by the relief built from the map elevations, the tops of the sections and the collars, from below by the lowest elevation of the data, in plan by the convex hull of the data and by the site outline, if given.\n\nThe log shows the misfit at the contacts for every formation. A large misfit means that outlines in different planes disagree.',
     'Тела толщ':
         'Formation bodies',
     'Тела толщ: замкнутые оболочки, по одной на связный кусок толщи, с объёмом в атрибутах. Их принимают 2.11, 2.12 и 2.14.':
@@ -3811,8 +3811,8 @@ TRANSLATIONS = {
         'Z ×',
     'Вертикальное преувеличение. Единица - натуральный масштаб.':
         'Vertical exaggeration. One is the true scale.',
-    'Мышь в сцене: левая кнопка - вращение, Ctrl + левая или средняя - сдвиг вида, колёсико - масштаб, щелчок правой - центр вращения в эту точку.':
-        'Mouse in the scene: left button - rotate, Ctrl + left or middle - pan, wheel - zoom, right click - rotate around this point.',
+    'Мышь в сцене: левая кнопка - вращение, Ctrl + левая или средняя - сдвиг вида, колёсико - масштаб, Ctrl + колёсико - угол обзора, щелчок правой - центр вращения в эту точку. Кнопка с домиком возвращает вид.':
+        'Mouse in the scene: left button - rotate, Ctrl + left or middle - pan, wheel - zoom, Ctrl + wheel - field of view, right click - rotate around this point. The house button resets the view.',
     'Длина интервала, м':
         'Interval length, m',
     'Длина равного интервала или композита, метры. Последний интервал до забоя короче, если длина не делится нацело.':
@@ -4172,4 +4172,76 @@ TRANSLATIONS = {
         'Ticks and labels move to the box edges facing the camera when the scene is rotated, and do not hide behind the model. Unticked, they stay at the origin, as in the export.',
     'Подписи короба не переставились: %s':
         'Box labels were not moved: %s',
+    '2.22 Демонстрационные толщи по скважинам (демо)':
+        '2.22 Demo formations in boreholes (demo)',
+    'В интервалах не нашлось поля толщи. Укажите его явно.':
+        'No formation field was found in the intervals. Set it explicitly.',
+    'В слое контура нет полигона, контур не учтён.':
+        'The outline layer has no polygon, the outline is ignored.',
+    'Интервалов без высоты: %d, они пропущены. Нужны линии с настоящими Z.':
+        'Intervals without heights: %d, they are skipped. Lines with real Z are needed.',
+    'Интервалов без кода толщи: %d, они пропущены.':
+        'Intervals without a formation code: %d, they are skipped.',
+    'Интервалов с высотой и кодом толщи не нашлось.':
+        'No intervals with heights and a formation code were found.',
+    'Интервалы скважин':
+        'Borehole intervals',
+    'Интервалы скважин (линии с Z)':
+        'Borehole intervals (lines with Z)',
+    'Интервалы скважин: вертикальные линии с Z, по линии на толщу в скважине, с полями номера скважины, грунта и глубин. Вход для 2.15.':
+        'Borehole intervals: vertical lines with Z, one line per formation in a hole, with fields for the hole number, the soil and the depths. Input for 2.15.',
+    'Интервалы скважин: линии с настоящими Z, по линии на интервал журнала. Выход 2.18 или своя разбивка. Стволы могут быть наклонными, пропуски в журнале допустимы.':
+        'Borehole intervals: lines with real Z, one line per log interval. The output of 2.18 or your own split. Holes may be inclined, gaps in the log are allowed.',
+    'Интервалы: толща по полю %s, скважина по полю %s.':
+        'Intervals: formation from field %s, hole from field %s.',
+    'Контур участка':
+        'Site outline',
+    'Контур участка в плане':
+        'Site outline in plan',
+    'Контур участка в плане, чуть меньше охвата скважин. Вход «Контур участка» для 2.15: тела обрезаются по нему.':
+        'Site outline in plan, slightly smaller than the extent of the holes. The "Site outline" input of 2.15: the bodies are clipped by it.',
+    'Контур участка или карьера в плане. Тела обрезаются по нему. Контур, который не накрывает данные, не учитывается, и в журнале об этом предупреждение.':
+        'Outline of the site or the pit in plan. The bodies are clipped by it. An outline that does not cover the data is ignored, with a warning in the log.',
+    'Контур участка накрывает %.0f%% точек данных, тела за контуром обрезаны.':
+        'The site outline covers %.0f%% of the data points, the bodies outside it are clipped.',
+    'Контур участка не накрывает ни одной точки данных: центр контура в %.1f км от данных. Проверьте систему координат слоя. Контур не учтён.':
+        'The site outline covers no data point: its centre is %.1f km from the data. Check the coordinate system of the layer. The outline is ignored.',
+    'Ни один объект не записан.':
+        'Not a single feature was written.',
+    'Нужны слои контуров или интервалы скважин.':
+        'Outline layers or borehole intervals are needed.',
+    'Область горной массы пуста: рельеф ниже данных или контур мимо данных.':
+        'The rock region is empty: the relief is below the data or the outline misses the data.',
+    'Одно и то же зерно даёт одну и ту же расстановку скважин. Другое зерно - другие сдвиги скважин от сетки.':
+        'The same seed gives the same layout of holes. Another seed gives other offsets of the holes from the grid.',
+    'Поле номера скважины (пусто - по имени)':
+        'Hole number field (empty - by name)',
+    'Поле номера скважины. Пусто - ищется по имени (hole, well_id, скважина), а без такого поля интервалы собираются в скважину по стыкам концов.':
+        'Hole number field. Empty - it is looked up by name (hole, well_id, скважина), and without such a field the intervals are joined into holes where their ends meet.',
+    'Поле с кодом толщи или грунта. Код тот же, что у контуров, значит та же толща. Пусто - поле ищется по имени: soil_type, lith, unit, слой, толща.':
+        'Field with the formation or soil code. The same code as in the outlines means the same formation. Empty - the field is looked up by name: soil_type, lith, unit, слой, толща.',
+    'Поле толщи в интервалах (пусто - по имени)':
+        'Formation field in the intervals (empty - by name)',
+    'Порядок показа.\n1. 2.15: интервалы скважин, поле толщи soil_type, контур участка. Слои контуров не нужны.\n2. Тела толщ и интервалы в 3D-просмотр. Интервалам в свойствах слоя показ трубой, стиль на карте по полю soil_type.':
+        'Demo order.\n1. 2.15: borehole intervals, formation field soil_type, site outline. Outline layers are not needed.\n2. Formation bodies and intervals into the 3D viewer. For the intervals set tube display in the layer properties, and the map style by the soil_type field.',
+    'Скважин: %d, интервалов: %d.':
+        'Holes: %d, intervals: %d.',
+    'Скважины стоят через %.0f м. Решётка интерполяции частая вдоль ствола, по горизонтали до %.0f м.':
+        'The holes stand %.0f m apart. The interpolation lattice is dense along the hole, horizontally down to %.0f m.',
+    'Создаёт интервалы скважин по участку с пластами, как журнал разведки карьера: сверху почвенно-растительный слой, под ним песок мелкий, песок крупный и глина.\n\nПесок мелкий выклинивается на восток, песок крупный лежит линзой в середине участка. Девяносто скважин глубиной 20 м стоят сеткой через 50 м со сдвигами, рельеф пологий. Вторым слоем идёт контур участка.\n\nПорядок показа: 2.15 с этими интервалами и контуром, затем тела толщ и интервалы в сцену. Интервалам показ трубой, стиль по полю soil_type.':
+        'Creates borehole intervals over a layered site, like the exploration log of a pit: topsoil on top, below it fine sand, coarse sand and clay.\n\nThe fine sand pinches out to the east, the coarse sand lies as a lens in the middle of the site. Ninety holes 20 m deep stand on a 50 m grid with offsets, the relief is gentle. The second layer is the site outline.\n\nDemo order: 2.15 with these intervals and the outline, then the formation bodies and the intervals into the scene. Show the intervals as tubes, style by the soil_type field.',
+    'Участок':
+        'Site',
+    'нет, по стыкам интервалов':
+        'none, by where the intervals meet',
+    'Грунт':
+        'Soil',
+    'Кровля, глубина, м':
+        'Top, depth, m',
+    'Подошва, глубина, м':
+        'Bottom, depth, m',
+    'Показать координатный короб: рёбра, деления и подписи. То же, что кнопка короба на панели вида.':
+        'Show the coordinate box: edges, ticks and labels. The same as the box button on the view toolbar.',
+    'Сбросить вид: угол обзора, ракурс и кадр по сцене':
+        'Reset view: field of view, angle and framing to the scene',
 }

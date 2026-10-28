@@ -902,6 +902,90 @@ def _bary_z(tri, xs, ys):
     return l1 * z1 + l2 * z2 + l3 * z3
 
 
+def wkb_rings(wkb, zfix=None):
+    """Кольца и линии геометрии прямо из WKB: список массивов (k, 3).
+
+    Обход частей через `constParts` отдаёт в Python обёртки на каждую
+    часть. У тела толщ из 2.15 таких частей восемьдесят тысяч, и на нём
+    QGIS падал с нарушением доступа то в одном, то в другом месте
+    разбивки: обёртки пережили свои части. Разбор байтов WKB от этого
+    свободен и заодно быстрее.
+
+    Понимает точку, линию, полигон, треугольник, их мульти-варианты,
+    коллекцию, полиэдральную поверхность и TIN, в 2D, Z, M и ZM, ISO
+    и EWKB. Кривые не понимает: тогда None, и разбор идёт старым путём.
+    Вершины без отметки (2D без `zfix`, NaN) пропускаются.
+    """
+    import struct
+    import numpy as np
+    buf = bytes(wkb)
+    out = []
+    pos = 0
+
+    def head():
+        nonlocal pos
+        e = "<" if buf[pos] == 1 else ">"
+        t = struct.unpack_from(e + "I", buf, pos + 1)[0]
+        pos += 5
+        hz = bool(t & 0x80000000)
+        hm = bool(t & 0x40000000)
+        t &= 0x0FFFFFFF
+        if t >= 3000:
+            hz = hm = True
+        elif t >= 2000:
+            hm = True
+        elif t >= 1000:
+            hz = True
+        return e, t % 1000, hz, hm
+
+    def coords(e, n, hz, hm):
+        nonlocal pos
+        dim = 2 + hz + hm
+        a = np.frombuffer(buf, dtype=e + "f8", count=n * dim,
+                          offset=pos).reshape(n, dim)
+        pos += 8 * n * dim
+        if zfix is not None:
+            z = np.full(n, float(zfix))
+        elif hz:
+            z = a[:, 2]
+        else:
+            return
+        pts = np.column_stack([a[:, 0], a[:, 1], z])
+        pts = pts[np.isfinite(pts).all(axis=1)]
+        if len(pts):
+            out.append(pts)
+
+    def geom():
+        nonlocal pos
+        e, t, hz, hm = head()
+        if t == 1:
+            coords(e, 1, hz, hm)
+        elif t == 2:
+            n = struct.unpack_from(e + "I", buf, pos)[0]
+            pos += 4
+            coords(e, n, hz, hm)
+        elif t in (3, 17):
+            nr = struct.unpack_from(e + "I", buf, pos)[0]
+            pos += 4
+            for _ in range(nr):
+                n = struct.unpack_from(e + "I", buf, pos)[0]
+                pos += 4
+                coords(e, n, hz, hm)
+        elif t in (4, 5, 6, 7, 15, 16):
+            k = struct.unpack_from(e + "I", buf, pos)[0]
+            pos += 4
+            for _ in range(k):
+                geom()
+        else:
+            raise ValueError("wkb type %d" % t)
+
+    try:
+        geom()
+    except (ValueError, struct.error, IndexError):
+        return None
+    return out
+
+
 def _flat_z(geom, tol=1e-6):
     """Отметка плоского объекта или None, если Z меняется.
 
@@ -913,6 +997,18 @@ def _flat_z(geom, tol=1e-6):
     тысячи вершин лежат на одном уровне. Пояс в двадцать пять тысяч
     вершин объявлялся плоским, и скат превращался в плиту.
     """
+    try:
+        got = wkb_rings(geom.asWkb())
+    except Exception:
+        got = None
+    if got is not None:
+        import numpy as np
+        if not got:
+            return None
+        z = np.concatenate([a[:, 2] for a in got])
+        if float(z.max() - z.min()) > tol:
+            return None
+        return float(z[0])
     lo = hi = None
     for v in _all_vertices(geom):
         try:

@@ -257,3 +257,106 @@ def _run():
 
 if __name__ == "__main__":
     _run()
+
+
+# --- скважины с интервалами толщ ------------------------------------
+#
+# Случай Василия: в карьере пробурены вертикальные скважины, в журнале
+# у каждой интервалы грунтов сверху вниз. Толщи лежат пластами, одна
+# выклинивается, другая линзой. Демо повторяет эту геометрию с ответом
+# по формуле.
+
+def _iv(code, top, bot, x=0.0, y=0.0):
+    return (code, np.array([[x, y, top], [x, y, bot]]))
+
+
+def test_hole_runs_order_and_merge():
+    # порядок и направление интервалов в слое любые
+    hole = [_iv("B", 5.0, 3.0), _iv("A", 10.0, 8.0)[::1],
+            ("A", np.array([[0, 0, 5.0], [0, 0, 8.0]])),
+            _iv("C", 3.0, 0.0)]
+    verts, md, runs = domains.hole_runs(hole)
+    assert [r[0] for r in runs] == ["A", "B", "C"]
+    assert np.allclose([r[1:] for r in runs], [(0, 5), (5, 7), (7, 10)])
+    assert np.isclose(verts[0, 2], 10.0) and np.isclose(md[-1], 10.0)
+
+
+def test_hole_field_signs():
+    hole = [_iv("A", 10.0, 6.0), _iv("B", 6.0, 0.0)]
+    pts, vals, collars = domains.sample_holes([hole], ["A", "B", "Z"],
+                                              step=1.0, cap=50.0)
+    z = pts[:, 2]
+    at_contact = np.isclose(z, 6.0)
+    assert at_contact.sum() == 1
+    assert vals["A"][at_contact][0] == 0.0 == vals["B"][at_contact][0]
+    up = z > 6.5
+    assert (vals["A"][up] > 0).all() and (vals["B"][up] < 0).all()
+    # чем дальше от контакта, тем глубже внутри
+    k = np.argmax(z)
+    assert np.isclose(vals["A"][k], z[k] - 6.0)
+    # верх ствола не контакт: у устья поле не обнуляется
+    assert vals["A"][k] > 3.0
+    # толщи нет в скважине: минус cap
+    assert np.allclose(vals["Z"], -50.0)
+    assert np.allclose(collars, [[0, 0, 10.0]])
+
+
+def test_intervals_chain_without_hole_id():
+    items = [(None, "A", np.array([[0, 0, 10.0], [1, 0, 7.0]])),
+             (None, "B", np.array([[1, 0, 7.0], [2, 0, 4.0]])),
+             (None, "A", np.array([[50, 0, 10.0], [50, 0, 4.0]])),
+             ("h1", "A", np.array([[90, 0, 10.0], [90, 0, 8.0]])),
+             ("h1", "B", np.array([[90, 0, 6.0], [90, 0, 2.0]]))]
+    holes = domains.group_intervals(items)
+    assert sorted(len(h) for h in holes) == [1, 2, 2]
+
+
+def test_outline_share():
+    sq = np.array([[0, 0], [10, 0], [10, 10], [0, 10]], float)
+    assert domains.outline_share(sq, [[5, 5], [20, 5]]) == 0.5
+    assert domains.outline_share(sq + 1000.0, [[5, 5]]) == 0.0
+
+
+def _demo_model():
+    iv = domains.demo_holes()
+    holes = domains.group_intervals([(w, c, v) for w, c, _a, _b, v in iv])
+    return domains.build([], [], cell=20.0, cellz=1.0, holes=holes)
+
+
+_DEMO = {}
+
+
+def _demo():
+    if not _DEMO:
+        _DEMO["m"] = _demo_model()
+    return _DEMO["m"]
+
+
+def _demo_voxels(m):
+    gt, z0, dz = m["gt"], m["z0"], m["dz"]
+    k, i, j = np.nonzero(m["cls"] >= 0)
+    x = gt[0] + (j + 0.5) * gt[1]
+    y = gt[3] + (i + 0.5) * gt[5]
+    z = z0 + k * dz
+    idx = np.array([domains.DEMO_CODES.index(c) for c in m["codes"]])
+    return x, y, z, idx[m["cls"][k, i, j]]
+
+
+def test_demo_holes_rebuild_layers():
+    m = _demo()
+    assert m["holes"] == len({w for w, *_ in domains.demo_holes()})
+    assert 40.0 < m["hole_spacing"] < 60.0
+    x, y, z, got = _demo_voxels(m)
+    tru = domains.demo_unit(x, y, z)
+    assert np.mean(got == tru) > 0.9
+
+
+def test_demo_pinch_out_and_lens():
+    x, y, _z, got = _demo_voxels(_demo())
+    # песок мелкий выклинился к x = 480: восточнее его нет
+    assert not ((got == 1) & (x > 540)).any()
+    # линза песка крупного только в середине, в углах её нет
+    corner = (np.hypot(x - 0, y - 0) < 120) | (np.hypot(x - 600, y - 400)
+                                               < 120)
+    assert not ((got == 2) & corner).any()
+    assert ((got == 2) & (np.hypot(x - 300, y - 200) < 60)).any()

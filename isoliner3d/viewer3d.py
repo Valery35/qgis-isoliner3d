@@ -33,7 +33,8 @@ from .viewer_core import (    # noqa: F401
     _tri_rings, cache_clear, cache_size, clip_wall, colormap, draw_depth,
     field_color, flat_marker_mesh, is_available, is_bed_grid, layer_lift,
     ramp_colors, volume_beyond_box, bed_pairs, split_by_alpha, symbol_alpha,
-    shade_colors, tri_cache_clear, tri_cache_size, walk_rings, z_range_mask)
+    shade_colors, tri_cache_clear, tri_cache_size, walk_rings, wkb_rings,
+    z_range_mask)
 
 
 from .i18n import tr
@@ -409,12 +410,19 @@ def _parts_xyz(geom, zfix=None):
 
     `asPolyline` и `asPoint` возвращают QgsPointXY, у которых высоты нет
     вовсе: линия со своей Z превращалась в пустоту и в сцену не попадала.
-    Поэтому идём по настоящим вершинам через constParts.
+    Поэтому идём по настоящим вершинам: разбором WKB, а для кривых,
+    которых WKB-разбор не понимает, через constParts.
 
     `zfix` задаёт отметку из поля: тогда весь объект лежит на одной
     высоте, как и положено изолинии.
     """
     out = []
+    try:
+        got = wkb_rings(geom.asWkb(), zfix)
+    except Exception:
+        got = None
+    if got is not None:
+        return [list(map(tuple, a.tolist())) for a in got]
     try:
         parts = list(geom.constParts())
     except Exception:
@@ -684,6 +692,17 @@ def _tool_icon(kind, size=18):
         p.setPen(pen2)
         p.drawLine(QPointF(0.42 * s, 0.74 * s), QPointF(0.56 * s, 0.88 * s))
         p.drawLine(QPointF(0.56 * s, 0.88 * s), QPointF(0.88 * s, 0.56 * s))
+    elif kind == "home":          # сброс вида: домик
+        p.drawPolyline(*[QPointF(x * s, y * s) for x, y in
+                         ((0.14, 0.50), (0.50, 0.16), (0.86, 0.50))])
+        p.drawPolyline(*[QPointF(x * s, y * s) for x, y in
+                         ((0.26, 0.42), (0.26, 0.84), (0.74, 0.84),
+                          (0.74, 0.42))])
+        pen2 = QPen(QColor("#0E7C66"))
+        pen2.setWidthF(1.4)
+        p.setPen(pen2)
+        p.drawRect(int(0.43 * s), int(0.60 * s), int(0.14 * s),
+                   int(0.24 * s))
     elif kind == "rebuild":       # круговая стрелка
         rect_pen = QPen(pen)
         p.setPen(rect_pen)
