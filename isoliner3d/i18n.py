@@ -4282,4 +4282,52 @@ TRANSLATIONS = {
         '%s: quantile 10 %%',
     '%s: квантиль 90 %%':
         '%s: quantile 90 %%',
+    'Вид по разрезу смотрит поперёк линии обрезки. Выберите в свойствах сцены в группе «Обрезка» линейный слой или нарисуйте линию, режим «Коридор вдоль линии», и соберите сцену.':
+        'The section view looks across the clipping line. In the scene properties, group «Clipping», choose a line layer or draw a line, mode «A corridor along the line», and build the scene.',
+    'Вид по разрезу: длина линии %.0f м. Поворот заперт, левая кнопка сдвигает, колёсико приближает. Отжать кнопку или «Сбросить вид» - поворот снова свободен.':
+        'Section view: the line is %.0f m long. Rotation is locked, the left button pans, the wheel zooms. Release the button or «Reset view» to rotate again.',
+    'Вид по разрезу: камера поперёк линии обрезки, поворот заперт, остаются сдвиг и масштаб':
+        'Section view: the camera across the clipping line, rotation locked, pan and zoom remain',
+    'В проекте %s нет сцен Isoliner3D.':
+        'The project %s has no Isoliner3D scenes.',
+    'Дублировать':
+        'Duplicate',
+    'Импорт сцен':
+        'Import scenes',
+    'Импорт сцен из проекта':
+        'Import scenes from a project',
+    'Импорт сцен из проекта...':
+        'Import scenes from a project...',
+    'Имя сцены':
+        'Scene name',
+    'Имя сцены:':
+        'Scene name:',
+    'Камера сцены не восстановлена: %s':
+        'The scene camera was not restored: %s',
+    'Новая сцена':
+        'New scene',
+    'Переименовать...':
+        'Rename...',
+    'Перенесено сцен: %d (%s). Слоёв найдено в проекте: %d, добавлено: %d, не найдено: %d.':
+        'Scenes imported: %d (%s). Layers found in the project: %d, added: %d, not found: %d.',
+    'Проект не прочитан: %s':
+        'The project was not read: %s',
+    'Проекты QGIS (*.qgz *.qgs)':
+        'QGIS projects (*.qgz *.qgs)',
+    'Сцен в проекте: %d. Слоёв, которых здесь нет: %d. Добавить их в проект? «Нет» перенесёт только сцены, без этих слоёв.':
+        'Scenes in the project: %d. Layers missing here: %d. Add them to the project? «No» imports only the scenes, without these layers.',
+    'Сцена «%s».':
+        'Scene «%s».',
+    'Сцена проекта: набор слоёв с настройками показа, обрезка, короб и камера. Сцены хранятся в проекте QGIS.':
+        'The project scene: a set of layers with display settings, clipping, the box and the camera. Scenes are stored in the QGIS project.',
+    'Сцены':
+        'Scenes',
+    'Удалить':
+        'Delete',
+    'Удалить сцену':
+        'Delete scene',
+    'Удалить сцену «%s»? Слои проекта не трогаются.':
+        'Delete scene «%s»? The project layers are not touched.',
+    'Это единственная сцена проекта, удалять её незачем.':
+        'This is the only scene of the project, there is no point deleting it.',
 }

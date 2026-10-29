@@ -194,6 +194,12 @@ seconds, and doing it on every click is pointless.
 
 Mouse: the left button rotates, the wheel zooms, the middle one or the left with Ctrl pans. A right click puts the rotation centre at the point under the cursor. The wheel with Ctrl changes the field of view: a wide angle gives a stronger perspective, a narrow one almost a plan. The house button on the view toolbar brings back the 60 degree field of view, the angle and the framing to the scene. The same hint is shown under the scene when the window opens.
 
+**Section view.** A section in the scene is clipping with a corridor along a line: in the scene properties, group «Clipping», choose a line layer or draw a line, mode «A corridor along the line», with the half-width the task needs. The «Section view» button on the toolbar puts the camera across the line, level and in parallel projection, so that the line runs left to right from its start to its end, and locks rotation. The left button pans along the section plane, the wheel zooms. Releasing the button, the house button or the top view unlock rotation. The coordinate box gives the scale along the line and in elevation. A section along a bent line is not unfolded this way: the camera looks across the line from its start to its end.
+
+**Project scenes.** A project can hold several scenes: each has its own set of layers, display settings, clipping, box and camera. Above the layer list there is a scene drop-down and a «Scenes» button with a menu: new scene (the current settings, no layers), duplicate, rename, delete. Switching to another scene saves the current one and builds the chosen one at once. Scenes are stored in the QGIS project and travel with it. A project saved by an earlier version opens with one scene, and the current scene is also written to the old key, so a new project is read by the earlier version too.
+
+**Importing scenes from another project.** «Scenes» - «Import scenes from a project...» reads a .qgz or .qgs file and brings its scenes over. A scene refers to layers, so every layer is looked up in the current project: by data source, by id, by name. For layers that are missing the plugin offers to add them from their description in that file: «Yes» brings the scenes together with the layers, «No» only the scenes. Temporary memory layers cannot be restored from a file, the summary line says so.
+
 The **Z ×** field on the toolbar is the vertical exaggeration, the same as in the scene properties. One means the true scale.
 
 ## The coordinate system

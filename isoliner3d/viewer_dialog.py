@@ -23,6 +23,7 @@ import os
 
 from .iso3d import weld
 from .lights import soft_shader
+from . import scenes as _scenes
 
 from .viewer3d import (    # noqa: F401
     LIGHT_DIR, MAX_VERTS_SCENE, MIN_VERTS_LAYER, PALETTE, _DRAWNL_KEY,
@@ -133,6 +134,7 @@ class _PickView(gl.GLViewWidget):
     hover_cb = None
     draw_mode = False
     ortho = False
+    lock_rotate = False   # вид по разрезу: поворот заперт, сдвиг и масштаб
 
     bg_top = None      # верхний цвет градиента, доли единицы
     bg_bottom = None   # нижний
@@ -239,14 +241,31 @@ class _PickView(gl.GLViewWidget):
         half_h = dist * math.tan(math.radians(fov / 2.0))
         half_w = half_h * (float(w) / float(h))
         m = QMatrix4x4()
+        # Ближняя плоскость позади камеры. В параллельной проекции
+        # колесо двигает камеру к центру, и с ближней плоскостью перед
+        # камерой приближение срезало переднюю часть модели: камера
+        # въезжала внутрь тела. Иван наткнулся на это и решил, что
+        # нажал какую-то клавишу. Размер в кадре от удаления не зависит,
+        # поэтому смотреть можно и «из-за спины».
         m.ortho(-half_w, half_w, -half_h, half_h,
-                dist * 0.001, dist * 1000.0)
+                -dist * 100.0, dist * 1000.0)
         return m
 
     def mouseMoveEvent(self, ev):
         if self.draw_mode and self.hover_cb is not None and \
                 not ev.buttons():
             self.hover_cb(*self._evpos(ev))
+            return
+        if self.lock_rotate and ev.buttons():
+            # Вид по разрезу: левая и средняя кнопки сдвигают вдоль
+            # плоскости разреза, поворота нет
+            lpos = ev.position() if hasattr(ev, "position") \
+                else ev.localPos()
+            if not hasattr(self, "mousePos"):
+                self.mousePos = lpos
+            diff = lpos - self.mousePos
+            self.mousePos = lpos
+            self.pan(diff.x(), diff.y(), 0, relative="view")
             return
         super().mouseMoveEvent(ev)
 
@@ -273,6 +292,11 @@ class _PickView(gl.GLViewWidget):
         if key == back and self.undo_cb is not None:
             self.undo_cb()
             return
+        if self.lock_rotate and key in tuple(
+                getattr(getattr(Qt, "Key", Qt), k) for k in
+                ("Key_Left", "Key_Right", "Key_Up", "Key_Down",
+                 "Key_PageUp", "Key_PageDown")):
+            return       # стрелки вращают камеру, а в разрезе нельзя
         super().keyPressEvent(ev)
 
     def mousePressEvent(self, ev):
@@ -352,6 +376,10 @@ class ViewerDialog(QDialog):
         # объявлена заранее и говорит обработчикам «рано».
         self.view = None
         self._pick = None
+        # именованные сцены проекта: имя -> состояние (scenes.py)
+        self._scenes = {}
+        self._scene_name = None
+        self._pending_cam = None
         self._pick_marker = None
         self._spin_timer = None
         self._was_active = False
@@ -1119,6 +1147,10 @@ class ViewerDialog(QDialog):
         btn_home = tool("home", tr("Сбросить вид: угол обзора, ракурс "
                                    "и кадр по сцене"),
                         self._reset_view)
+        self.btn_section = tool(
+            "section", tr("Вид по разрезу: камера поперёк линии обрезки, "
+                          "поворот заперт, остаются сдвиг и масштаб"),
+            self._section_view, checkable=True)
         self.btn_ortho = tool(
             "ortho", tr("Параллельная проекция вместо перспективной"),
             self._set_ortho, True)
@@ -1170,6 +1202,36 @@ class ViewerDialog(QDialog):
 
         left = QWidget()
         lv = QVBoxLayout(left)
+        # Сцены проекта: просьба Ивана. Список имён и меню действий,
+        # окно свойств сцены прежнее.
+        srow = QHBoxLayout()
+        self.scene_pick = QComboBox()
+        self.scene_pick.setToolTip(tr(
+            "Сцена проекта: набор слоёв с настройками показа, обрезка, "
+            "короб и камера. Сцены хранятся в проекте QGIS."))
+        self.scene_pick.currentIndexChanged.connect(self._scene_switch)
+        self.scene_btn = QToolButton()
+        self.scene_btn.setText(tr("Сцены"))
+        self.scene_btn.setPopupMode(getattr(getattr(
+            QToolButton, "ToolButtonPopupMode", QToolButton),
+            "InstantPopup"))
+        smenu = QMenu(self.scene_btn)
+        for label, slot in (
+                (tr("Новая сцена"), self._scene_new),
+                (tr("Дублировать"), self._scene_dup),
+                (tr("Переименовать..."), self._scene_rename),
+                (tr("Удалить"), self._scene_delete),
+                (None, None),
+                (tr("Импорт сцен из проекта..."), self._scene_import)):
+            if label is None:
+                smenu.addSeparator()
+            else:
+                smenu.addAction(label).triggered.connect(
+                    lambda *_a, f=slot: f())
+        self.scene_btn.setMenu(smenu)
+        srow.addWidget(self.scene_pick, 1)
+        srow.addWidget(self.scene_btn)
+        lv.addLayout(srow)
         lv.addLayout(fl)
         lv.addWidget(self.layer_list, 1)
         lv.addWidget(self.legend_pix)
@@ -1244,7 +1306,8 @@ class ViewerDialog(QDialog):
         sep.setFrameShadow(getattr(getattr(QFrame, "Shadow", QFrame),
                                    "Sunken"))
         tb.addWidget(sep)
-        for b in (btn_top, btn_home, self.btn_ortho, self.btn_axes,
+        for b in (btn_top, btn_home, self.btn_section, self.btn_ortho,
+                  self.btn_axes,
                   self.btn_draw,
                   self.btn_undo,
                   self.btn_done, self.btn_line, self.btn_sketch,
@@ -1852,70 +1915,150 @@ class ViewerDialog(QDialog):
         self._draw_refresh(
             closed=bool(self._draw_ring) and not self._draw_mode)
 
+    def _camera_state(self):
+        """Камера сцены: центр, удаление, ракурс, раствор, проекция."""
+        o = self.view.opts
+        c = o["center"]
+        return {"center": [float(c.x()), float(c.y()), float(c.z())],
+                "distance": float(o.get("distance", 10.0)),
+                "azimuth": float(o.get("azimuth", 0.0)),
+                "elevation": float(o.get("elevation", 30.0)),
+                "fov": float(o.get("fov", 60.0)),
+                "ortho": bool(self.view.ortho)}
+
+    def _camera_apply(self, cam):
+        """Поставить камеру из состояния сцены."""
+        try:
+            o = self.view.opts
+            cx, cy, cz = cam.get("center", [0.0, 0.0, 0.0])
+            o["center"].setX(float(cx))
+            o["center"].setY(float(cy))
+            o["center"].setZ(float(cz))
+            for k in ("distance", "azimuth", "elevation", "fov"):
+                if k in cam:
+                    o[k] = float(cam[k])
+            self.btn_ortho.setChecked(bool(cam.get("ortho", False)))
+            self.view.update()
+        except Exception as err:  # nosec - камера останется прежней
+            _log(tr("Камера сцены не восстановлена: %s") % err)
+
+    def _state_dict(self):
+        """Настройки текущей сцены одним словарём."""
+        state = {
+            "checked": [
+                self.layer_list.item(i).data(_USER_ROLE)
+                for i in range(self.layer_list.count())
+                if self.layer_list.item(i).checkState() == _CHECKED],
+            "opts": self._opts,
+            "vopts": self._vopts,
+            "vex": float(self.vex.value()),
+            "spacing": float(self.spacing.value()),
+            "opacity": float(self.opacity.value()),
+            "texside": int(self.texside.value()),
+            "vert_cap": int(self.vert_cap.value()),
+            "clip": self.clip_combo.currentData(),
+            "side": self.clip_side.currentData(),
+            "width": float(self.clip_width.value()),
+            "zlo": float(self.zlo.value()),
+            "zhi": float(self.zhi.value()),
+            "zs_top": self.zs_top.currentData(),
+            "zs_bot": self.zs_bot.currentData(),
+            "grid_planes": self.grid_planes.currentData(),
+            "grid_step": float(self.grid_step.value()),
+            "axes_on": bool(self.btn_axes.isChecked()),
+            "box_edges": self.box_edge_mode.currentData(),
+            "box_near": bool(self.box_near.isChecked()),
+            "tick_xy": float(self.tick_xy.value()),
+            "tick_z": float(self.tick_z.value()),
+            "mult_xy": float(self.mult_xy.value()),
+            "mult_z": float(self.mult_z.value()),
+            "box_range_on": bool(self.box_range_on.isChecked()),
+            "box_range": [float(w.value()) for w in self.box_range],
+            "mask_lyr": self.mask_lyr.currentData(),
+            "mask_level": float(self.mask_level.value()),
+            "fence_all": bool(self.fence_all.isChecked()),
+            "light": int(self.light.value()),
+            "bg_grad": bool(self.bg_grad.isChecked()),
+            "smooth_edges": bool(self.smooth_edges.isChecked()),
+            "ring": self._draw_ring,
+            "path": self._draw_path,
+        }
+        state["camera"] = self._camera_state()
+        return state
+
     def _state_save(self):
         """Сложить настройки сцены в проект QGIS.
 
         Именно в проект, а не отдельным файлом: настройки описывают
         те же слои и тот же участок, поэтому должны ехать вместе
-        с проектом и переживать передачу другому человеку.
+        с проектом и переживать передачу другому человеку. Текущая
+        сцена пишется и в прежний ключ «state»: проект читается
+        и старой версией модуля.
         """
         import json
         try:
-            state = {
-                "checked": [
-                    self.layer_list.item(i).data(_USER_ROLE)
-                    for i in range(self.layer_list.count())
-                    if self.layer_list.item(i).checkState() == _CHECKED],
-                "opts": self._opts,
-                "vopts": self._vopts,
-                "vex": float(self.vex.value()),
-                "spacing": float(self.spacing.value()),
-                "opacity": float(self.opacity.value()),
-                "texside": int(self.texside.value()),
-                "vert_cap": int(self.vert_cap.value()),
-                "clip": self.clip_combo.currentData(),
-                "side": self.clip_side.currentData(),
-                "width": float(self.clip_width.value()),
-                "zlo": float(self.zlo.value()),
-                "zhi": float(self.zhi.value()),
-                "zs_top": self.zs_top.currentData(),
-                "zs_bot": self.zs_bot.currentData(),
-                "grid_planes": self.grid_planes.currentData(),
-                "grid_step": float(self.grid_step.value()),
-                "axes_on": bool(self.btn_axes.isChecked()),
-                "box_edges": self.box_edge_mode.currentData(),
-                "box_near": bool(self.box_near.isChecked()),
-                "tick_xy": float(self.tick_xy.value()),
-                "tick_z": float(self.tick_z.value()),
-                "mult_xy": float(self.mult_xy.value()),
-                "mult_z": float(self.mult_z.value()),
-                "box_range_on": bool(self.box_range_on.isChecked()),
-                "box_range": [float(w.value()) for w in self.box_range],
-                "mask_lyr": self.mask_lyr.currentData(),
-                "mask_level": float(self.mask_level.value()),
-                "fence_all": bool(self.fence_all.isChecked()),
-                "light": int(self.light.value()),
-                "bg_grad": bool(self.bg_grad.isChecked()),
-                "smooth_edges": bool(self.smooth_edges.isChecked()),
-                "ring": self._draw_ring,
-                "path": self._draw_path,
-            }
+            state = self._state_dict()
+            name = self._scene_name or _scenes.DEFAULT_NAME
+            self._scene_name = name
+            self._scenes[name] = state
             QgsProject.instance().writeEntry(
                 "Isoliner3D", "state", json.dumps(state,
                                                   ensure_ascii=False))
+            self._scenes_write()
         except Exception as err:  # nosec
             _log(tr("Не удалось сохранить состояние сцены: %s") % err)
 
-    def _state_load(self):
-        """Достать настройки сцены из проекта."""
+    def _scenes_write(self):
+        """Список сцен и имя текущей - в проект."""
         import json
-        raw, ok = QgsProject.instance().readEntry("Isoliner3D", "state")
-        if not ok or not raw:
-            return False
-        try:
-            state = json.loads(raw)
-        except Exception:  # nosec
-            return False
+        proj = QgsProject.instance()
+        proj.writeEntry("Isoliner3D", "scenes",
+                        json.dumps(self._scenes, ensure_ascii=False))
+        proj.writeEntry("Isoliner3D", "scene",
+                        self._scene_name or _scenes.DEFAULT_NAME)
+
+    def _state_load(self):
+        """Достать сцены из проекта и поставить текущую.
+
+        Проект старой версии хранит одну сцену в ключе «state»: она
+        становится единственной сценой с именем по умолчанию.
+        """
+        import json
+        proj = QgsProject.instance()
+        raw, ok = proj.readEntry("Isoliner3D", "scenes")
+        found = {}
+        got = None
+        if ok and raw:
+            try:
+                got = json.loads(raw)
+            except ValueError:
+                got = None
+        if isinstance(got, dict):
+            found = {str(k): v for k, v in got.items()
+                     if isinstance(v, dict)}
+        cur, ok2 = proj.readEntry("Isoliner3D", "scene")
+        if not found:
+            raw, ok = proj.readEntry("Isoliner3D", "state")
+            state = None
+            if ok and raw:
+                try:
+                    state = json.loads(raw)
+                except ValueError:
+                    state = None
+            if not isinstance(state, dict):
+                self._scene_fill()
+                return False
+            found = {_scenes.DEFAULT_NAME: state}
+            cur, ok2 = _scenes.DEFAULT_NAME, True
+        if not ok2 or cur not in found:
+            cur = sorted(found)[0]
+        self._scenes = found
+        self._scene_name = cur
+        self._scene_fill()
+        return self._state_apply(found[cur])
+
+    def _state_apply(self, state):
+        """Поставить настройки сцены в окно, без пересборки."""
         self._loading_opts = True
         try:
             self._opts = dict(state.get("opts") or {})
@@ -1977,7 +2120,189 @@ class ViewerDialog(QDialog):
         finally:
             self._loading_opts = False
         self._sync_corridor()
+        cam = state.get("camera")
+        self._pending_cam = cam if isinstance(cam, dict) else None
         return True
+
+    def _scene_fill(self):
+        """Список сцен в выпадающем списке, текущая выбрана."""
+        if not self._scene_name:
+            self._scene_name = _scenes.DEFAULT_NAME
+        names = sorted(set(self._scenes) | {self._scene_name})
+        self.scene_pick.blockSignals(True)
+        self.scene_pick.clear()
+        for nm in names:
+            self.scene_pick.addItem(nm)
+        k = self.scene_pick.findText(self._scene_name)
+        self.scene_pick.setCurrentIndex(max(k, 0))
+        self.scene_pick.blockSignals(False)
+
+    def _scene_go(self, name):
+        """Перейти на сцену `name`: текущая сохраняется, та собирается."""
+        cur = self._scene_name or _scenes.DEFAULT_NAME
+        if name == cur and name in self._scenes:
+            return
+        self._scenes[cur] = self._state_dict()
+        self._scene_name = name
+        self._scene_fill()
+        if name in self._scenes:
+            self._state_apply(self._scenes[name])
+        self._scenes_write()
+        self.info.setText(tr("Сцена «%s».") % name)
+        # Переход на сцену - явное действие: собираем сразу, даже при
+        # снятой автосборке, иначе в окне осталась бы прежняя сцена
+        self._scene_rebuild_soon()
+
+    def _scene_rebuild_soon(self):
+        """Собрать сцену, как только окно освободится."""
+        from qgis.PyQt.QtCore import QTimer
+        QTimer.singleShot(0, self.rebuild)
+
+    def _scene_switch(self, *_a):
+        name = self.scene_pick.currentText()
+        if name:
+            self._scene_go(name)
+
+    def _scene_new(self):
+        """Новая сцена: настройки текущей, без слоёв и без своей камеры."""
+        cur = self._scene_name or _scenes.DEFAULT_NAME
+        self._scenes[cur] = self._state_dict()
+        name = _scenes.unique_name(tr("Сцена"), set(self._scenes))
+        st = dict(self._scenes[cur])
+        st["checked"] = []
+        st.pop("camera", None)
+        self._scenes[name] = st
+        self._scene_go(name)
+
+    def _scene_dup(self):
+        """Копия текущей сцены под новым именем."""
+        cur = self._scene_name or _scenes.DEFAULT_NAME
+        self._scenes[cur] = self._state_dict()
+        name = _scenes.unique_name(cur, set(self._scenes))
+        self._scenes[name] = dict(self._scenes[cur])
+        self._scene_go(name)
+
+    def _scene_rename(self):
+        """Переименовать текущую сцену."""
+        from qgis.PyQt.QtWidgets import QInputDialog
+        cur = self._scene_name or _scenes.DEFAULT_NAME
+        new, ok = QInputDialog.getText(self, tr("Имя сцены"),
+                                       tr("Имя сцены:"), text=cur)
+        new = (new or "").strip()
+        if not ok or not new or new == cur:
+            return
+        self._scenes[cur] = self._state_dict()
+        new = _scenes.unique_name(new, set(self._scenes) - {cur})
+        self._scenes[new] = self._scenes.pop(cur)
+        self._scene_name = new
+        self._scene_fill()
+        self._scenes_write()
+
+    def _scene_delete(self):
+        """Удалить текущую сцену. Последнюю сцену проекта не удаляем."""
+        from qgis.PyQt.QtWidgets import QMessageBox
+        cur = self._scene_name or _scenes.DEFAULT_NAME
+        others = sorted(n for n in self._scenes if n != cur)
+        if not others:
+            self.info.setText(tr("Это единственная сцена проекта, "
+                                 "удалять её незачем."))
+            return
+        btns = getattr(QMessageBox, "StandardButton", QMessageBox)
+        ans = QMessageBox.question(
+            self, tr("Удалить сцену"),
+            tr("Удалить сцену «%s»? Слои проекта не трогаются.") % cur,
+            btns.Yes | btns.No)
+        if ans != btns.Yes:
+            return
+        self._scenes.pop(cur, None)
+        self._scene_name = others[0]
+        self._scene_fill()
+        self._state_apply(self._scenes[others[0]])
+        self._scenes_write()
+        self._scene_rebuild_soon()
+
+    def _scene_import(self):
+        """Сцены из другого проекта QGIS.
+
+        Сцена ссылается на слои по id. Слой ищется в текущем проекте
+        по источнику, по id и по имени. Ненайденные слои можно
+        добавить в проект из описания в том файле: тогда сцена
+        переносится вместе со слоями.
+        """
+        import os
+        from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
+        fn, _f = QFileDialog.getOpenFileName(
+            self, tr("Импорт сцен из проекта"), "",
+            tr("Проекты QGIS (*.qgz *.qgs)"))
+        if not fn:
+            return
+        try:
+            got, _cur, src_layers = _scenes.parse_project(
+                _scenes.read_project_xml(fn))
+        except Exception as err:  # nosec - сообщить и выйти
+            self.info.setText(tr("Проект не прочитан: %s") % err)
+            return
+        if not got:
+            self.info.setText(tr("В проекте %s нет сцен Isoliner3D.")
+                              % os.path.basename(fn))
+            return
+        proj = QgsProject.instance()
+        here = {lid: {"name": lyr.name(), "source": lyr.source()}
+                for lid, lyr in proj.mapLayers().items()}
+        used = set()
+        for st in got.values():
+            used |= _scenes.collect_ids(st) & set(src_layers)
+        pdir = os.path.dirname(os.path.abspath(fn))
+        mapping, missing = _scenes.match_layers(used, src_layers, here,
+                                                pdir)
+        added = 0
+        if missing:
+            btns = getattr(QMessageBox, "StandardButton", QMessageBox)
+            ans = QMessageBox.question(
+                self, tr("Импорт сцен"),
+                tr("Сцен в проекте: %d. Слоёв, которых здесь нет: %d. "
+                   "Добавить их в проект? «Нет» перенесёт только сцены, "
+                   "без этих слоёв.") % (len(got), len(missing)),
+                btns.Yes | btns.No)
+            if ans == btns.Yes:
+                for lid in missing:
+                    info = src_layers[lid]
+                    src = _scenes.absolute_source(info["source"], pdir)
+                    if info.get("type") == "raster":
+                        lyr = QgsRasterLayer(src, info["name"],
+                                             info["provider"] or "gdal")
+                    else:
+                        lyr = QgsVectorLayer(src, info["name"],
+                                             info["provider"] or "ogr")
+                    if lyr.isValid():
+                        proj.addMapLayer(lyr)
+                        mapping[lid] = lyr.id()
+                        added += 1
+        cur = self._scene_name or _scenes.DEFAULT_NAME
+        self._scenes[cur] = self._state_dict()
+        # Пустая сцена нового проекта ничего не хранит: при импорте
+        # она уступает место перенесённым, иначе сцена с тем же
+        # именем пришла бы как «Сцена 1 (2)»
+        if len(self._scenes) == 1 and not self._scenes[cur].get("checked"):
+            self._scenes.pop(cur)
+        names = []
+        for name, st in sorted(got.items()):
+            nm = _scenes.unique_name(name, set(self._scenes))
+            self._scenes[nm] = _scenes.remap(st, mapping)
+            names.append(nm)
+        # слои могли добавиться: список слоёв заново, потом сцена
+        self.refresh_layers()
+        if cur not in self._scenes:
+            self._scene_name = names[0]
+            self._state_apply(self._scenes[names[0]])
+            self._scene_rebuild_soon()
+        self._scenes_write()
+        self._scene_fill()
+        self.info.setText(tr(
+            "Перенесено сцен: %d (%s). Слоёв найдено в проекте: %d, "
+            "добавлено: %d, не найдено: %d.")
+            % (len(names), ", ".join(names), len(mapping) - added,
+               added, len(used) - len(mapping)))
 
     def _clip_clear(self):
         """Убрать обрезку и наброски, вернуть сцену целиком."""
@@ -2000,6 +2325,8 @@ class ViewerDialog(QDialog):
         с перспективой это не план, объекты на разной высоте
         смещаются в кадре и перестают совпадать в плане.
         """
+        if plan:
+            self._section_unlock()
         opts = self.view.opts
         if plan and not self.view.ortho:
             # План без перспективы: включаем параллельную проекцию,
@@ -2010,6 +2337,78 @@ class ViewerDialog(QDialog):
         opts['azimuth'] = azimuth
         self.view.update()
 
+    def _section_unlock(self):
+        """Снять вид по разрезу: поворот снова свободен."""
+        self.view.lock_rotate = False
+        btn = getattr(self, "btn_section", None)
+        if btn is not None and btn.isChecked():
+            btn.blockSignals(True)
+            btn.setChecked(False)
+            btn.blockSignals(False)
+
+    def _section_view(self, on=True):
+        """Камера поперёк линии разреза, поворот заперт.
+
+        Просьба Ивана. Разрез в сцене уже был: обрезка коридором вдоль
+        линии. Не хватало взгляда на него: камера ставится
+        перпендикулярно линии (от её начала к концу слева направо),
+        горизонтально, в параллельной проекции, кадр по длине линии.
+        Поворот запирается, остаются сдвиг вдоль плоскости разреза
+        и масштаб. Отжатая кнопка, «Сбросить вид» или «Вид сверху»
+        отпирают поворот.
+        """
+        if not on:
+            self._section_unlock()
+            return
+        import math
+        lines = []
+        try:
+            lines = self._clip_ctx()[1] if self._clip_now is not None \
+                else self._clip_lines()
+        except Exception:  # nosec - без линии просто подсказка
+            lines = []
+        pk = self._pick
+        if not lines or not pk:
+            self._section_unlock()
+            self.info.setText(tr(
+                "Вид по разрезу смотрит поперёк линии обрезки. Выберите "
+                "в свойствах сцены в группе «Обрезка» линейный слой или "
+                "нарисуйте линию, режим «Коридор вдоль линии», и соберите "
+                "сцену."))
+            return
+        pts = np.asarray(lines[0], dtype=float)[:, :2]
+        a, b = pts[0], pts[-1]
+        d = b - a
+        length = float(np.hypot(*d))
+        if length <= 0:
+            seg = np.diff(pts, axis=0)
+            length = float(np.hypot(*seg.T).sum())
+            d = seg[0] if len(seg) else np.array([1.0, 0.0])
+        if not np.any(d):
+            d = np.array([1.0, 0.0])
+        mid = 0.5 * (pts.min(axis=0) + pts.max(axis=0))
+        opts = self.view.opts
+        c = opts['center']
+        c.setX(float(mid[0] - pk["cx"]))
+        c.setY(float(mid[1] - pk["cy"]))
+        # камера с той стороны, откуда линия идёт слева направо
+        opts['azimuth'] = math.degrees(math.atan2(-d[0], d[1]))
+        opts['elevation'] = 0.0
+        opts['fov'] = 60.0
+        if not self.btn_ortho.isChecked():
+            self.btn_ortho.setChecked(True)
+        w = max(self.view.width(), 1)
+        h = max(self.view.height(), 1)
+        # запас по краям: подписи отметок стоят за ребром короба
+        half_w = 0.66 * max(length, 1.0)
+        opts['distance'] = (half_w * h / w) / math.tan(math.radians(30.0))
+        self.view.lock_rotate = True
+        self.view.update()
+        self.info.setText(tr(
+            "Вид по разрезу: длина линии %.0f м. Поворот заперт, левая "
+            "кнопка сдвигает, колёсико приближает. Отжать кнопку или "
+            "«Сбросить вид» - поворот снова свободен.") % length)
+
     def _reset_view(self, *_a):
         """Вернуть камеру: раствор 60 градусов, ракурс и кадр по сцене.
 
@@ -2018,6 +2417,7 @@ class ViewerDialog(QDialog):
         было нечем, кроме как переоткрыть окно. Угол оставлен, кому-то
         широкий обзор нужен, а возврат теперь есть.
         """
+        self._section_unlock()
         opts = self.view.opts
         opts['fov'] = 60.0
         opts['elevation'] = 30.0
@@ -4494,6 +4894,8 @@ class ViewerDialog(QDialog):
                 color=(30, 30, 30, 255), font=fnt)
             self._add_item(lab)
             self._axes_live["labels"].append(lab)
+            self._axes_live.setdefault("label_axes", []).append(_axis)
+        self._axes_edge_on()
 
     def _axes_sides(self, lo, hi, cx, cy, cz, vex, bo):
         """Рёбра подписей: ближние к камере или у начала."""
@@ -4517,6 +4919,7 @@ class ViewerDialog(QDialog):
         """
         import numpy as np
         live = getattr(self, "_axes_live", None)
+        self._axes_edge_on()
         if not live or not live["bo"].get("near"):
             return
         lo, hi, put, bo = live["lo"], live["hi"], live["put"], live["bo"]
@@ -4541,6 +4944,30 @@ class ViewerDialog(QDialog):
                 lab.setData(pos=put(s1))
         except Exception as err:  # nosec - подписи останутся на месте
             _log(tr("Подписи короба не переставились: %s") % err)
+
+    def _axes_edge_on(self):
+        """Спрятать подписи оси, которая смотрит на камеру.
+
+        Сбоку, а в виде по разрезу всегда, одна из осей плана уходит
+        от камеры вглубь кадра, и все её подписи ложатся в одну точку:
+        «10», «20», «300» сливаются в «1020300». Ось, вдоль которой
+        смотрит камера, подписывать незачем.
+        """
+        import math
+        live = getattr(self, "_axes_live", None)
+        if not live or not live.get("labels"):
+            return
+        axes = live.get("label_axes") or []
+        o = self.view.opts
+        az = math.radians(float(o.get("azimuth", 0.0)))
+        el = math.radians(float(o.get("elevation", 0.0)))
+        look = (math.cos(el) * math.cos(az), math.cos(el) * math.sin(az))
+        for lab, ax in zip(live["labels"], axes):
+            hide = ax in (0, 1) and abs(look[ax]) > 0.9
+            try:
+                lab.setVisible(not hide)
+            except Exception:  # nosec - подпись останется видна
+                pass
 
     def _cap_cut(self, v, f):
         """Крышка на срезе оболочки.
@@ -5937,11 +6364,18 @@ class ViewerDialog(QDialog):
         lyr = QgsProject.instance().mapLayer(lid)
         if lyr is None or self._geom_kind(lyr) != "line":
             return []
+        from qgis.core import QgsGeometry
+        tr_ = self._xform(lyr)
         out = []
         for ft in lyr.getFeatures():
             g = ft.geometry()
             if g is None or g.isEmpty():
                 continue
+            if tr_ is not None:
+                # линия в другой системе, чем сцена: без пересчёта
+                # коридор и вид по разрезу встают не туда
+                g = QgsGeometry(g)
+                g.transform(tr_)
             for part in _parts_xyz(g, 0.0):
                 if len(part) >= 2:
                     out.append([(x, y) for x, y, _z in part])
@@ -5988,16 +6422,22 @@ class ViewerDialog(QDialog):
         mode = self.clip_side.currentData()
         keep = np.zeros(arr.shape, dtype=bool)
         width = float(self.clip_width.value())
+        # Узкий коридор на растре: ячейка попадает, если её центр
+        # не дальше полутора ячеек. При пороге в одну ячейку
+        # на косой линии полоса выходила лесенкой с разрывами,
+        # а меш строится по квадратам из четырёх ячеек, и от полосы
+        # оставались клочья. Замечание Ивана.
+        near = max(width, 1.5 * abs(gt[1]))
         for pts in lines:
             d, s = polyline_dist_side(pts, gt, arr.shape)
             if mode == "corridor":
-                keep |= d <= max(width, abs(gt[1]))
+                keep |= d <= near
             elif mode == "left":
                 keep |= s > 0
             elif mode == "right":
                 keep |= s < 0
             else:
-                keep |= d <= max(width, abs(gt[1]))
+                keep |= d <= near
         out = arr.copy()
         out[~keep] = np.nan
         return out
@@ -6713,6 +7153,9 @@ class ViewerDialog(QDialog):
         self._busy(True)
         try:
             self._rebuild_scene()
+            if self._pending_cam:
+                self._camera_apply(self._pending_cam)
+                self._pending_cam = None
         except Exception as err:
             import traceback
             self.info.setText(tr("Сборка сцены не удалась: %s") % err)

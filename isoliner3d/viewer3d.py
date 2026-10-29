@@ -707,6 +707,17 @@ def _tool_icon(kind, size=18):
         p.setPen(pen2)
         p.drawLine(QPointF(0.42 * s, 0.74 * s), QPointF(0.56 * s, 0.88 * s))
         p.drawLine(QPointF(0.56 * s, 0.88 * s), QPointF(0.88 * s, 0.56 * s))
+    elif kind == "section":       # вид по разрезу: глаз на стене
+        p.drawRect(int(0.30 * s), int(0.14 * s), int(0.40 * s),
+                   int(0.72 * s))
+        pen2 = QPen(QColor("#0E7C66"))
+        pen2.setWidthF(1.4)
+        p.setPen(pen2)
+        for k in (0.36, 0.52, 0.68):
+            p.drawLine(QPointF(0.30 * s, k * s), QPointF(0.70 * s, k * s))
+        p.drawLine(QPointF(0.06 * s, 0.50 * s), QPointF(0.22 * s, 0.50 * s))
+        p.drawLine(QPointF(0.16 * s, 0.42 * s), QPointF(0.22 * s, 0.50 * s))
+        p.drawLine(QPointF(0.16 * s, 0.58 * s), QPointF(0.22 * s, 0.50 * s))
     elif kind == "home":          # сброс вида: домик
         p.drawPolyline(*[QPointF(x * s, y * s) for x, y in
                          ((0.14, 0.50), (0.50, 0.16), (0.86, 0.50))])

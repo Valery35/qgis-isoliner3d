@@ -233,7 +233,8 @@ def test_vopts_read_through_defaults():
     # умолчания к ним отношения не имеют
     allowed = {"_opts_of", "_load_vec_opts", "_save_vec_opts",
                "_pick_vec_color", "__init__",
-               "_state_save", "_state_load"}
+               "_state_save", "_state_load", "_state_dict",
+               "_state_apply"}
     bad = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -3849,3 +3850,38 @@ def _run():
 
 if __name__ == "__main__":
     _run()
+
+
+def test_section_view_locks_rotation_and_ortho_keeps_front():
+    """Вид по разрезу запирает поворот, параллельная проекция не режет
+    модель спереди при приближении (замечание Ивана)."""
+    src = _viewer_src()
+    assert "def _section_view(self" in src
+    body = src[src.index("def _section_view(self"):]
+    body = body[:body.index("\n    def ")]
+    assert "lock_rotate = True" in body
+    assert "opts['elevation'] = 0.0" in body
+    move = src[src.index("    def mouseMoveEvent(self, ev):"):]
+    move = move[:move.index("\n    def ")]
+    assert "self.lock_rotate" in move and "self.pan(" in move
+    proj = src[src.index("    def projectionMatrix(self"):]
+    proj = proj[:proj.index("\n    def ")]
+    assert "-dist * 100.0" in proj
+
+
+def test_scenes_are_kept_per_name():
+    """Сцены проекта: имя -> состояние, текущая пишется и в старый ключ.
+
+    Просьба Ивана. Старый ключ «state» остаётся, чтобы проект
+    открывался прежней версией, а проект прежней версии - новой.
+    """
+    src = _viewer_src()
+    save = src[src.index("    def _state_save(self):"):]
+    save = save[:save.index("\n    def ")]
+    assert '"state"' in save and "_scenes_write()" in save
+    load = src[src.index("    def _state_load(self):"):]
+    load = load[:load.index("\n    def ")]
+    assert '"scenes"' in load and '"state"' in load
+    for name in ("_scene_new", "_scene_dup", "_scene_rename",
+                 "_scene_delete", "_scene_import", "_camera_state"):
+        assert "def %s(self" % name in src, name
