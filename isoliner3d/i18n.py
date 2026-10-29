@@ -83,8 +83,8 @@ def missing_keys(keys):
 TRANSLATIONS = {
     '2.14 Зональная статистика оболочек':
         '2.14 Zonal statistics of shells',
-    'Атрибут для суммы':
-        'Attribute to sum',
+    'Атрибут для статистики':
+        'Attribute for statistics',
     'Длина линий: всего %.2f м, внутри тел %.2f м, снаружи %.2f м.':
         'Length of the lines: %.2f m in all, %.2f m inside the bodies, %.2f m outside.',
     'Имя полей результата (пусто - от слоя)':
@@ -107,18 +107,18 @@ TRANSLATIONS = {
         'Bodies with statistics',
     'Что считать (объекты с Z)':
         'What to count (features with Z)',
-    'Имя для полей результата. Пусто - от имени слоя, приведённого к латинице. К нему добавятся суффиксы: _n число объектов внутри, _len длина линий внутри, _sum сумма атрибута. Задавайте своё, когда гоняете инструмент по одному слою тел несколько раз с разными данными.':
-        'The name for the result fields. Empty - from the name of the layer, turned into Latin letters. Suffixes are added to it: _n the number of features inside, _len the length of lines inside, _sum the sum of the attribute. Give your own when you run the tool over one layer of bodies several times with different data.',
+    'Имя для полей результата. Пусто - от имени слоя, приведённого к латинице. К нему добавятся суффиксы: _n число объектов внутри, _len длина линий внутри, _sum, _mean, _std и другие по выбранной статистике. Задавайте своё, когда гоняете инструмент по одному слою тел несколько раз с разными данными.':
+        'The name for the result fields. Empty - from the name of the layer, turned into Latin letters. Suffixes are added to it: _n the number of features inside, _len the length of lines inside, _sum, _mean, _std and others by the chosen statistics. Give your own when you run the tool over one layer of bodies several times with different data.',
     'Разрешить перезапись полей с тем же именем. Без этого повторный прогон с тем же именем - отказ: иначе второй результат тихо затёр бы первый.':
         'Allow overwriting fields of the same name. Without it a repeated run with the same name is refused: otherwise the second result would silently wipe out the first.',
     'Слой тел: замкнутые оболочки, по одной на объект. У каждого тела появятся свои поля со счётом. Незамкнутое тело получает пусто, а не ноль: у него нет внутренности, и считать там нечего.':
         'A layer of bodies: closed shells, one per feature. Every body gets its own count fields. A body that is not closed gets empty rather than zero: it has no inside, and there is nothing to count.',
-    'Считает по каждому телу, сколько объектов в него попало, и записывает числа в атрибуты тела.\n\nТочки: число внутри и сумма атрибута. Линии: число линий, задевших тело, и длина их частей внутри. Полигоны: число полигонов, у которых хоть одна вершина внутри.\n\nЛиния режется телом: отрезок пересекается с поверхностью, точки сортируются вдоль него, и в длину идёт только часть внутри. Отрезок, прошивший тело насквозь между своими вершинами, не пропадает.\n\nНоль и пусто - разные вещи. Тело, внутри которого ничего нет, получает ноль: это измеренный факт. Незамкнутое тело получает пусто и попадает в предупреждение: у него нет внутренности.\n\nПовторные прогоны по одному слою тел складываются: результат предыдущего подаётся как слой тел следующему, и каждый прогон добавляет свои поля. Столкновение имён - отказ, если не разрешена перезапись.\n\nСумма по телам сходится: длина линий внутри всех тел плюс длина снаружи равна полной длине, и это печатается в журнал.':
-        'Counts for every body how many features fell into it and writes the numbers into the attributes of the body.\n\nPoints: the number inside and the sum of an attribute. Lines: the number of lines that touched the body and the length of their parts inside. Polygons: the number of polygons with at least one vertex inside.\n\nA line is cut by the body: a segment is intersected with the surface, the points are sorted along it, and only the part inside goes into the length. A segment that goes right through the body between its own vertices is not lost.\n\nZero and empty are different things. A body with nothing inside gets zero: that is a measured fact. A body that is not closed gets empty and goes into a warning: it has no inside.\n\nRepeated runs over one layer of bodies add up: the result of the previous run is given as the layer of bodies to the next, and every run adds its own fields. A clash of names is refused unless overwriting is allowed.\n\nThe sum over the bodies agrees: the length of lines inside all the bodies plus the length outside equals the total length, and that is printed to the log.',
+    'Считает по каждому телу, сколько объектов в него попало, и записывает числа в атрибуты тела.\n\nТочки: число внутри и сумма атрибута. Линии: число линий, задевших тело, и длина их частей внутри. Полигоны: число полигонов, у которых хоть одна вершина внутри.\n\nЛиния режется телом: отрезок пересекается с поверхностью, точки сортируются вдоль него, и в длину идёт только часть внутри. Отрезок, прошивший тело насквозь между своими вершинами, не пропадает.\n\nНоль и пусто - разные вещи. Тело, внутри которого ничего нет, получает ноль: это измеренный факт. Незамкнутое тело получает пусто и попадает в предупреждение: у него нет внутренности.\n\nПовторные прогоны по одному слою тел складываются: результат предыдущего подаётся как слой тел следующему, и каждый прогон добавляет свои поля. Столкновение имён - отказ, если не разрешена перезапись.\n\nПо атрибуту считается сумма, среднее, минимум, максимум, стандартное отклонение, медиана и квантили, на выбор. У точек и полигонов каждый объект весит одинаково, у линий вес - длина их части внутри тела: интервал опробования, вошедший в тело наполовину, весит половину. Пустые значения атрибута не участвуют.\n\nСумма по телам сходится: длина линий внутри всех тел плюс длина снаружи равна полной длине, и это печатается в журнал.':
+        'Counts for every body how many features fell into it and writes the numbers into the attributes of the body.\n\nPoints: the number inside and the sum of an attribute. Lines: the number of lines that touched the body and the length of their parts inside. Polygons: the number of polygons with at least one vertex inside.\n\nA line is cut by the body: a segment is intersected with the surface, the points are sorted along it, and only the part inside goes into the length. A segment that goes right through the body between its own vertices is not lost.\n\nZero and empty are different things. A body with nothing inside gets zero: that is a measured fact. A body that is not closed gets empty and goes into a warning: it has no inside.\n\nRepeated runs over one layer of bodies add up: the result of the previous run is given as the layer of bodies to the next, and every run adds its own fields. A clash of names is refused unless overwriting is allowed.\n\nThe attribute gets a sum, a mean, a minimum, a maximum, a standard deviation, a median and quantiles, as chosen. Points and polygons weigh one each, lines weigh the length of their part inside the body: a sample interval half inside the body weighs half. Empty attribute values take no part.\n\nThe sum over the bodies agrees: the length of lines inside all the bodies plus the length outside equals the total length, and that is printed to the log.',
     'Тела со всеми прежними полями и новыми полями счёта. Чтобы накопить несколько прогонов, подавайте результат предыдущего как слой тел следующему.':
         'The bodies with all their previous fields and the new count fields. To accumulate several runs, give the result of the previous run as the layer of bodies to the next.',
-    'Числовой атрибут для суммы: объём блока, мощность, содержание. Пусто - только счёт.':
-        'A numeric attribute to sum: the volume of a block, a thickness, a grade. Empty - count only.',
+    'Числовой атрибут для статистики: металл или объём блока, мощность, содержание. Пусто - только счёт.':
+        'A numeric attribute for statistics: the metal or the volume of a block, a thickness, a grade. Empty - count only.',
     'Что считать: точки, линии или полигоны с высотой. Блочная модель, скважины, следы выработок, разломы.':
         'What to count: points, lines or polygons with height. A block model, holes, traces of workings, faults.',
 
@@ -4244,4 +4244,42 @@ TRANSLATIONS = {
         'Show the coordinate box: edges, ticks and labels. The same as the box button on the view toolbar.',
     'Сбросить вид: угол обзора, ракурс и кадр по сцене':
         'Reset view: field of view, angle and framing to the scene',
+    'Статистика по атрибуту':
+        'Statistics of the attribute',
+    'Что считать по атрибуту. Сумма - запас, когда атрибут уже металл блока. Для содержания нужны среднее, разброс и квантили. У линий среднее и квантили взвешены по длине внутри тела, как при подсчёте по композитам.':
+        'What to compute from the attribute. The sum is the reserve when the attribute is already the metal of a block. A grade needs the mean, the spread and quantiles. For lines the mean and quantiles are weighted by the length inside the body, as with composites.',
+    'Сумма':
+        'Sum',
+    'Среднее':
+        'Mean',
+    'Минимум':
+        'Minimum',
+    'Максимум':
+        'Maximum',
+    'Стандартное отклонение':
+        'Standard deviation',
+    'Медиана':
+        'Median',
+    'Квартили 25 и 75 %':
+        'Quartiles 25 and 75 %',
+    'Квантили 10 и 90 %':
+        'Quantiles 10 and 90 %',
+    '%s: среднее':
+        '%s: mean',
+    '%s: минимум':
+        '%s: minimum',
+    '%s: максимум':
+        '%s: maximum',
+    '%s: стандартное отклонение':
+        '%s: standard deviation',
+    '%s: медиана':
+        '%s: median',
+    '%s: квантиль 25 %%':
+        '%s: quantile 25 %%',
+    '%s: квантиль 75 %%':
+        '%s: quantile 75 %%',
+    '%s: квантиль 10 %%':
+        '%s: quantile 10 %%',
+    '%s: квантиль 90 %%':
+        '%s: quantile 90 %%',
 }

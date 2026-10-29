@@ -6588,11 +6588,15 @@ HINTS_2_14 = {
              "модель, скважины, следы выработок, разломы.",
     "NAME": "Имя для полей результата. Пусто - от имени слоя, "
             "приведённого к латинице. К нему добавятся суффиксы: _n "
-            "число объектов внутри, _len длина линий внутри, _sum "
-            "сумма атрибута. Задавайте своё, когда гоняете инструмент "
+            "число объектов внутри, _len длина линий внутри, _sum, "
+            "_mean, _std и другие по выбранной статистике. Задавайте своё, когда гоняете инструмент "
             "по одному слою тел несколько раз с разными данными.",
-    "ATTR": "Числовой атрибут для суммы: объём блока, мощность, "
-            "содержание. Пусто - только счёт.",
+    "ATTR": "Числовой атрибут для статистики: металл или объём блока, "
+            "мощность, содержание. Пусто - только счёт.",
+    "STATS": "Что считать по атрибуту. Сумма - запас, когда атрибут уже "
+             "металл блока. Для содержания нужны среднее, разброс "
+             "и квантили. У линий среднее и квантили взвешены по длине "
+             "внутри тела, как при подсчёте по композитам.",
     "OVERWRITE": "Разрешить перезапись полей с тем же именем. Без этого "
                  "повторный прогон с тем же именем - отказ: иначе "
                  "второй результат тихо затёр бы первый.",
@@ -6654,6 +6658,12 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
             "результат предыдущего подаётся как слой тел следующему, "
             "и каждый прогон добавляет свои поля. Столкновение имён - "
             "отказ, если не разрешена перезапись.\n\n"
+            "По атрибуту считается сумма, среднее, минимум, максимум, "
+            "стандартное отклонение, медиана и квантили, на выбор. "
+            "У точек и полигонов каждый объект весит одинаково, у линий "
+            "вес - длина их части внутри тела: интервал опробования, "
+            "вошедший в тело наполовину, весит половину. Пустые "
+            "значения атрибута не участвуют.\n\n"
             "Сумма по телам сходится: длина линий внутри всех тел плюс "
             "длина снаружи равна полной длине, и это печатается "
             "в журнал.") + _credit())
@@ -6668,9 +6678,14 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
             "NAME", self.tr("Имя полей результата (пусто - от слоя)"),
             optional=True))
         self.addParameter(QgsProcessingParameterField(
-            "ATTR", self.tr("Атрибут для суммы"),
+            "ATTR", self.tr("Атрибут для статистики"),
             parentLayerParameterName="INPUT", optional=True,
             type=QgsProcessingParameterField.DataType.Numeric))
+        from .zonal import STATS
+        self.addParameter(QgsProcessingParameterEnum(
+            "STATS", self.tr("Статистика по атрибуту"),
+            options=[self.tr(t) for _k, _s, t in STATS],
+            allowMultiple=True, defaultValue=[0], optional=True))
         self.addParameter(QgsProcessingParameterBoolean(
             "OVERWRITE", self.tr("Разрешить перезапись полей"),
             defaultValue=False))
@@ -6765,6 +6780,10 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
                 or "").strip()
         attr = self.parameterAsString(parameters, "ATTR", context)
         overwrite = self.parameterAsBool(parameters, "OVERWRITE", context)
+        from . import zonal
+        picked = self.parameterAsEnums(parameters, "STATS", context)
+        keys = [zonal.KEYS[i] for i in (picked if picked else [0])
+                if 0 <= i < len(zonal.KEYS)] or ["sum"]
         if not name:
             name = self._slug(src.sourceName() or "layer")
         # Род геометрии - по имени типа, а не по перечислению: имена
@@ -6779,7 +6798,8 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
         if is_ln:
             new_fields.append((name + "_len", QVariant.Double))
         if attr:
-            new_fields.append((name + "_sum", QVariant.Double))
+            for suf in zonal.suffixes(keys):
+                new_fields.append((name + suf, QVariant.Double))
         fields = QgsFields(shells_src.fields())
         have = {fld.name() for fld in fields}
         clash = [nm for nm, _t in new_fields if nm in have]
@@ -6840,7 +6860,7 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
                     parts.append(pts)
             if not parts:
                 continue
-            val = _num(ft, attr, 0.0) if attr else 0.0
+            val = _numv(ft[attr]) if attr else None
             objs.append((parts, val))
         if not objs:
             raise QgsProcessingException(self.tr(
@@ -6856,6 +6876,7 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
         owner = np.concatenate([np.full(len(p), oi, dtype=np.int64)
                                 for oi, (parts, _v) in enumerate(objs)
                                 for p in parts])
+        starts_xyz = np.array([p[0] for parts, _v in objs for p in parts])
         feedback.pushInfo(self.tr("Объектов: %d.") % len(objs))
 
         sink, dest = self.parameterAsSink(
@@ -6876,19 +6897,28 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
                 bbox = boolean3d.tri_bbox(v, f)
                 n_in = 0
                 len_in = 0.0
-                sum_in = 0.0
+                in_vals, in_w = [], []
                 if is_ln:
+                    # начала всех ломаных - одним пакетом: луч по каждой
+                    # отдельно на большом теле занимал часы
+                    starts = boolean3d.points_inside(v, f, starts_xyz)
+                    pi = 0
                     for parts, val in objs:
                         hit = False
+                        got_obj = 0.0
                         for p in parts:
                             got, _tot = boolean3d.polyline_inside_length(
-                                v, f, p, bbox=bbox)
+                                v, f, p, bbox=bbox,
+                                start_inside=starts[pi])
+                            pi += 1
                             if got > 0.0:
                                 hit = True
                                 len_in += got
+                                got_obj += got
                         if hit:
                             n_in += 1
-                            sum_in += val
+                            in_vals.append(val)
+                            in_w.append(got_obj)
                 else:
                     # Точки всех объектов - ОДНИМ пакетом. Опрос по
                     # объекту за раз на двадцати тысячах блоков давал
@@ -6899,13 +6929,16 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
                         hit = bool(sel.all()) if is_pt else bool(sel.any())
                         if hit:
                             n_in += 1
-                            sum_in += val
+                            in_vals.append(val)
+                            in_w.append(1.0)
                 vals[idx[name + "_n"]] = int(n_in)
                 if is_ln:
                     vals[idx[name + "_len"]] = float(len_in)
                     grand_len += len_in
                 if attr:
-                    vals[idx[name + "_sum"]] = float(sum_in)
+                    got_st = zonal.stats(in_vals, in_w, keys)
+                    for suf, x in got_st.items():
+                        vals[idx[name + suf]] = x
                 grand_n += n_in
             out.setAttributes(vals)
             sink.addFeature(out)

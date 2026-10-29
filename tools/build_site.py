@@ -18,7 +18,8 @@ import base64
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
 FIGURES = os.path.join(ROOT, "doc", "figures")
 OUT_DIR = os.path.join(ROOT, "site")
 OUT = os.path.join(OUT_DIR, "isoliner3d_landing.html")
@@ -83,12 +84,14 @@ def read_version():
 TEXTS = {
 "title":      ("Isoliner3D - 3D-просмотр и блочная модель для QGIS · Информ++",
                "Isoliner3D - 3D viewer and block model for QGIS · Inform++"),
-"desc":       ("Isoliner3D показывает геологические поверхности и тела "
-               "пластов в объёме, накладывает на них карты текстурой "
-               "и считает запасы по блочной модели. Плагин QGIS.",
-               "Isoliner3D shows geological surfaces and bed bodies in three "
-               "dimensions, drapes maps onto them as textures and computes "
-               "reserves from a block model. A QGIS plugin."),
+"desc":       ("Isoliner3D показывает геологические поверхности, тела "
+               "пластов и толщ, скважины и блочные модели в объёме, "
+               "накладывает на них карты текстурой и считает запасы. "
+               "Модуль QGIS.",
+               "Isoliner3D shows geological surfaces, bodies of beds and "
+               "formations, boreholes and block models in three dimensions, "
+               "drapes maps onto them as textures and computes reserves. "
+               "A QGIS plugin."),
 "brand.sub":  ("для QGIS", "for QGIS"),
 "nav.idea":   ("Идея", "Idea"),
 "nav.tools":  ("Инструменты", "Tools"),
@@ -116,6 +119,13 @@ TEXTS = {
                "running through them, the section drawing in its place "
                "in space and a map draped over the relief."),
 "cta.install":("Установить в QGIS", "Install in QGIS"),
+"cta.zip":    ("Скачать архив", "Download the archive"),
+"cta.zipnote":("Последняя версия всегда здесь. Установка: в QGIS "
+               "Модули - Установить из ZIP. Через каталог модулей "
+               "QGIS новая версия приходит позже, после проверки.",
+               "The latest version is always here. To install, in QGIS "
+               "choose Plugins - Install from ZIP. Through the QGIS plugin "
+               "catalogue a new version arrives later, after review."),
 "cta.code":   ("Исходный код", "Source code"),
 "cta.code2":  ("Исходный код и релизы", "Source code and releases"),
 
@@ -199,28 +209,50 @@ TEXTS = {
                "and the ribbon in the scene are one and the same place, "
                "shown three times."),
 
-"tools.eyebrow":("Шестнадцать инструментов", "Sixteen tools"),
+"tools.eyebrow":("__NTOOLS__ инструментов", "__NTOOLS__ tools"),
 "tools.h2":   ("Две группы в панели Обработки: пласт и объёмная "
                "интерполяция",
                "Two groups in the Processing toolbox: the bed and the "
                "interpolation in volume"),
-"tools.sub":  ("Считают на NumPy и GDAL, кригинг им не нужен, поэтому "
-               "работают и без основного плагина. Конвейер простой: собрать "
-               "грид пласта, посчитать по нему запасы, развернуть "
-               "в блочную модель, получить списание разностью двух моделей. "
-               "Вторая группа работает с объёмом: кригинг и мультисеточные "
-               "B-сплайны по разбросанным пробам, а по зарисовкам "
-               "на разрезах - кровля и подошва пласта со склейкой "
-               "контактов соседних пластов.",
-               "They compute on NumPy and GDAL and need no kriging, so they "
-               "work without the main plugin. The pipeline is simple: "
-               "assemble a bed grid, compute reserves from it, unfold it "
-               "into a block model, get the write-off as the difference of "
-               "two models. The second group works in volume: kriging and "
-               "multilevel B-splines over scattered samples, and from "
-               "drawings on sections a roof and a floor of a bed with the "
-               "contacts of neighbouring beds glued into one surface."),
+"tools.sub":  ("Считают на NumPy и GDAL, поэтому работают и без основного "
+               "модуля. Первая группа - пласт: собрать грид, посчитать "
+               "запасы, развернуть в блочную модель, получить списание "
+               "разностью двух моделей. Вторая - объём: кригинг "
+               "и мультисеточные B-сплайны по пробам, пласты и тела толщ "
+               "по разрезам и скважинам, стволы скважин по инклинометрии, "
+               "интервалы и композиты, блочные модели Micromine, Datamine "
+               "и Surpac, разрезы 2D-инверсии, операции с оболочками "
+               "и зональная статистика. Список собирается из самого модуля "
+               "и всегда совпадает с ним.",
+               "They compute on NumPy and GDAL, so they work without the "
+               "main plugin. The first group is the bed: assemble a grid, "
+               "compute reserves, unfold it into a block model, get the "
+               "write-off as the difference of two models. The second is "
+               "the volume: kriging and multilevel B-splines over samples, "
+               "beds and formation bodies from sections and boreholes, "
+               "borehole traces from surveys, intervals and composites, "
+               "Micromine, Datamine and Surpac block models, 2D inversion "
+               "sections, operations on shells and zonal statistics. The "
+               "list is built from the plugin itself and always matches "
+               "it."),
 "g1":         ("Пласт и блочная модель", "Bed and block model"),
+"g2":         ("3D-интерполяция и объём", "3D interpolation and volume"),
+"t214.h":     ("Зональная статистика оболочек", "Zonal statistics of shells"),
+"t214.p":     ("По каждому телу: сколько объектов внутри, длина линий, "
+               "сумма, среднее, разброс и квантили атрибута. У интервалов "
+               "скважин всё взвешено по длине внутри тела.",
+               "For every body: how many features are inside, the length "
+               "of lines, the sum, mean, spread and quantiles of an "
+               "attribute. For borehole intervals all is weighted by the "
+               "length inside the body."),
+"t215.h":     ("Тела толщ по контурам и скважинам",
+               "Formation bodies from outlines and boreholes"),
+"t215.p":     ("Толщи по разрезам, карте и интервалам скважин, каждая своим "
+               "телом. Выклинивание и линзы между скважинами, обрезка "
+               "по контуру участка.",
+               "Formations from sections, the map and borehole intervals, "
+               "each as its own body. Pinch-outs and lenses between the "
+               "holes, clipping by the site outline."),
 "t101.h":     ("Собрать грид пласта", "Assemble a bed grid"),
 "t101.p":     ("Кровля, подошва и параметры в один многоканальный растр. "
                "Имена каналов берутся из имён слоёв.",
@@ -283,7 +315,7 @@ TEXTS = {
 "cases.eyebrow":("Что видно в сцене", "What the scene shows"),
 "cases.h2":   ("Скважины, разрез и запасы в одном пространстве",
                "Boreholes, a section and reserves in one space"),
-"cases.sub":  ("Скважины рисуются стволами, интервалы окрашены по "
+"cases.sub":  ("Скважины рисуются стволами и трубами, интервалы окрашены по "
                "стратиграфическому положению, над устьем встаёт мачта "
                "с подписью, а густой фонд прореживается, чтобы подписи "
                "оставались читаемыми. Клик по сцене печатает имя слоя, "
@@ -360,8 +392,10 @@ TEXTS = {
                "that preserves topology. A torn topology on the map "
                "turns into a torn shell in three dimensions."),
 "fam.c2.a":   ("Открыть в каталоге QGIS", "Open in the QGIS catalogue"),
-"ftr.line1":  ("лицензия GNU GPL v2 или новее · QGIS 3.16 и новее",
-               "GNU GPL v2 or later · QGIS 3.16 and newer"),
+"ftr.line1":  ("лицензия GNU GPL v2 или новее · QGIS 3.16 и новее, "
+               "включая QGIS 4",
+               "GNU GPL v2 or later · QGIS 3.16 and newer, including "
+               "QGIS 4"),
 "ftr.line2":  ("Разработано ООО «Информ++»", "Developed by Inform++ LLC"),
 "ftr.line3":  ("Плагин развивается на задачах реальных предприятий. Если "
                "вашему производству не хватает функции, напишите нам.",
@@ -378,6 +412,67 @@ def dictionary():
         data["ru"][key] = ru
         data["en"][key] = en
     return json.dumps(data, ensure_ascii=False)
+
+
+ZIP_URL = ("https://github.com/Valery35/qgis-isoliner3d/releases/latest/"
+           "download/isoliner3d.zip")
+
+
+def _first_sentence(text):
+    """Первое предложение первого абзаца справки."""
+    import re
+    par = (text or "").split("\n\n")[0].strip()
+    m = re.match(r"(.+?[.!?])(\s|$)", par, re.S)
+    return (m.group(1) if m else par).replace("\n", " ")
+
+
+def tool_list():
+    """Инструменты модуля по номерам: [(номер, ключ текста)].
+
+    Список и описания берутся из algorithms.py: название из
+    displayName, описание из первого предложения справки, английский
+    из i18n. Так на странице всегда столько инструментов, сколько
+    в модуле. Где описание написано для страницы отдельно (ключ tNNN
+    в TEXTS), берётся оно.
+    """
+    import ast
+    import re
+    sys.path.insert(0, ROOT)
+    sys.path.insert(0, HERE)
+    from isoliner3d import i18n
+    import gen_tool_tables as gt
+    tr = i18n.TRANSLATIONS
+    tree = ast.parse(open(os.path.join(ROOT, "isoliner3d", "algorithms.py"),
+                          encoding="utf-8").read())
+    out = []
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        title = helps = None
+        for sub in node.body:
+            if not isinstance(sub, ast.FunctionDef):
+                continue
+            for n2 in ast.walk(sub):
+                if sub.name == "displayName" and isinstance(n2, ast.Return):
+                    title = gt._str_of(n2.value)
+                if (sub.name == "shortHelpString" and helps is None
+                        and isinstance(n2, ast.Call)
+                        and getattr(n2.func, "attr", "") == "tr"
+                        and n2.args):
+                    helps = gt._str_of(n2.args[0])
+        m = re.match(r"(\d\.\d\d) (.+)$", title or "")
+        if not m:
+            continue
+        num, name = m.group(1), m.group(2)
+        key = "t" + num.replace(".", "")
+        if key + ".h" not in TEXTS:
+            en_title = tr.get(title, title)
+            en_name = re.sub(r"^\d\.\d\d ", "", en_title)
+            TEXTS[key + ".h"] = (name, en_name)
+            TEXTS[key + ".p"] = (_first_sentence(helps),
+                                 _first_sentence(tr.get(helps, helps)))
+        out.append((num, key))
+    return sorted(out)
 
 
 def tool_row(number, key):
@@ -454,6 +549,7 @@ p{margin:0}
 .btn-main:hover{background:var(--teal-deep)}
 .btn-ghost{border:1px solid var(--line);color:var(--ink)}
 .btn-ghost:hover{border-color:var(--teal)}
+.note{margin-top:12px;font-size:14px;color:var(--ink-soft);max-width:64ch}
 section{padding:56px 0;border-top:1px solid var(--line)}
 section h2{font-size:clamp(26px,3.3vw,38px);max-width:24ch}
 section .sub{margin-top:16px;max-width:70ch;color:var(--ink-soft)}
@@ -515,11 +611,13 @@ figcaption{margin-top:10px;font-size:14px;color:var(--ink-soft)}
   <h1 data-i18n="hero.h1"></h1>
   <p class="lead" data-i18n="hero.lead"></p>
   <div class="cta">
-    <a class="btn btn-main" data-i18n="cta.install"
+    <a class="btn btn-main" data-i18n="cta.zip" href="__ZIP__"></a>
+    <a class="btn btn-ghost" data-i18n="cta.install"
        href="https://plugins.qgis.org/plugins/isoliner3d/"></a>
     <a class="btn btn-ghost" data-i18n="cta.code"
        href="https://github.com/Valery35/qgis-isoliner3d"></a>
   </div>
+  <p class="note" data-i18n="cta.zipnote"></p>
   <figure class="shot">
     <img alt=""__PHOTO__>
     <figcaption data-i18n="hero.shot"></figcaption>
@@ -570,6 +668,8 @@ figcaption{margin-top:10px;font-size:14px;color:var(--ink-soft)}
     <div class="tools">
       <div class="group" data-i18n="g1"></div>
       __ROWS1__
+      <div class="group" data-i18n="g2"></div>
+      __ROWS2__
     </div>
   </div>
 </section>
@@ -596,7 +696,8 @@ figcaption{margin-top:10px;font-size:14px;color:var(--ink-soft)}
     <h2 data-i18n="docs.h2"></h2>
     <p class="sub" data-i18n="docs.sub"></p>
     <div class="cta">
-      <a class="btn btn-main" data-i18n="cta.install"
+      <a class="btn btn-main" data-i18n="cta.zip" href="__ZIP__"></a>
+      <a class="btn btn-ghost" data-i18n="cta.install"
          href="https://plugins.qgis.org/plugins/isoliner3d/"></a>
       <a class="btn btn-ghost" data-i18n="cta.code2"
          href="https://github.com/Valery35/qgis-isoliner3d"></a>
@@ -707,13 +808,14 @@ def main():
     page = PAGE.replace("__PHOTO__", photo("docs/screenshot.png"))
     for name in ("bed_body", "texture", "section", "pipeline"):
         page = page.replace("__PAIR_%s__" % name, figure_pair(name))
-    rows1 = "".join(tool_row(n, k) for n, k in (
-        ("1.01", "t101"), ("1.02", "t102"), ("1.03", "t103"),
-        ("1.04", "t104"), ("1.05", "t105"), ("1.06", "t106"),
-        ("1.07", "t107"), ("1.08", "t108"), ("2.06", "t206"),
-        ("2.07", "t207"), ("2.08", "t208")))
+    tools = tool_list()
+    rows1 = "".join(tool_row(n, k) for n, k in tools if n.startswith("1."))
+    rows2 = "".join(tool_row(n, k) for n, k in tools if n.startswith("2."))
     page = page.replace("__ROWS1__", rows1)
-    page = page.replace("__DICT__", dictionary())
+    page = page.replace("__ROWS2__", rows2)
+    page = page.replace("__ZIP__", ZIP_URL)
+    page = page.replace("__DICT__", dictionary().replace(
+        "__NTOOLS__", str(len(tools))))
     page = page.replace("__VERSION__", read_version())
 
     os.makedirs(OUT_DIR, exist_ok=True)

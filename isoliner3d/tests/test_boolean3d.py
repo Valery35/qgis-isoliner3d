@@ -257,3 +257,15 @@ if __name__ == "__main__":
             fn()
             print("OK", nm)
     print("all boolean3d tests passed")
+
+
+def test_known_start_gives_the_same_length():
+    """2.14 передаёт, внутри ли начало, из одного пакетного опроса."""
+    v, f = _box(0.0, 0.0, 0.0, 10.0)
+    for pts in ([(5, 5, -5), (5, 5, 15)], [(5, 5, 5), (5, 5, 20)],
+                [(-3, 5, 5), (13, 5, 5), (13, 8, 5)]):
+        p = np.array(pts, float)
+        start = b3.points_inside(v, f, p[:1])[0]
+        a = b3.polyline_inside_length(v, f, p)
+        b = b3.polyline_inside_length(v, f, p, start_inside=start)
+        assert np.allclose(a, b)

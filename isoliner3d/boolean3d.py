@@ -212,7 +212,8 @@ def _segment_hits(verts, faces, a, b, bbox):
     return ts[keep]
 
 
-def polyline_inside_length(verts, faces, pts, bbox=None):
+def polyline_inside_length(verts, faces, pts, bbox=None,
+                           start_inside=None):
     """Длина ломаной внутри замкнутой оболочки.
 
     Каждый отрезок режется поверхностью: находятся его пересечения
@@ -221,6 +222,11 @@ def polyline_inside_length(verts, faces, pts, bbox=None):
     снаружи начало ломаной, решает луч вверх один раз; дальше
     состояние передаётся по цепочке отрезков, и у каждой вершины
     не бывает своих шансов лечь на ребро.
+
+    `start_inside` - уже известно, внутри ли начало. Луч вверх идёт
+    циклом по всем треугольникам, на теле в восемьдесят тысяч граней
+    это треть секунды на каждую линию. 2.14 опрашивает начала всех
+    линий одним пакетом и передаёт ответ сюда.
 
     Возвращает (длина внутри, длина всего).
     """
@@ -231,7 +237,8 @@ def polyline_inside_length(verts, faces, pts, bbox=None):
         return 0.0, 0.0
     if bbox is None:
         bbox = tri_bbox(v, f)
-    inside = bool(points_inside(v, f, p[:1])[0])
+    inside = bool(points_inside(v, f, p[:1])[0]) \
+        if start_inside is None else bool(start_inside)
     got = total = 0.0
     for k in range(len(p) - 1):
         a, b = p[k], p[k + 1]
