@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: "Канал модулей в Telegram / Telegram channel"
+    url: https://t.me/qgis_isolines
+    about: "Новости выпусков и вопросы по модулям / Release news and questions"
+  - name: "Руководство / Manual (PDF)"
+    url: https://github.com/Valery35/qgis-isoliner3d/tree/main/isoliner3d/doc
+    about: "Руководство на русском и английском / The manual in Russian and English"

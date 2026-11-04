@@ -190,6 +190,10 @@ QGIS imports. `viewer3d.py` and `texmesh.py` import Qt, QGIS and pyqtgraph
 lazily, so the modules load headless. `algorithms.py` imports QGIS at the
 top level and is checked statically, by parsing the AST.
 
+## Bugs and feature requests
+
+Open an issue on GitHub: [new issue](https://github.com/Valery35/qgis-isoliner3d/issues/new/choose). There are two forms, for a bug and for a feature request. They ask for the versions, steps and data that help.
+
 ## License
 
 GNU GPL version 2 or later, see [LICENSE](LICENSE).

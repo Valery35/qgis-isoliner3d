@@ -1,0 +1,92 @@
+name: "Ошибка / Bug report"
+description: "Что-то работает не так, падает или считает неверно / Something is broken, crashes or computes wrong"
+title: "[Ошибка] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо, что пишете. Чем точнее шаги и данные, тем быстрее ошибка найдётся.
+        Thank you for the report. Exact steps and data make the fix faster.
+  - type: input
+    id: plugin_version
+    attributes:
+      label: "Версия Isoliner3D / Plugin version"
+      description: "Меню модуля - «О плагине» / Plugin menu - About"
+      placeholder: "1.4.12"
+    validations:
+      required: true
+  - type: input
+    id: qgis_version
+    attributes:
+      label: "Версия QGIS / QGIS version"
+      placeholder: "4.0.3"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: "Система / Operating system"
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - "Другая / Other"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Где ошибка / Where"
+      options:
+        - "3D-сцена (окно просмотра) / 3D viewer"
+        - "Инструмент Processing 1.xx (пласт и блочная модель) / Bed and block model tool"
+        - "Инструмент Processing 2.xx (3D-интерполяция и объём) / 3D interpolation tool"
+        - "Выгрузка GLB, STL, OBJ / Export"
+        - "Установка, запуск модуля / Installation, start-up"
+        - "Руководство / Manual"
+        - "Другое / Other"
+    validations:
+      required: true
+  - type: input
+    id: tool
+    attributes:
+      label: "Инструмент / Tool"
+      description: "Номер и название, если ошибка в инструменте / Number and name, if it is a tool"
+      placeholder: "2.15 Тела толщ по контурам и скважинам"
+  - type: textarea
+    id: what
+    attributes:
+      label: "Что случилось / What happened"
+      description: "Сообщение об ошибке, снимок экрана, неверные числа / Error message, screenshot, wrong numbers"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Что ожидалось / What you expected"
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Как повторить / Steps to reproduce"
+      placeholder: |
+        1. Открыть ...
+        2. Запустить ... с параметрами ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: "Журнал / Log"
+      description: |
+        Журнал модуля: «О плагине» - «Журнал», и журнал Processing, если ошибка в инструменте. Вставьте последние строки.
+        Plugin log: About - Log, and the Processing log for a tool. Paste the last lines.
+      render: text
+  - type: textarea
+    id: data
+    attributes:
+      label: "Данные / Data"
+      description: |
+        Небольшой пример данных, на котором ошибка повторяется: архив можно перетащить сюда. Координаты можно сдвинуть, если они секретны.
+        A small data sample that reproduces it: drag a zip here. Shift the coordinates if they are confidential.

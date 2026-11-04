@@ -1,0 +1,43 @@
+name: "Пожелание / Feature request"
+description: "Новая возможность или улучшение / A new feature or an improvement"
+title: "[Пожелание] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Модуль растёт на задачах реальных предприятий. Опишите задачу, а не только кнопку: так проще найти решение, которое подойдёт и другим.
+        The plugin grows on real tasks. Describe the task, not only the button you want.
+  - type: textarea
+    id: task
+    attributes:
+      label: "Задача / The task"
+      description: "Что вы хотите сделать и зачем / What you want to do and why"
+    validations:
+      required: true
+  - type: textarea
+    id: now
+    attributes:
+      label: "Как сейчас / How you do it now"
+      description: "Что мешает сейчас, чем обходитесь / What gets in the way, any workaround"
+  - type: textarea
+    id: idea
+    attributes:
+      label: "Как это могло бы выглядеть / How it could look"
+      description: "Инструмент, кнопка, параметр, пример из другой программы / A tool, a button, an example from other software"
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Раздел / Area"
+      options:
+        - "3D-сцена / 3D viewer"
+        - "Пласт и блочная модель (1.xx) / Bed and block model"
+        - "3D-интерполяция и объём (2.xx) / 3D interpolation and volume"
+        - "Скважины / Boreholes"
+        - "Выгрузка и обмен / Export and exchange"
+        - "Другое / Other"
+  - type: textarea
+    id: data
+    attributes:
+      label: "Пример данных / Sample data"
+      description: "Если есть, перетащите архив сюда / If you have one, drag a zip here"

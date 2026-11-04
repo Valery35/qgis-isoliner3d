@@ -186,6 +186,10 @@ python isoliner3d/tests/test_flakes.py
 и pyqtgraph лениво, поэтому модули грузятся headless. `algorithms.py` тянет
 QGIS на верхнем уровне и проверяется статически, разбором AST.
 
+## Ошибки и пожелания
+
+Ошибку или пожелание удобнее всего оставить на GitHub: [новая заявка](https://github.com/Valery35/qgis-isoliner3d/issues/new/choose). Там две формы, для ошибки и для пожелания: они подсказывают, какие версии, шаги и данные приложить.
+
 ## Лицензия
 
 GNU GPL версии 2 или новее, см. [LICENSE](LICENSE).
