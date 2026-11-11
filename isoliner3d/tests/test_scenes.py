@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import zipfile
+import pytest
 
 PKG = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(PKG))
@@ -108,3 +109,40 @@ def test_qgis4_property_layout():
            % json.dumps({"Разрез": st}).replace("&", "&amp;"))
     got, cur, _l = scenes.parse_project(xml)
     assert got == {"Разрез": st} and cur == "Разрез"
+
+
+def test_project_with_doctype_is_read():
+    """Настоящий проект QGIS начинается с <!DOCTYPE qgis ...>."""
+    xml = _qgs({"scene": "А", "scenes": json.dumps({"А": {}})}, [])
+    head = "<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>\n"
+    got, cur, _l = scenes.parse_project(head + xml.split("?>", 1)[-1]
+                                        if xml.startswith("<?xml")
+                                        else head + xml)
+    assert cur == "А" and "А" in got
+
+
+def test_entities_are_refused():
+    """Объявления сущностей - ловушка для разборщика, не проект.
+
+    Сканер каталога (bandit B314) требует защиты от раздувания
+    сущностей: без неё такой файл съел бы память QGIS.
+    """
+    bomb = ('<?xml version="1.0"?>\n<!DOCTYPE q [<!ENTITY a "aaaaaaaa">'
+            '<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;">]>\n'
+            '<qgis><properties/><title>&b;</title></qgis>')
+    with pytest.raises(Exception):
+        scenes.parse_project(bomb)
+
+
+def test_scanner_sees_the_guard():
+    """Разбор XML помечен для сканера, сырого ET.fromstring нет."""
+    import os
+    src = open(os.path.join(os.path.dirname(__file__), "..",
+                            "scenes.py"), encoding="utf-8").read()
+    assert "ET.fromstring" not in src
+    assert "import xml.etree.ElementTree as ET" not in src
+    for line in src.splitlines():
+        if "xml.etree" in line and "import" in line:
+            assert "# nosec" in line, line
+        if "_std_fromstring(" in line and "import" not in line:
+            assert "# nosec" in line, line
