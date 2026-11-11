@@ -43,22 +43,16 @@ def intervals(col, zc):
     if not len(col):
         z = np.zeros(0)
         return np.zeros(0, dtype=np.int64), z, z
-    starts = np.flatnonzero(np.r_[True, col[1:] != col[:-1]])
-    ends = np.r_[starts[1:], len(col)]
-    cs, lo, hi = [], [], []
-    for s, e in zip(starts, ends):
-        n = e - s
-        n -= n % 2
-        if n < 2:
-            continue
-        zs = zc[s:s + n]
-        lo.append(zs[0::2])
-        hi.append(zs[1::2])
-        cs.append(np.full(n // 2, col[s], dtype=np.int64))
-    if not lo:
-        z = np.zeros(0)
-        return np.zeros(0, dtype=np.int64), z, z
-    return np.concatenate(cs), np.concatenate(lo), np.concatenate(hi)
+    idx = np.arange(len(col))
+    first = np.r_[True, col[1:] != col[:-1]]
+    start = np.maximum.accumulate(np.where(first, idx, 0))
+    rank = idx - start
+    size = np.diff(np.r_[np.flatnonzero(first), len(col)])
+    count = np.repeat(size, size)
+    # вход - чётное пересечение, у которого в той же колонке есть выход
+    ok = (rank % 2 == 0) & (rank + 1 < count)
+    k = np.flatnonzero(ok)
+    return col[k], zc[k], zc[k + 1]
 
 
 def volume_below(lo, hi, area, h):
@@ -146,6 +140,12 @@ def filled_occupancy(cols, lo, hi, gt, ny, nx, level, dz,
     else:
         zc = top - dz * (nz - np.arange(nz) - 0.5)
     occ = np.zeros((nz, ny * nx), dtype=bool)
-    for c, a, b in zip(cols, lo, hi):
-        occ[:, c] |= (zc >= a) & (zc <= b)
+    # пачками отрезков: у одной колонки их бывает несколько, поэтому
+    # «или» копится через logical_or.at, а не присваиванием
+    step = max(1, 4000000 // max(nz, 1))
+    for k in range(0, len(cols), step):
+        c = cols[k:k + step]
+        hit = (zc[:, None] >= lo[None, k:k + step]) & \
+            (zc[:, None] <= hi[None, k:k + step])
+        np.logical_or.at(occ.T, c, hit.T)
     return occ.reshape(nz, ny, nx), float(zc[0]), dz

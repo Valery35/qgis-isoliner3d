@@ -9183,10 +9183,19 @@ class FillToVolumeAlgorithm(IsolinerAlgorithm):
             "Уровень %.3f м. Объём %s уровня %.1f м3, %.1f %% тела.")
             % (level, self.tr("выше") if from_top else self.tr("ниже"),
                got, share))
+        # Тело заполнения - на сетке грубее: уровень уже найден по
+        # мелким колонкам, а куб из 400 тысяч колонок на сотню слоёв
+        # собирался бы минутами. Сорок тысяч колонок и до ста слоёв -
+        # секунды, крышка всё равно ровная на уровне.
+        gt2, ny2, nx2, step2 = fill.plan_grid(bounds, max(cell, step),
+                                              max_cols=40000)
+        col2, zc2 = boolean3d.column_cuts(v, f, gt2, (ny2, nx2))
+        cols2, lo2, hi2 = fill.intervals(col2, zc2)
         zspan = float(hi.max() - lo.min())
-        dz = min(step, max(zspan / 200.0, 1e-6))
-        occ, z0, dz = fill.filled_occupancy(cols, lo, hi, gt, ny, nx,
-                                            level, dz, from_top)
+        dz = max(min(step2, zspan / 50.0), zspan / 100.0, 1e-6)
+        occ, z0, dz = fill.filled_occupancy(cols2, lo2, hi2, gt2, ny2,
+                                            nx2, level, dz, from_top)
+        gt = gt2
         if boolean3d.cell_budget(occ.shape) > 60000000:
             raise QgsProcessingException(self.tr(
                 "Ячеек слишком много: укрупните шаг колонок."))
