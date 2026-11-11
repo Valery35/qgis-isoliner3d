@@ -6039,453 +6039,6 @@ class GridToShellAlgorithm(IsolinerAlgorithm):
         return {"OUTPUT": dest}
 
 
-HINTS_2_14 = {
-    "SHELLS": "Слой тел: замкнутые оболочки, по одной на объект. У каждого "
-              "тела появятся свои поля со счётом. Незамкнутое тело "
-              "получает пусто, а не ноль: у него нет внутренности, "
-              "и считать там нечего.",
-    "INPUT": "Что считать: точки, линии или полигоны с высотой. Блочная "
-             "модель, скважины, следы выработок, разломы.",
-    "NAME": "Имя для полей результата. Пусто - от имени слоя, "
-            "приведённого к латинице. К нему добавятся суффиксы: _n "
-            "число объектов внутри, _len длина линий внутри, _sum, "
-            "_mean, _std и другие по выбранной статистике. Задавайте своё, когда гоняете инструмент "
-            "по одному слою тел несколько раз с разными данными.",
-    "ATTR": "Числовой атрибут для статистики: металл или объём блока, "
-            "мощность, содержание. Пусто - только счёт.",
-    "STATS": "Что считать по атрибуту. Сумма - запас, когда атрибут уже "
-             "металл блока. Для содержания нужны среднее, разброс "
-             "и квантили. У линий среднее и квантили взвешены по длине "
-             "внутри тела, как при подсчёте по композитам.",
-    "OVERWRITE": "Разрешить перезапись полей с тем же именем. Без этого "
-                 "повторный прогон с тем же именем - отказ: иначе "
-                 "второй результат тихо затёр бы первый.",
-    "OUTPUT": "Тела со всеми прежними полями и новыми полями счёта. "
-              "Чтобы накопить несколько прогонов, подавайте результат "
-              "предыдущего как слой тел следующему.",
-    "ZONE_FIELD": "Поле тела, которое пишется объектам: имя или код "
-                  "тела. Пусто - номер объекта тела в слое.",
-    "OUTPUT_OBJECTS": "Сами объекты с полем тела, в которое они попали: "
-                      "zone - первое тело, zone_ids - все через точку "
-                      "с запятой, zone_n - сколько тел. Объект вне тел "
-                      "получает пусто и ноль. Без этого слоя видно "
-                      "только итог по телу, но не какие пробы его "
-                      "дали.",
-}
-
-
-class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
-    """Объёмная зональная статистика: счёт объектов внутри каждого тела.
-
-    Это 2.12 с другой стороны: там отбираются объекты по одному телу,
-    здесь по каждому телу записывается, сколько в него попало. Числа
-    ложатся в атрибуты тел, и по ним можно сортировать, красить
-    и отдавать дальше.
-
-    Точки считаются лучом вверх по чётности. Линии режутся телом:
-    отрезок пересекается с треугольниками, точки сортируются вдоль
-    него, и суммируется только часть внутри. Отрезок, прошивший тело
-    насквозь между своими вершинами, здесь тоже попадает в счёт.
-    """
-
-    def name(self):
-        return "zonal_shell_stats"
-
-    def displayName(self):
-        return self.tr("2.14 Зональная статистика оболочек")
-
-    def group(self):
-        return self.tr(GROUP5)
-
-    def groupId(self):
-        return GROUP5_ID
-
-    def helpUrl(self):
-        return _help_url()
-
-    def createInstance(self):
-        return ZonalShellStatsAlgorithm()
-
-    def shortHelpString(self):
-        return _help_version(self.tr(
-            "Считает по каждому телу, сколько объектов в него попало, "
-            "и записывает числа в атрибуты тела.\n\n"
-            "Точки: число внутри и сумма атрибута. Линии: число линий, "
-            "задевших тело, и длина их частей внутри. Полигоны: число "
-            "полигонов, у которых хоть одна вершина внутри.\n\n"
-            "Линия режется телом: отрезок пересекается "
-            "с поверхностью, точки сортируются вдоль него, и в длину "
-            "идёт только часть внутри. "
-            "Отрезок, прошивший тело насквозь между своими вершинами, "
-            "не пропадает.\n\n"
-            "Ноль и пусто - разные вещи. Тело, внутри которого ничего "
-            "нет, получает ноль: это измеренный факт. Незамкнутое тело "
-            "получает пусто и попадает в предупреждение: у него нет "
-            "внутренности.\n\n"
-            "Повторные прогоны по одному слою тел складываются: "
-            "результат предыдущего подаётся как слой тел следующему, "
-            "и каждый прогон добавляет свои поля. Столкновение имён - "
-            "отказ, если не разрешена перезапись.\n\n"
-            "По атрибуту считается сумма, среднее, минимум, максимум, "
-            "стандартное отклонение, медиана и квантили, на выбор. "
-            "У точек и полигонов каждый объект весит одинаково, у линий "
-            "вес - длина их части внутри тела: интервал опробования, "
-            "вошедший в тело наполовину, весит половину. Пустые "
-            "значения атрибута не участвуют.\n\n"
-            "Сумма по телам сходится: длина линий внутри всех тел плюс "
-            "длина снаружи равна полной длине, и это печатается "
-            "в журнал.\n\n"
-            "Второй результат, необязательный, - сами объекты с телом, "
-            "в которое они попали: поля zone, zone_ids и zone_n. Так "
-            "видно, какие пробы дали итог тела.") + _credit())
-
-    def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterFeatureSource(
-            "SHELLS", self.tr("Тела (полигоны с Z)"),
-            [QgsProcessing.SourceType.TypeVectorPolygon]))
-        self.addParameter(QgsProcessingParameterFeatureSource(
-            "INPUT", self.tr("Что считать (объекты с Z)")))
-        self.addParameter(QgsProcessingParameterString(
-            "NAME", self.tr("Имя полей результата (пусто - от слоя)"),
-            optional=True))
-        self.addParameter(QgsProcessingParameterField(
-            "ATTR", self.tr("Атрибут для статистики"),
-            parentLayerParameterName="INPUT", optional=True,
-            type=QgsProcessingParameterField.DataType.Numeric))
-        from .zonal import STATS
-        self.addParameter(QgsProcessingParameterEnum(
-            "STATS", self.tr("Статистика по атрибуту"),
-            options=[self.tr(t) for _k, _s, t in STATS],
-            allowMultiple=True, defaultValue=[0], optional=True))
-        self.addParameter(QgsProcessingParameterBoolean(
-            "OVERWRITE", self.tr("Разрешить перезапись полей"),
-            defaultValue=False))
-        self.addParameter(QgsProcessingParameterFeatureSink(
-            "OUTPUT", self.tr("Тела со статистикой"),
-            QgsProcessing.SourceType.TypeVectorPolygon))
-        self.addParameter(QgsProcessingParameterField(
-            "ZONE_FIELD", self.tr("Поле тела для объектов (пусто - номер)"),
-            parentLayerParameterName="SHELLS", optional=True))
-        self.addParameter(QgsProcessingParameterFeatureSink(
-            "OUTPUT_OBJECTS", self.tr("Объекты с телом"),
-            QgsProcessing.SourceType.TypeVectorAnyGeometry, optional=True,
-            createByDefault=False))
-        _hints(self, HINTS_2_14)
-
-    @staticmethod
-    def _slug(name):
-        """Имя поля из имени слоя: латиница, подчёркивания, коротко."""
-        table = {
-            "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e",
-            "ё": "e", "ж": "zh", "з": "z", "и": "i", "й": "j", "к": "k",
-            "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r",
-            "с": "s", "т": "t", "у": "u", "ф": "f", "х": "h", "ц": "c",
-            "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y", "ь": "",
-            "э": "e", "ю": "yu", "я": "ya"}
-        out = []
-        for ch in name.lower():
-            if ch in table:
-                out.append(table[ch])
-            elif ch.isalnum() and ord(ch) < 128:
-                out.append(ch)
-            else:
-                out.append("_")
-        s = "".join(out).strip("_")
-        while "__" in s:
-            s = s.replace("__", "_")
-        if not s or s[0].isdigit():
-            s = "l_" + s
-        return s[:20]
-
-    def _shells(self, src, feedback):
-        """Каждое тело отдельным мешем: (объект, вершины, грани, замкнуто)."""
-        from qgis.core import QgsFeatureRequest
-        from .iso3d import weld
-        from .cleanup import shell_defects
-        no_check = getattr(
-            getattr(QgsFeatureRequest, "InvalidGeometryCheck",
-                    QgsFeatureRequest), "GeometryNoCheck", None)
-        setter = getattr(src, "setInvalidGeometryCheck", None)
-        if no_check is not None and setter is not None:
-            setter(no_check)
-        out = []
-        for ft in src.getFeatures():
-            if feedback.isCanceled():
-                break
-            g = ft.geometry()
-            verts, faces = [], []
-            if g is not None and not g.isEmpty():
-                root = g.constGet()
-                try:
-                    n_part = root.numGeometries()
-                except AttributeError:
-                    n_part = 1
-                for pi in range(n_part):
-                    try:
-                        cg = root.geometryN(pi) if n_part > 1 else root
-                    except AttributeError:
-                        cg = root
-                    ring = getattr(cg, "exteriorRing", lambda: None)()
-                    if ring is None:
-                        continue
-                    pts = np.array([(ring.xAt(k), ring.yAt(k), ring.zAt(k))
-                                    for k in range(ring.numPoints())],
-                                   dtype=float)
-                    if len(pts) > 1 and np.allclose(pts[0], pts[-1]):
-                        pts = pts[:-1]
-                    if len(pts) < 3 or not np.isfinite(pts).all():
-                        continue
-                    base = len(verts)
-                    verts.extend(pts.tolist())
-                    for k in range(1, len(pts) - 1):
-                        faces.append([base, base + k, base + k + 1])
-            if faces:
-                v, f = weld(np.asarray(verts, dtype=float),
-                            np.asarray(faces, dtype=np.int64))
-                closed = shell_defects(v, f)[0] == 0
-            else:
-                v, f, closed = None, None, False
-            out.append((ft, v, f, closed))
-        return out
-
-    def _process(self, parameters, context, feedback):
-        from qgis.core import QgsFields, QgsFeature, QgsWkbTypes
-        from . import boolean3d
-
-        shells_src = self.parameterAsSource(parameters, "SHELLS", context)
-        src = self.parameterAsSource(parameters, "INPUT", context)
-        name = (self.parameterAsString(parameters, "NAME", context)
-                or "").strip()
-        attr = self.parameterAsString(parameters, "ATTR", context)
-        overwrite = self.parameterAsBool(parameters, "OVERWRITE", context)
-        from . import zonal
-        picked = self.parameterAsEnums(parameters, "STATS", context)
-        keys = [zonal.KEYS[i] for i in (picked if picked else [0])
-                if 0 <= i < len(zonal.KEYS)] or ["sum"]
-        if not name:
-            name = self._slug(src.sourceName() or "layer")
-        # Род геометрии - по имени типа, а не по перечислению: имена
-        # одинаковы в Qt5 и Qt6, а перечисления там разные.
-        kind = QgsWkbTypes.displayString(src.wkbType())
-        is_pt = "Point" in kind
-        is_ln = "Line" in kind
-
-        # Поля результата. Столкновение имён - отказ, если не разрешено:
-        # иначе второй прогон тихо затирает первый.
-        new_fields = [(name + "_n", QVariant.Int)]
-        if is_ln:
-            new_fields.append((name + "_len", QVariant.Double))
-        if attr:
-            for suf in zonal.suffixes(keys):
-                new_fields.append((name + suf, QVariant.Double))
-        fields = QgsFields(shells_src.fields())
-        have = {fld.name() for fld in fields}
-        clash = [nm for nm, _t in new_fields if nm in have]
-        if clash and not overwrite:
-            raise QgsProcessingException(self.tr(
-                "Поля %s уже есть у слоя тел. Задайте другое имя или "
-                "разрешите перезапись.") % ", ".join(clash))
-        for nm, typ in new_fields:
-            if nm not in have:
-                fields.append(_field(nm, typ))
-        idx = {nm: fields.indexOf(nm) for nm, _t in new_fields}
-
-        shells = self._shells(shells_src, feedback)
-        n_open = sum(1 for _ft, _v, _f, c in shells if not c)
-        feedback.pushInfo(self.tr("Тел: %d, незамкнутых %d.")
-                          % (len(shells), n_open))
-        if n_open:
-            feedback.pushWarning(self.tr(
-                "Незамкнутых тел %d: им записано пусто, а не ноль. "
-                "У незамкнутого тела нет внутренности.") % n_open)
-
-        # Объекты читаем один раз: точки, ломаные, значения атрибута.
-        # Проверку геометрии снимаем и здесь: вертикальная скважина
-        # в плане - две вершины в одной точке, и штатная проверка
-        # зовёт её некорректной, хотя в объёме это обычная линия.
-        from qgis.core import QgsFeatureRequest
-        no_check = getattr(
-            getattr(QgsFeatureRequest, "InvalidGeometryCheck",
-                    QgsFeatureRequest), "GeometryNoCheck", None)
-        setter = getattr(src, "setInvalidGeometryCheck", None)
-        if no_check is not None and setter is not None:
-            setter(no_check)
-        objs = []
-        obj_feats = []
-        for ft in src.getFeatures():
-            if feedback.isCanceled():
-                break
-            g = ft.geometry()
-            if g is None or g.isEmpty():
-                continue
-            parts = []
-            for part in g.constParts():
-                n = getattr(part, "numPoints", lambda: 0)()
-                if n:
-                    pts = np.array([(part.xAt(k), part.yAt(k), part.zAt(k))
-                                    for k in range(n)], dtype=float)
-                else:
-                    ring = getattr(part, "exteriorRing", lambda: None)()
-                    if ring is None:
-                        z = float(getattr(part, "z",
-                                          lambda: float("nan"))())
-                        pts = np.array([[part.x(), part.y(), z]])
-                    else:
-                        pts = np.array([(ring.xAt(k), ring.yAt(k),
-                                         ring.zAt(k))
-                                        for k in range(ring.numPoints())],
-                                       dtype=float)
-                if len(pts) and np.isfinite(pts).all():
-                    parts.append(pts)
-            if not parts:
-                continue
-            val = _numv(ft[attr]) if attr else None
-            objs.append((parts, val))
-            obj_feats.append(ft)
-        if not objs:
-            raise QgsProcessingException(self.tr(
-                "Объектов с высотой не нашлось: у геометрии должна "
-                "быть Z."))
-        total_len = 0.0
-        if is_ln:
-            for parts, _v in objs:
-                for p in parts:
-                    total_len += float(np.sum(np.linalg.norm(
-                        np.diff(p, axis=0), axis=1)))
-        all_pts = np.vstack([p for parts, _v in objs for p in parts])
-        owner = np.concatenate([np.full(len(p), oi, dtype=np.int64)
-                                for oi, (parts, _v) in enumerate(objs)
-                                for p in parts])
-        starts_xyz = np.array([p[0] for parts, _v in objs for p in parts])
-        feedback.pushInfo(self.tr("Объектов: %d.") % len(objs))
-
-        sink, dest = self.parameterAsSink(
-            parameters, "OUTPUT", context, fields,
-            shells_src.wkbType(), shells_src.sourceCrs())
-        if sink is None:
-            raise QgsProcessingException(self.tr(
-                "Не удалось создать слой тел со статистикой."))
-
-        zone_field = self.parameterAsString(parameters, "ZONE_FIELD",
-                                            context)
-        # тела, в которые попал каждый объект: подписи по порядку слоя
-        zones = [[] for _o in objs]
-        grand_n = 0
-        grand_len = 0.0
-        for si, (ft, v, f, closed) in enumerate(shells):
-            label = ft[zone_field] if zone_field else ft.id()
-            label = "" if label is None else str(label)
-            out = QgsFeature(fields)
-            out.setGeometry(ft.geometry())
-            vals = list(ft.attributes())
-            vals += [None] * (len(fields) - len(vals))
-            if closed:
-                bbox = boolean3d.tri_bbox(v, f)
-                n_in = 0
-                len_in = 0.0
-                in_vals, in_w = [], []
-                if is_ln:
-                    # начала всех ломаных - одним пакетом: луч по каждой
-                    # отдельно на большом теле занимал часы
-                    starts = boolean3d.points_inside(v, f, starts_xyz)
-                    pi = 0
-                    oi_ln = 0
-                    for parts, val in objs:
-                        hit = False
-                        got_obj = 0.0
-                        for p in parts:
-                            got, _tot = boolean3d.polyline_inside_length(
-                                v, f, p, bbox=bbox,
-                                start_inside=starts[pi])
-                            pi += 1
-                            if got > 0.0:
-                                hit = True
-                                len_in += got
-                                got_obj += got
-                        if hit:
-                            n_in += 1
-                            in_vals.append(val)
-                            in_w.append(got_obj)
-                            zones[oi_ln].append(label)
-                        oi_ln += 1
-                else:
-                    # Точки всех объектов - ОДНИМ пакетом. Опрос по
-                    # объекту за раз на двадцати тысячах блоков давал
-                    # двадцать тысяч проходов по оболочке и вешал QGIS.
-                    ins = boolean3d.points_inside(v, f, all_pts)
-                    for oi, (parts, val) in enumerate(objs):
-                        sel = ins[owner == oi]
-                        hit = bool(sel.all()) if is_pt else bool(sel.any())
-                        if hit:
-                            n_in += 1
-                            in_vals.append(val)
-                            in_w.append(1.0)
-                            zones[oi].append(label)
-                vals[idx[name + "_n"]] = int(n_in)
-                if is_ln:
-                    vals[idx[name + "_len"]] = float(len_in)
-                    grand_len += len_in
-                if attr:
-                    got_st = zonal.stats(in_vals, in_w, keys)
-                    for suf, x in got_st.items():
-                        vals[idx[name + suf]] = x
-                grand_n += n_in
-            out.setAttributes(vals)
-            sink.addFeature(out)
-            feedback.setProgress(100.0 * (si + 1) / max(len(shells), 1))
-        _set_output_name(context, dest, self.tr("Тела со статистикой"))
-        result = {"OUTPUT": dest}
-        if parameters.get("OUTPUT_OBJECTS"):
-            result["OUTPUT_OBJECTS"] = self._objects_out(
-                parameters, context, src, obj_feats, zones, feedback)
-
-        feedback.pushInfo(self.tr("Попаданий по всем телам: %d.") % grand_n)
-        if is_ln:
-            feedback.pushInfo(self.tr(
-                "Длина линий: всего %.2f м, внутри тел %.2f м, снаружи "
-                "%.2f м.") % (total_len, grand_len, total_len - grand_len))
-        return result
-
-    def _objects_out(self, parameters, context, src, feats, zones,
-                     feedback):
-        """Объекты источника с телами, в которые они попали."""
-        from qgis.core import QgsFeature, QgsFields
-        from .zonal import zone_fields
-        fields = QgsFields(src.fields())
-        have = {fld.name() for fld in fields}
-        names = {}
-        for key, typ in (("zone", QVariant.String),
-                         ("zone_ids", QVariant.String),
-                         ("zone_n", QVariant.Int)):
-            nm = key
-            k = 2
-            while nm in have:
-                nm = "%s_%d" % (key, k)
-                k += 1
-            names[key] = nm
-            have.add(nm)
-            fields.append(_field(nm, typ))
-        sink, dest = self.parameterAsSink(
-            parameters, "OUTPUT_OBJECTS", context, fields,
-            src.wkbType(), src.sourceCrs())
-        if sink is None:
-            raise QgsProcessingException(self.tr(
-                "Не удалось создать слой объектов с телом."))
-        n_in = 0
-        for ft, zs in zip(feats, zones):
-            out = QgsFeature(fields)
-            out.setGeometry(ft.geometry())
-            first, ids, n = zone_fields(zs)
-            vals = list(ft.attributes()) + [first, ids, n]
-            out.setAttributes(vals)
-            sink.addFeature(out)
-            n_in += 1 if n else 0
-        _set_output_name(context, dest, self.tr("Объекты с телом"))
-        feedback.pushInfo(self.tr("Объектов в телах: %d из %d.")
-                          % (n_in, len(feats)))
-        return dest
-
-
 HINTS_2_15 = {
     "INPUTS": "Слои контуров: полигоны с настоящими Z, в любых "
               "плоскостях. Вертикальные разрезы, карта толщ на дневной "
@@ -8570,7 +8123,8 @@ class SpecAlgorithm(IsolinerAlgorithm):
 
     _SOURCES = {"mesh": "TypeVectorPolygon", "lines": "TypeVectorLine",
                 "points": "TypeVectorPoint",
-                "features": "TypeVectorAnyGeometry"}
+                "features": "TypeVectorAnyGeometry",
+                "meshes": "TypeVectorPolygon"}
 
     def initAlgorithm(self, config=None):
         from qgis.core import (QgsProcessingParameterEnum,
@@ -8605,14 +8159,25 @@ class SpecAlgorithm(IsolinerAlgorithm):
             elif p.kind == "enum":
                 prm = QgsProcessingParameterEnum(
                     p.key, label, options=[self.tr(o) for o in p.options],
-                    defaultValue=p.default)
+                    allowMultiple=p.multiple, defaultValue=p.default,
+                    optional=p.optional)
+            elif p.kind == "string":
+                prm = QgsProcessingParameterString(
+                    p.key, label, defaultValue=p.default,
+                    optional=p.optional)
+            elif p.kind == "bool":
+                prm = QgsProcessingParameterBoolean(
+                    p.key, label, defaultValue=bool(p.default))
             else:
                 geo = {"lines": "TypeVectorLine",
                        "points": "TypeVectorPoint",
                        "source": "TypeVectorAnyGeometry"}.get(
                            p.geometry, "TypeVectorPolygon")
+                kw = {}
+                if p.optional:
+                    kw = {"optional": True, "createByDefault": False}
                 prm = QgsProcessingParameterFeatureSink(
-                    p.key, label, getattr(types, geo))
+                    p.key, label, getattr(types, geo), **kw)
             if p.advanced:
                 _advanced(prm)
             self.addParameter(prm)
@@ -8620,6 +8185,42 @@ class SpecAlgorithm(IsolinerAlgorithm):
                 prm.setHelp(self.tr(p.hint))
             except AttributeError:  # nosec
                 pass
+
+    @staticmethod
+    def _triangles(g, verts, faces):
+        """Треугольники объекта в общие списки вершин и граней.
+
+        Слой оболочек пишет тело треугольниками, но кольцо бывает
+        и с большим числом вершин: тогда режем веером от первой.
+        """
+        if g is None or g.isEmpty():
+            return
+        root = g.constGet()
+        if root is None:
+            return
+        try:
+            n_part = root.numGeometries()
+        except AttributeError:
+            n_part = 1
+        for pi in range(n_part):
+            try:
+                cg = root.geometryN(pi) if n_part > 1 else root
+            except AttributeError:
+                cg = root
+            ring = getattr(cg, "exteriorRing", lambda: None)()
+            if ring is None:
+                continue
+            pts = np.array([(ring.xAt(k), ring.yAt(k), ring.zAt(k))
+                            for k in range(ring.numPoints())],
+                           dtype=float)
+            if len(pts) > 1 and np.allclose(pts[0], pts[-1]):
+                pts = pts[:-1]
+            if len(pts) < 3 or not np.isfinite(pts).all():
+                continue
+            base = len(verts)
+            verts.extend(pts.tolist())
+            for k in range(1, len(pts) - 1):
+                faces.append([base, base + k, base + k + 1])
 
     def _shell_mesh(self, src, feedback, title):
         """Треугольники слоя одним мешем.
@@ -8642,35 +8243,7 @@ class SpecAlgorithm(IsolinerAlgorithm):
         for ft in src.getFeatures():
             if feedback.isCanceled():
                 break
-            g = ft.geometry()
-            if g is None or g.isEmpty():
-                continue
-            root = g.constGet()
-            if root is None:
-                continue
-            try:
-                n_part = root.numGeometries()
-            except AttributeError:
-                n_part = 1
-            for pi in range(n_part):
-                try:
-                    cg = root.geometryN(pi) if n_part > 1 else root
-                except AttributeError:
-                    cg = root
-                ring = getattr(cg, "exteriorRing", lambda: None)()
-                if ring is None:
-                    continue
-                pts = np.array([(ring.xAt(k), ring.yAt(k), ring.zAt(k))
-                                for k in range(ring.numPoints())],
-                               dtype=float)
-                if len(pts) > 1 and np.allclose(pts[0], pts[-1]):
-                    pts = pts[:-1]
-                if len(pts) < 3 or not np.isfinite(pts).all():
-                    continue
-                base = len(verts)
-                verts.extend(pts.tolist())
-                for k in range(1, len(pts) - 1):
-                    faces.append([base, base + k, base + k + 1])
+            SpecAlgorithm._triangles(ft.geometry(), verts, faces)
         if not faces:
             raise QgsProcessingException(self.tr(
                 "%s: треугольников не нашлось. Нужен слой полигонов "
@@ -8703,7 +8276,11 @@ class SpecAlgorithm(IsolinerAlgorithm):
                     raise QgsProcessingException(self.tr(
                         "Не удалось открыть слой %s.") % self.tr(p.label))
                 sources[k] = src
-                if p.kind == "mesh":
+                values["@" + k] = self._layer_meta(src)
+                if p.kind == "meshes":
+                    geoms = self._geoms.setdefault(k, {})
+                    values[k] = self._meshes(src, feedback, geoms)
+                elif p.kind == "mesh":
                     title = self.tr(p.label.split(" (")[0])
                     v, f = SpecAlgorithm._shell_mesh(
                         self, src, feedback, title)
@@ -8717,9 +8294,56 @@ class SpecAlgorithm(IsolinerAlgorithm):
                 values[k] = self.parameterAsDouble(parameters, k, context)
             elif p.kind == "integer":
                 values[k] = self.parameterAsInt(parameters, k, context)
+            elif p.kind == "enum" and p.multiple:
+                values[k] = list(self.parameterAsEnums(parameters, k,
+                                                       context))
             elif p.kind == "enum":
                 values[k] = self.parameterAsEnum(parameters, k, context)
+            elif p.kind == "string":
+                values[k] = self.parameterAsString(parameters, k,
+                                                   context) or ""
+            elif p.kind == "bool":
+                values[k] = self.parameterAsBool(parameters, k, context)
+            elif p.kind == "sink" and p.optional:
+                # необязательный выход: run узнаёт, заказан ли он
+                values[k] = bool(parameters.get(k))
         return values, sources
+
+    @staticmethod
+    def _layer_meta(src):
+        """Имя слоя, род геометрии и поля: values["@КЛЮЧ"] для run."""
+        from qgis.core import QgsWkbTypes
+        # Род геометрии - по имени типа, а не по перечислению: имена
+        # одинаковы в Qt5 и Qt6, а перечисления там разные.
+        kind = QgsWkbTypes.displayString(src.wkbType())
+        geom = "point" if "Point" in kind else \
+            "line" if "Line" in kind else "polygon"
+        return {"name": src.sourceName() or "", "geometry": geom,
+                "fields": list(src.fields().names())}
+
+    @staticmethod
+    def _meshes(src, feedback, geoms):
+        """Тело на объект: вершины сшиты, у пустого объекта - None."""
+        from .iso3d import weld
+        names = src.fields().names()
+        out = []
+        for ft in _features_unchecked(src):
+            if feedback.isCanceled():
+                break
+            g = ft.geometry()
+            geoms[ft.id()] = g
+            verts, faces = [], []
+            SpecAlgorithm._triangles(g, verts, faces)
+            item = {"id": ft.id(), "row": list(ft.attributes()),
+                    "attrs": dict(zip(names, (_plain(a)
+                                              for a in ft.attributes()))),
+                    "verts": None, "faces": None}
+            if faces:
+                item["verts"], item["faces"] = weld(
+                    np.asarray(verts, dtype=float),
+                    np.asarray(faces, dtype=np.int64))
+            out.append(item)
+        return out
 
     @staticmethod
     def _vertex_parts(g):
@@ -8791,7 +8415,8 @@ class SpecAlgorithm(IsolinerAlgorithm):
         crs = next(iter(sources.values())).sourceCrs() if sources \
             else None
         rows = {}
-        for k, items in values.items():
+        for k in sources:
+            items = values.get(k)
             if isinstance(items, list):
                 rows[k] = {it["id"]: it["row"] for it in items}
         out = {}
@@ -8804,6 +8429,8 @@ class SpecAlgorithm(IsolinerAlgorithm):
                 else QgsFields()
             have = set(fields.names())
             for nm, typ in res.fields:
+                if res.replace and nm in have:
+                    continue          # пишется в поле источника
                 fields.append(_field(nm if nm not in have else "body_" + nm,
                                      self._TYPES[typ]))
             as_source = res.geometry == "source"
@@ -8823,7 +8450,13 @@ class SpecAlgorithm(IsolinerAlgorithm):
                     ft.setGeometry(_mesh_geometry(geom["verts"],
                                                   geom["faces"]))
                 head = list(rows[keep][geom["source"]]) if keep else []
-                ft.setAttributes(head + list(vals))
+                if isinstance(vals, dict):
+                    row = head + [None] * (len(fields) - len(head))
+                    for nm, x in vals.items():
+                        row[fields.indexOf(nm)] = x
+                    ft.setAttributes(row)
+                else:
+                    ft.setAttributes(head + list(vals))
                 sink.addFeature(ft)
             if res.name:
                 _set_output_name(context, dest, self.tr(res.name))
@@ -8856,6 +8489,21 @@ class SelectByShellAlgorithm(SpecAlgorithm):
 
     def displayName(self):
         return self.tr("2.12 Выборка оболочкой")
+
+    def groupId(self):
+        return GROUP5_ID
+
+
+class ZonalShellStatsAlgorithm(SpecAlgorithm):
+    """2.14 Зональная статистика оболочек (tools/zonal_shell_stats.py)."""
+
+    SPEC = "zonal_shell_stats"
+
+    def name(self):
+        return "zonal_shell_stats"
+
+    def displayName(self):
+        return self.tr("2.14 Зональная статистика оболочек")
 
     def groupId(self):
         return GROUP5_ID

@@ -349,7 +349,7 @@ def test_every_tool_has_field_hints():
              ("BooleanShellsAlgorithm", None),
              ("SelectByShellAlgorithm", None),
              ("GridToShellAlgorithm", "HINTS_2_13"),
-             ("ZonalShellStatsAlgorithm", "HINTS_2_14"),
+             ("ZonalShellStatsAlgorithm", None),
              ("FormationBodiesAlgorithm", "HINTS_2_15"),
              ("DemoRiversAlgorithm", "HINTS_2_16"),
              ("DesurveyAlgorithm", "HINTS_2_17"),

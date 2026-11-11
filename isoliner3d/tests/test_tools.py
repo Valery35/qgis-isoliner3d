@@ -40,10 +40,11 @@ def test_registry_is_consistent():
         for p in t.params:
             assert p.label and p.hint, (t.code, p.key)
             if p.kind == "enum":
-                assert p.options and 0 <= p.default < len(p.options)
+                picks = p.default if p.multiple else [p.default]
+                assert p.options and all(0 <= i < len(p.options)
+                                         for i in picks)
             if p.kind == "field":
-                assert t.param(p.parent).kind in ("lines", "points",
-                                                  "features")
+                assert t.param(p.parent).kind in toolspec.SOURCE_KINDS
         assert any(p.kind == "sink" for p in t.params), t.code
     with pytest.raises(KeyError):
         by_name("no_such_tool")
@@ -253,6 +254,87 @@ def test_select_by_shell_refusals():
         tool.run(dict(tool.defaults(), INPUT=flat, SHELL=box),
                  toolspec.Report())
     assert "с высотой" in err.value.template
+
+
+def _zonal_values(**kw):
+    """Входы 2.14: тела A (0..10), B (20..30) и открытое C."""
+    tool = by_name("zonal_shell_stats")
+    a = _box(0, 10, 0, 10, 0, 10)
+    b = _box(20, 30, 0, 10, 0, 10)
+    c = _box(40, 50, 0, 10, 0, 10)
+    c["faces"] = c["faces"][:-2]
+    shells = [dict(m, id=i, attrs={"name": nm, "old_n": 7})
+              for i, nm, m in ((11, "A", a), (12, "B", b), (13, "C", c))]
+
+    def pt(i, xyz, val):
+        return {"id": i, "attrs": {"au": val},
+                "parts": [np.array([xyz], dtype=float)]}
+    points = [pt(1, (5, 5, 5), 2.0), pt(2, (6, 6, 6), 4.0),
+              pt(3, (25, 5, 5), 10.0), pt(4, (60, 0, 0), None),
+              pt(5, (5, 5, np.nan), 1.0)]
+    vals = dict(tool.defaults(), SHELLS=shells, INPUT=points)
+    vals["@SHELLS"] = {"name": "Тела", "geometry": "polygon",
+                       "fields": ["name", "old_n"]}
+    vals["@INPUT"] = {"name": "Пробы Au", "geometry": "point",
+                      "fields": ["au"]}
+    vals.update(kw)
+    return tool, vals
+
+
+def test_zonal_counts_points_and_stats():
+    tool, vals = _zonal_values(ATTR="au", STATS=[0, 1],
+                               OUTPUT_OBJECTS=True, ZONE_FIELD="name")
+    rep = toolspec.Report()
+    res = tool.run(vals, rep)
+    out = res["OUTPUT"]
+    assert out.keep_source == "SHELLS" and out.geometry == "source"
+    # имя полей от имени слоя латиницей
+    assert [n for n, _t in out.fields] == ["proby_au_n", "proby_au_sum",
+                                           "proby_au_mean"]
+    rows = {g["source"]: row for g, row in out.features}
+    assert rows[11] == {"proby_au_n": 2, "proby_au_sum": 6.0,
+                        "proby_au_mean": 3.0}
+    assert rows[12]["proby_au_n"] == 1 and rows[12]["proby_au_sum"] == 10.0
+    assert rows[13] == {}            # незамкнутое тело - пусто, не ноль
+    assert any(k == "warn" and "Незамкнутых тел 1" in t
+               for k, t in rep.lines)
+    objs = res["OUTPUT_OBJECTS"]
+    assert [n for n, _t in objs.fields] == ["zone", "zone_ids", "zone_n"]
+    zone = {g["source"]: row for g, row in objs.features}
+    assert zone[1] == ["A", "A", 1] and zone[3] == ["B", "B", 1]
+    assert zone[4] == [None, None, 0] and 5 not in zone
+    text = "\n".join(t for _k, t in rep.lines)
+    assert "Объектов в телах: 3 из 4." in text
+    assert "Попаданий по всем телам: 3." in text
+
+
+def test_zonal_lines_cut_by_the_body():
+    tool, vals = _zonal_values()
+    vals["INPUT"] = [{"id": 1, "attrs": {},
+                      "parts": [np.array([(-5, 5, 5), (15, 5, 5.0)])]}]
+    vals["@INPUT"] = {"name": "Борозды", "geometry": "line", "fields": []}
+    rep = toolspec.Report()
+    res = tool.run(vals, rep)
+    rows = {g["source"]: row for g, row in res["OUTPUT"].features}
+    assert rows[11]["borozdy_n"] == 1
+    assert abs(rows[11]["borozdy_len"] - 10.0) < 1e-6
+    assert rows[12] == {"borozdy_n": 0, "borozdy_len": 0.0}
+    assert "OUTPUT_OBJECTS" not in res      # второй выход не заказан
+    assert any("всего 20.00 м, внутри тел 10.00 м" in t
+               for _k, t in rep.lines)
+
+
+def test_zonal_refuses_a_name_clash_unless_allowed():
+    tool, vals = _zonal_values(NAME="old")
+    vals["@SHELLS"]["fields"].append("old_n")
+    with pytest.raises(toolspec.ToolError) as err:
+        tool.run(vals, toolspec.Report())
+    assert "уже есть" in err.value.template
+    vals["OVERWRITE"] = True
+    out = tool.run(vals, toolspec.Report())["OUTPUT"]
+    assert out.replace
+    rows = {g["source"]: row for g, row in out.features}
+    assert rows[11] == {"old_n": 2}
 
 
 def test_report_cancel_stops_the_sweep():

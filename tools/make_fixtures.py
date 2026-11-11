@@ -395,7 +395,74 @@ def tool_runs(out):
                            "features": [{"source": g["source"]}
                                         for g, _row in res.features]},
                 "report": rep.lines})
+    runs += _zonal_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
+
+
+def _zonal_runs():
+    """2.14: тела A (0..10 м), B (20..30 м) и открытое C, точки и линии.
+
+    Строки результата - словари {поле: значение}: поле с именем поля
+    тела пишется в него, остальные добавляются (Result.replace).
+    """
+    tool = by_name("zonal_shell_stats")
+    prof = sweep.profile("rect", 10.0, 10.0)
+    shells = []
+    for i, (nm, x0) in enumerate((("A", 0.0), ("B", 20.0), ("C", 40.0))):
+        v, f, _l, _t = sweep.sweep([(x0, 5, 0), (x0 + 10, 5, 0)], prof)
+        if nm == "C":
+            f = f[:-2]
+        shells.append({"id": 11 + i, "attrs": {"name": nm, "old_n": 7},
+                       "verts": v, "faces": f})
+    pts = [((5, 5, 5), 2.0), ((6, 6, 6), 4.0), ((3, 7, 2), None),
+           ((25, 5, 5), 10.0), ((60, 0, 0), 1.0)]
+    points = [{"id": i + 1, "attrs": {"au": a},
+               "parts": [np.array([xyz], dtype=float)]}
+              for i, (xyz, a) in enumerate(pts)]
+    lines = [{"id": 1, "attrs": {"au": 3.0},
+              "parts": [np.array([(-5, 5, 5), (15, 5, 5.0)])]},
+             {"id": 2, "attrs": {"au": 6.0},
+              "parts": [np.array([(22, 2, 2), (28, 8, 8), (35, 8, 8.0)])]}]
+    cases = [
+        (points, "point", "Пробы Au",
+         dict(ATTR="au", STATS=[0, 1, 4, 6], ZONE_FIELD="name",
+              OUTPUT_OBJECTS=True)),
+        (lines, "line", "Борозды",
+         dict(ATTR="au", STATS=[0, 1, 5], OUTPUT_OBJECTS=True)),
+        (points, "point", "Пробы Au",
+         dict(NAME="old", OVERWRITE=True, ATTR="au")),
+    ]
+    runs = []
+    for feats, geom, title, kw in cases:
+        vals = dict(tool.defaults(), **kw)
+        meta = {"@SHELLS": {"name": "Тела", "geometry": "polygon",
+                            "fields": ["name", "old_n"]},
+                "@INPUT": {"name": title, "geometry": geom,
+                           "fields": ["au"]}}
+        rep = toolspec.Report()
+        res = tool.run(dict(vals, SHELLS=shells, INPUT=feats, **meta), rep)
+        outs = {}
+        for key, r in res.items():
+            outs[key] = {"fields": r.fields, "replace": r.replace,
+                         "geometry": r.geometry,
+                         "features": [{"source": g["source"],
+                                       "values": {k: _plain(x)
+                                                  for k, x in row.items()}
+                                       if isinstance(row, dict)
+                                       else [_plain(x) for x in row]}
+                                      for g, row in r.features]}
+        runs.append({
+            "tool": tool.name, "values": dict(vals, **meta),
+            "input": {"SHELLS": [{"id": s["id"], "attrs": s["attrs"],
+                                  "verts": s["verts"].tolist(),
+                                  "faces": s["faces"].tolist()}
+                                 for s in shells],
+                      "INPUT": [{"id": it["id"], "attrs": it["attrs"],
+                                 "parts": [p.tolist()
+                                           for p in it["parts"]]}
+                                for it in feats]},
+            "output": outs, "report": rep.lines})
+    return runs
 
 
 def tools_json(out):

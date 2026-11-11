@@ -195,6 +195,7 @@ TRANSLATIONS = {
     'кадр видео не того формата': 'the video frame has a wrong format',
     '2.14 Зональная статистика оболочек':
         '2.14 Zonal statistics of shells',
+    'Зональная статистика оболочек': 'Zonal statistics of shells',
     'Атрибут для статистики':
         'Attribute for statistics',
     'Длина линий: всего %.2f м, внутри тел %.2f м, снаружи %.2f м.':
