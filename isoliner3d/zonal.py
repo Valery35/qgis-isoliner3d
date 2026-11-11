@@ -100,3 +100,18 @@ def stats(values, weights, keys):
         out["_p10"] = wquantile(vv, ww, 0.10)
         out["_p90"] = wquantile(vv, ww, 0.90)
     return out
+
+
+def zone_fields(labels):
+    """Поля объекта по телам, в которые он попал.
+
+    Возвращает (первое тело или None, все тела через «; » или None,
+    число тел). Повторы убираются, порядок слоя тел сохраняется.
+    """
+    seen = []
+    for x in labels or []:
+        if x not in seen:
+            seen.append(x)
+    if not seen:
+        return None, None, 0
+    return seen[0], "; ".join(seen), len(seen)

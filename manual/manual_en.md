@@ -426,15 +426,35 @@ elevations are the true ones. At the end the count of bodies that came
 out closed is reported: a shell that is not closed will show in CAD as
 a mesh, but no solid can be made from it.
 
-## Spin and capture
+## Spin and video
 
 The spin button walks the camera around the model, and pressing it
 again stops it. The scene is not rebuilt while it turns.
 
-The capture button writes a full turn as PNG frames into a chosen
-folder, thirty six frames of ten degrees each. Assembling them into a
-video is not something the module takes on, there are ready means for
-that.
+The video button records a clip. The camera path is one of two:
+
+- **Turn around the scene** - the camera goes around the centre by the
+  given angle in the given time, the distance and the tilt stay. A
+  360° turn does not repeat the first frame at the end, so a looped
+  clip does not stumble at the joint.
+- **Flight through the views** - the camera moves from one remembered
+  view to the next and stays on each for the given pause. The move is
+  smooth: it starts and stops without a jerk, the azimuth takes the
+  short arc, an approach from afar does not skip the near part.
+
+The views are remembered by the flight views button next to it:
+«Remember the current view», «Remove the last view», «Clear the views»
+and a jump to any remembered view. The views are kept in the project
+scene together with the camera and the clipping.
+
+The output is an MP4 file (H.264, 25 frames per second, the size of
+the scene window) or PNG frames in a folder. Windows encodes the MP4
+itself, no other programs are needed. On Linux and macOS the output is
+frames, joined with a video editor or ffmpeg. Every frame is drawn
+anew, so recording is slower than the clip, but the clip does not
+depend on the speed of the graphics card. Recording can be stopped:
+the part already taken is a valid clip. After recording the camera
+returns to where it stood.
 
 # The tools
 
@@ -1059,6 +1079,8 @@ The attribute gets a sum, a mean, a minimum, a maximum, a standard deviation, a 
 
 The sum over the bodies agrees: the length of lines inside all the bodies plus the length outside equals the total length, and that is printed to the log.
 
+The second, optional result is the objects themselves with the body they fell into: the fields zone, zone_ids and zone_n. It shows which samples gave the total of a body.
+
 | Field | What it sets |
 |---|---|
 | **Bodies (polygons with Z)** | A layer of bodies: closed shells, one per feature. Every body gets its own count fields. A body that is not closed gets empty rather than zero: it has no inside, and there is nothing to count. |
@@ -1068,6 +1090,8 @@ The sum over the bodies agrees: the length of lines inside all the bodies plus t
 | **Statistics of the attribute** | What to compute from the attribute. The sum is the reserve when the attribute is already the metal of a block. A grade needs the mean, the spread and quantiles. For lines the mean and quantiles are weighted by the length inside the body, as with composites. |
 | **Allow overwriting of fields** | Allow overwriting fields of the same name. Without it a repeated run with the same name is refused: otherwise the second result would silently wipe out the first. |
 | **Bodies with statistics** | The bodies with all their previous fields and the new count fields. To accumulate several runs, give the result of the previous run as the layer of bodies to the next. |
+| **Body field for the objects (empty - number)** | The body field written to the objects: the name or code of the body. Empty - the number of the body feature in the layer. |
+| **Objects with a body** | The objects themselves with the body they fell into: zone is the first body, zone_ids all of them separated by semicolons, zone_n how many bodies. An object outside the bodies gets empty and zero. Without this layer only the total per body is seen, not which samples gave it. |
 
 
 ### What it is for
@@ -1096,12 +1120,6 @@ clash of names is refused unless overwriting is allowed.
 
 Zero and empty are different things. A body with nothing inside gets
 zero. A body that is not closed gets empty: it has no inside.
-
-# Typical tasks
-
-Ten chains that come round again and again in the work. Numbers with a
-dot are Isoliner3D tools, names without a number are the neighbouring
-Isoliner.
 
 ## 2.15 Formation bodies from outlines and boreholes
 
@@ -1292,6 +1310,44 @@ Demo order: 2.15 with these intervals and the outline, then the formation bodies
 | **Borehole intervals** | Borehole intervals: vertical lines with Z, one line per formation in a hole, with fields for the hole number, the soil and the depths. Input for 2.15. |
 | **Site outline** | Site outline in plan, slightly smaller than the extent of the holes. The "Site outline" input of 2.15: the bodies are clipped by it. |
 | **The random seed** | The same seed gives the same layout of holes. Another seed gives other offsets of the holes from the grid. |
+
+## 2.23 Fill a body up to a volume
+
+Finds the horizontal level below which the body holds the given volume and gives the filled part as a separate body. The «from the top» mode is the reverse: the level above which the body holds the given volume.
+
+The questions are such. Up to what elevation does the water rise if so many cubic metres come into a working? How much goes into a chamber up to this elevation? Where does the floor pass if such a volume is taken off the top?
+
+The body is cut into vertical columns over the plan. In each column the segments inside the body are taken, and the volume below the level adds up from their parts below it. Voids between the floors of a body do not count: two chambers one above the other fill in turn, the lower first.
+
+The volume accuracy is limited by the column step, the elevation of the level is exact vertically. The log gets the level, the volume by columns and the exact volume of the shell: their difference shows whether the step is fine enough.
+
+| Field | What it sets |
+|---|---|
+| **Body (polygons with Z)** | A closed body: a working, a chamber, a tank, a pit bowl. The whole layer goes as one body, as in 2.11. Such bodies come from the shells button of the viewer, 2.04, 2.11, 2.13 and 2.15. |
+| **Fill from** | From the bottom is filling: water, backfill, brine rise from the floor. From the top is a cut: the level above which the body holds the given volume, for example the part taken out. |
+| **Volume** | How much to fill: cubic metres or a share of the body in per cent, by the field below. More than the whole body fills the body whole, and the log says so. |
+| **Volume given in** | What the volume is given in. Per cent are handy when the volume of the body is not known in advance. |
+| **Column step, m (0 - by the extent)** | Column step over the plan, m. Zero gives about 400 thousand columns over the body extent. The volume accuracy is limited by this step, and the elevation of the level is exact: no steps vertically. The difference from the exact shell volume is printed. |
+| **Filled part (body)** | The filled part as a body of cells: the lid is flat on the level, the walls are stepped by the column step. The attributes hold the level, the volume and the share of the body. The body is taken by 2.11, 2.12 and 2.14. |
+
+### How to use it
+
+The body comes from the shells button of the viewer or from 2.04, 2.11,
+2.13 and 2.15. For a working flooded from below take the «From the
+bottom» mode and the water volume in cubic metres. The answer is the
+level elevation in the log and in the `level` field. To find what share
+of a chamber the backfill takes up to a known elevation, give the share
+in per cent and fit it to the elevation.
+
+The level elevation is exact, there are no steps vertically. The volume
+by columns is checked against the exact shell volume and the difference
+is printed: if it is above one per cent, make the column step finer.
+
+# Typical tasks
+
+Ten chains that come round again and again in the work. Numbers with a
+dot are Isoliner3D tools, names without a number are the neighbouring
+Isoliner.
 
 ## From boreholes to reserves
 
@@ -1542,7 +1598,7 @@ difference (write-off)**.
 
 ## Showing it to someone who is not a geologist
 
-**GLB** for a browser, Blender or Windows, PNG frames of a turn for a
+**GLB** for a browser, Blender or Windows, an MP4 turn or flight for a
 video, **STL** or **OBJ** for CAD. For CAD switch on the cap at the
 cube edge: an open shell will show as a mesh but will not become a
 solid.
@@ -1561,6 +1617,7 @@ one.
 
 The figures are for the demonstration data, and yours will differ. What
 matters is the ratio and how it changes as the grid gets denser.
+
 
 # Typical situations
 

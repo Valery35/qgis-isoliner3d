@@ -65,3 +65,10 @@ def test_suffix_order_and_labels():
     for suf in zonal.suffixes(ALL):
         lab = fields.label_for("au" + suf)
         assert lab and (lab % "au").startswith("au: ")
+
+
+def test_zone_fields_name_first_and_all():
+    assert zonal.zone_fields([]) == (None, None, 0)
+    assert zonal.zone_fields(None) == (None, None, 0)
+    assert zonal.zone_fields(["A"]) == ("A", "A", 1)
+    assert zonal.zone_fields(["B", "A", "B"]) == ("B", "B; A", 2)

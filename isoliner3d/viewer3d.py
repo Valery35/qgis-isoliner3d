@@ -625,6 +625,14 @@ def _tool_icon(kind, size=18):
                        int(0.52 * s), int(0.36 * s))
         p.setBrush(QColor("#C2622C"))
         p.drawEllipse(QPointF(0.56 * s, 0.58 * s), 0.07 * s, 0.07 * s)
+    elif kind == "views":         # виды облёта: флажки на дуге пути
+        p.drawArc(int(0.08 * s), int(0.30 * s),
+                  int(0.84 * s), int(0.62 * s), 20 * 16, 140 * 16)
+        p.setBrush(QColor("#0E7C66"))
+        for x, y in ((0.20, 0.44), (0.50, 0.30), (0.80, 0.44)):
+            p.drawEllipse(QPointF(x * s, y * s), 0.08 * s, 0.08 * s)
+        p.setBrush(QColor("#C2622C"))
+        p.drawEllipse(QPointF(0.50 * s, 0.74 * s), 0.11 * s, 0.11 * s)
     elif kind == "top":           # вид сверху: рамка и перекрестие
         p.drawRect(int(0.18 * s), int(0.18 * s),
                    int(0.64 * s), int(0.64 * s))

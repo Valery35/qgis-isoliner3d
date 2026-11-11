@@ -382,6 +382,9 @@ class ViewerDialog(QDialog):
         self._pending_cam = None
         self._pick_marker = None
         self._spin_timer = None
+        # виды облёта для видео: камеры по порядку (flight.py)
+        self._fly_views = []
+        self._recording = False
         self._was_active = False
         self._mask_cache = {}
         self._items = []
@@ -1186,8 +1189,13 @@ class ViewerDialog(QDialog):
             self._spin_toggle)
         self.btn_spin.setCheckable(True)
         btn_turn = tool(
-            "frames", tr("Снять оборот кадрами PNG"),
+            "frames", tr("Записать видео: оборот вокруг сцены или "
+                         "облёт по видам, файлом MP4 или кадрами PNG"),
             self._spin_capture)
+        btn_views = tool(
+            "views", tr("Виды облёта: запомнить текущий вид, убрать, "
+                        "перейти к виду"),
+            self._views_menu)
         btn_copy = tool(
             "copy", tr("Положить кадр сцены в буфер обмена (Ctrl+C)"),
             self._copy_png)
@@ -1313,7 +1321,7 @@ class ViewerDialog(QDialog):
                   self.btn_done, self.btn_line, self.btn_sketch,
                   btn_clip_off,
                   btn_draw_save, btn_shells, btn_export,
-                  self.btn_spin, btn_turn,
+                  self.btn_spin, btn_views, btn_turn,
                   btn_copy, btn_png):
             b.setParent(self.tools)
             tb.addWidget(b)
@@ -1982,6 +1990,7 @@ class ViewerDialog(QDialog):
             "smooth_edges": bool(self.smooth_edges.isChecked()),
             "ring": self._draw_ring,
             "path": self._draw_path,
+            "fly_views": self._fly_views,
         }
         state["camera"] = self._camera_state()
         return state
@@ -2065,6 +2074,8 @@ class ViewerDialog(QDialog):
             self._vopts = dict(state.get("vopts") or {})
             self._draw_ring = [tuple(p) for p in state.get("ring") or []]
             self._draw_path = [tuple(p) for p in state.get("path") or []]
+            self._fly_views = [v for v in state.get("fly_views") or []
+                               if isinstance(v, dict)]
             self.vex.setValue(state.get("vex", 5.0))
             self.spacing.setValue(state.get("spacing", 0.0))
             self.opacity.setValue(state.get("opacity", 0.0))
@@ -2467,38 +2478,223 @@ class ViewerDialog(QDialog):
         self.view.setCameraPosition(azimuth=az % 360.0)
 
     def _spin_capture(self):
-        """Снять полный оборот кадрами PNG.
+        """Записать облёт сцены: видео MP4 или кадры PNG в папку.
 
-        Складывать кадры в видео модуль не берётся: для этого есть
-        готовые средства, а тащить их в плагин ради одной кнопки
-        незачем. Кадры нумеруются с ведущими нулями, иначе склейка
-        поставит десятый между первым и вторым.
+        Путь камеры - оборот вокруг сцены на заданный угол или облёт по
+        запомненным видам (кнопка видов облёта), расчёт в flight.py.
+        Видео кодирует Windows Media Foundation (video.py, как в
+        PlanetX), сторонние программы не нужны. Вне Windows и по
+        выбору - кадры PNG 25 в секунду: номер с ведущими нулями
+        (frame_%05d), иначе склейка поставит десятый кадр между
+        первым и вторым. Каждый кадр рисуется заново и снимается
+        grabFramebuffer(), поэтому запись идёт медленнее ролика,
+        а ролик не зависит от скорости видеокарты. После записи
+        камера возвращается туда, где стояла.
         """
-        from qgis.PyQt.QtWidgets import QFileDialog
-        if self.view is None:
-            return
-        folder = QFileDialog.getExistingDirectory(
-            self, tr("Куда складывать кадры"))
-        if not folder:
+        from qgis.PyQt.QtWidgets import (QComboBox, QDialog,
+                                         QDialogButtonBox,
+                                         QDoubleSpinBox, QFileDialog,
+                                         QFormLayout)
+        from . import flight
+        from . import video
+        if self.view is None or self._recording:
             return
         if self._spin_timer is not None and self._spin_timer.isActive():
             self._spin_timer.stop()
             self.btn_spin.setChecked(False)
-        was = float(self.view.opts.get("azimuth", 0.0))
-        step = 10
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("Запись видео"))
+        form = QFormLayout(dlg)
+        path_box = QComboBox(dlg)
+        path_box.addItem(tr("Оборот вокруг сцены"), "orbit")
+        if self._fly_views:
+            path_box.addItem(tr("Облёт по видам (%d)")
+                             % len(self._fly_views), "tour")
+        deg = QDoubleSpinBox(dlg)
+        deg.setRange(-720.0, 720.0)
+        deg.setDecimals(0)
+        deg.setValue(360.0)
+        deg.setSuffix(" °")
+        deg.setToolTip(tr("Угол оборота. Минус - в обратную сторону."))
+        secs = QDoubleSpinBox(dlg)
+        secs.setRange(1.0, 600.0)
+        secs.setDecimals(1)
+        secs.setValue(12.0)
+        secs.setSuffix(tr(" с"))
+        leg = QDoubleSpinBox(dlg)
+        leg.setRange(0.5, 120.0)
+        leg.setDecimals(1)
+        leg.setValue(4.0)
+        leg.setSuffix(tr(" с"))
+        pause = QDoubleSpinBox(dlg)
+        pause.setRange(0.0, 60.0)
+        pause.setDecimals(1)
+        pause.setValue(1.0)
+        pause.setSuffix(tr(" с"))
+        fmt = QComboBox(dlg)
+        if video.available():
+            fmt.addItem(tr("Видео MP4"), "mp4")
+        fmt.addItem(tr("Кадры PNG в папку"), "png")
+        fmt.setToolTip(tr(
+            "MP4 пишет сама Windows, 25 кадров в секунду, размер окна "
+            "сцены. Кадры PNG без потери качества склеивают в ролик "
+            "программой монтажа или ffmpeg."))
+        form.addRow(tr("Путь камеры"), path_box)
+        form.addRow(tr("Угол оборота"), deg)
+        form.addRow(tr("Длительность оборота"), secs)
+        form.addRow(tr("Переход между видами"), leg)
+        form.addRow(tr("Пауза на виде"), pause)
+        form.addRow(tr("Запись"), fmt)
+
+        def follow(*_a):
+            tour = path_box.currentData() == "tour"
+            for w in (deg, secs):
+                w.setEnabled(not tour)
+            for w in (leg, pause):
+                w.setEnabled(tour)
+        path_box.currentIndexChanged.connect(follow)
+        follow()
+        sb = getattr(QDialogButtonBox, "StandardButton", QDialogButtonBox)
+        box = QDialogButtonBox(sb.Ok | sb.Cancel, dlg)
+        box.accepted.connect(dlg.accept)
+        box.rejected.connect(dlg.reject)
+        form.addRow(box)
+        if not dlg.exec():
+            return
+        start = self._camera_state()
+        if path_box.currentData() == "tour":
+            frames = flight.tour(self._fly_views, leg.value(),
+                                 pause.value(), flight.FPS)
+        else:
+            frames = flight.orbit(start, deg.value(), secs.value(),
+                                  flight.FPS)
+        if not frames:
+            return
+        mode = fmt.currentData()
+        if mode == "mp4":
+            target, _f = QFileDialog.getSaveFileName(
+                self, tr("Сохранить видео"), "isoliner_3d.mp4",
+                "MP4 (*.mp4)")
+        else:
+            target = QFileDialog.getExistingDirectory(
+                self, tr("Куда складывать кадры"))
+        if not target:
+            return
+        self._record_frames(frames, mode, target, start)
+
+    def _record_frames(self, frames, mode, target, start):
+        """Снять кадры frames: в файл MP4 или в папку PNG."""
+        from qgis.PyQt.QtGui import QImage
+        from qgis.PyQt.QtWidgets import QApplication, QProgressDialog
+        from . import flight
+        from . import video
+        if self.view is None:
+            return
+        progress = QProgressDialog(tr("Запись видео..."), tr("Прервать"),
+                                   0, len(frames), self)
+        progress.setWindowModality(getattr(
+            getattr(Qt, "WindowModality", Qt), "WindowModal"))
+        progress.setMinimumDuration(0)
+        writer = None
+        size = None
         made = 0
-        for k in range(0, 360, step):
-            self.view.setCameraPosition(azimuth=(was + k) % 360.0)
-            self.view.repaint()
-            img = self.view.grabFramebuffer()
-            if img.save(os.path.join(folder, "frame_%03d.png" % made),
-                        "PNG"):
+        error = None
+        self._recording = True
+        try:
+            for i, cam in enumerate(frames):
+                if progress.wasCanceled():
+                    break
+                self._camera_apply(cam)
+                self.view.repaint()
+                img = self.view.grabFramebuffer()
+                if mode == "mp4":
+                    if size is None:
+                        size = video.even_size(img.width(), img.height())
+                        writer = video.Mp4Writer(target, size[0], size[1],
+                                                 flight.FPS)
+                    frame = img.convertToFormat(QImage.Format.Format_RGB32)
+                    if (frame.width(), frame.height()) != size:
+                        frame = frame.copy(0, 0, size[0], size[1])
+                    if frame.bytesPerLine() != size[0] * 4:
+                        error = tr("кадр видео не того формата")
+                        break
+                    writer.write(int(frame.constBits()))
+                elif not img.save(os.path.join(
+                        target, "frame_%05d.png" % i), "PNG"):
+                    error = tr("кадр %d не записан") % i
+                    break
                 made += 1
-        self.view.setCameraPosition(azimuth=was)
-        self.info.setText(
-            tr("Снято кадров: %d, по %d градусов. Склейте их в видео "
-               "любым средством: ffmpeg, редактор, что привычнее.")
-            % (made, step))
+                progress.setValue(i + 1)
+                QApplication.processEvents()
+        except video.VideoError as err:
+            error = str(err)
+        finally:
+            if writer is not None:
+                try:
+                    writer.close()
+                except video.VideoError as err:
+                    error = error or str(err)
+            progress.close()
+            self._recording = False
+            self._camera_apply(start)
+        secs = made / float(flight.FPS)
+        if error:
+            text = tr("Запись прервана: %s. Записано кадров: %d.") % (
+                error, made)
+        elif made < len(frames):
+            text = tr("Запись прервана на кадре %d из %d.") % (
+                made, len(frames))
+        elif mode == "mp4":
+            text = tr("Видео записано: %s, %.1f с.") % (
+                os.path.basename(target), secs)
+        else:
+            text = tr("Кадров записано: %d, 25 в секунду, %.1f с. "
+                      "Склейте их в ролик программой монтажа или "
+                      "ffmpeg.") % (made, secs)
+        self.info.setText(text)
+        _log(text)
+
+    def _views_menu(self):
+        """Меню видов облёта: запомнить, убрать, перейти к виду."""
+        from qgis.PyQt.QtGui import QCursor
+        if self.view is None:
+            return
+        menu = QMenu(self)
+        n = len(self._fly_views)
+        menu.addAction(tr("Запомнить текущий вид")).triggered.connect(
+            lambda *_a: self._view_add())
+        act = menu.addAction(tr("Убрать последний вид"))
+        act.setEnabled(n > 0)
+        act.triggered.connect(lambda *_a: self._view_drop())
+        act = menu.addAction(tr("Очистить виды (%d)") % n)
+        act.setEnabled(n > 0)
+        act.triggered.connect(lambda *_a: self._view_clear())
+        if n:
+            menu.addSeparator()
+        for k, cam in enumerate(self._fly_views):
+            menu.addAction(tr("Перейти к виду %d") % (k + 1)).triggered\
+                .connect(lambda *_a, c=cam: self._camera_apply(c))
+        menu.exec(QCursor.pos())
+
+    def _view_add(self):
+        """Запомнить текущую камеру видом облёта."""
+        if self.view is None:
+            return
+        self._fly_views.append(self._camera_state())
+        self.info.setText(tr("Видов облёта: %d. Запись - кнопкой видео.")
+                          % len(self._fly_views))
+        self._state_save()
+
+    def _view_drop(self):
+        if self._fly_views:
+            self._fly_views.pop()
+        self.info.setText(tr("Видов облёта: %d.") % len(self._fly_views))
+        self._state_save()
+
+    def _view_clear(self):
+        self._fly_views = []
+        self.info.setText(tr("Видов облёта: %d.") % 0)
+        self._state_save()
 
     def _save_png(self):
         from qgis.PyQt.QtWidgets import QFileDialog

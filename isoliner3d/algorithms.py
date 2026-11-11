@@ -6603,6 +6603,14 @@ HINTS_2_14 = {
     "OUTPUT": "Тела со всеми прежними полями и новыми полями счёта. "
               "Чтобы накопить несколько прогонов, подавайте результат "
               "предыдущего как слой тел следующему.",
+    "ZONE_FIELD": "Поле тела, которое пишется объектам: имя или код "
+                  "тела. Пусто - номер объекта тела в слое.",
+    "OUTPUT_OBJECTS": "Сами объекты с полем тела, в которое они попали: "
+                      "zone - первое тело, zone_ids - все через точку "
+                      "с запятой, zone_n - сколько тел. Объект вне тел "
+                      "получает пусто и ноль. Без этого слоя видно "
+                      "только итог по телу, но не какие пробы его "
+                      "дали.",
 }
 
 
@@ -6666,7 +6674,10 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
             "значения атрибута не участвуют.\n\n"
             "Сумма по телам сходится: длина линий внутри всех тел плюс "
             "длина снаружи равна полной длине, и это печатается "
-            "в журнал.") + _credit())
+            "в журнал.\n\n"
+            "Второй результат, необязательный, - сами объекты с телом, "
+            "в которое они попали: поля zone, zone_ids и zone_n. Так "
+            "видно, какие пробы дали итог тела.") + _credit())
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterFeatureSource(
@@ -6692,6 +6703,13 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
         self.addParameter(QgsProcessingParameterFeatureSink(
             "OUTPUT", self.tr("Тела со статистикой"),
             QgsProcessing.SourceType.TypeVectorPolygon))
+        self.addParameter(QgsProcessingParameterField(
+            "ZONE_FIELD", self.tr("Поле тела для объектов (пусто - номер)"),
+            parentLayerParameterName="SHELLS", optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            "OUTPUT_OBJECTS", self.tr("Объекты с телом"),
+            QgsProcessing.SourceType.TypeVectorAnyGeometry, optional=True,
+            createByDefault=False))
         _hints(self, HINTS_2_14)
 
     @staticmethod
@@ -6833,6 +6851,7 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
         if no_check is not None and setter is not None:
             setter(no_check)
         objs = []
+        obj_feats = []
         for ft in src.getFeatures():
             if feedback.isCanceled():
                 break
@@ -6862,6 +6881,7 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
                 continue
             val = _numv(ft[attr]) if attr else None
             objs.append((parts, val))
+            obj_feats.append(ft)
         if not objs:
             raise QgsProcessingException(self.tr(
                 "Объектов с высотой не нашлось: у геометрии должна "
@@ -6886,9 +6906,15 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
             raise QgsProcessingException(self.tr(
                 "Не удалось создать слой тел со статистикой."))
 
+        zone_field = self.parameterAsString(parameters, "ZONE_FIELD",
+                                            context)
+        # тела, в которые попал каждый объект: подписи по порядку слоя
+        zones = [[] for _o in objs]
         grand_n = 0
         grand_len = 0.0
         for si, (ft, v, f, closed) in enumerate(shells):
+            label = ft[zone_field] if zone_field else ft.id()
+            label = "" if label is None else str(label)
             out = QgsFeature(fields)
             out.setGeometry(ft.geometry())
             vals = list(ft.attributes())
@@ -6903,6 +6929,7 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
                     # отдельно на большом теле занимал часы
                     starts = boolean3d.points_inside(v, f, starts_xyz)
                     pi = 0
+                    oi_ln = 0
                     for parts, val in objs:
                         hit = False
                         got_obj = 0.0
@@ -6919,6 +6946,8 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
                             n_in += 1
                             in_vals.append(val)
                             in_w.append(got_obj)
+                            zones[oi_ln].append(label)
+                        oi_ln += 1
                 else:
                     # Точки всех объектов - ОДНИМ пакетом. Опрос по
                     # объекту за раз на двадцати тысячах блоков давал
@@ -6931,6 +6960,7 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
                             n_in += 1
                             in_vals.append(val)
                             in_w.append(1.0)
+                            zones[oi].append(label)
                 vals[idx[name + "_n"]] = int(n_in)
                 if is_ln:
                     vals[idx[name + "_len"]] = float(len_in)
@@ -6944,13 +6974,56 @@ class ZonalShellStatsAlgorithm(IsolinerAlgorithm):
             sink.addFeature(out)
             feedback.setProgress(100.0 * (si + 1) / max(len(shells), 1))
         _set_output_name(context, dest, self.tr("Тела со статистикой"))
+        result = {"OUTPUT": dest}
+        if parameters.get("OUTPUT_OBJECTS"):
+            result["OUTPUT_OBJECTS"] = self._objects_out(
+                parameters, context, src, obj_feats, zones, feedback)
 
         feedback.pushInfo(self.tr("Попаданий по всем телам: %d.") % grand_n)
         if is_ln:
             feedback.pushInfo(self.tr(
                 "Длина линий: всего %.2f м, внутри тел %.2f м, снаружи "
                 "%.2f м.") % (total_len, grand_len, total_len - grand_len))
-        return {"OUTPUT": dest}
+        return result
+
+    def _objects_out(self, parameters, context, src, feats, zones,
+                     feedback):
+        """Объекты источника с телами, в которые они попали."""
+        from qgis.core import QgsFeature, QgsFields
+        from .zonal import zone_fields
+        fields = QgsFields(src.fields())
+        have = {fld.name() for fld in fields}
+        names = {}
+        for key, typ in (("zone", QVariant.String),
+                         ("zone_ids", QVariant.String),
+                         ("zone_n", QVariant.Int)):
+            nm = key
+            k = 2
+            while nm in have:
+                nm = "%s_%d" % (key, k)
+                k += 1
+            names[key] = nm
+            have.add(nm)
+            fields.append(_field(nm, typ))
+        sink, dest = self.parameterAsSink(
+            parameters, "OUTPUT_OBJECTS", context, fields,
+            src.wkbType(), src.sourceCrs())
+        if sink is None:
+            raise QgsProcessingException(self.tr(
+                "Не удалось создать слой объектов с телом."))
+        n_in = 0
+        for ft, zs in zip(feats, zones):
+            out = QgsFeature(fields)
+            out.setGeometry(ft.geometry())
+            first, ids, n = zone_fields(zs)
+            vals = list(ft.attributes()) + [first, ids, n]
+            out.setAttributes(vals)
+            sink.addFeature(out)
+            n_in += 1 if n else 0
+        _set_output_name(context, dest, self.tr("Объекты с телом"))
+        feedback.pushInfo(self.tr("Объектов в телах: %d из %d.")
+                          % (n_in, len(feats)))
+        return dest
 
 
 HINTS_2_15 = {
@@ -8943,6 +9016,209 @@ class DemoLayersAlgorithm(IsolinerAlgorithm):
             "soil_type."))
         return {self.OUTPUT: dest, self.OUTPUT_CONTOUR: dest_c}
 
+
+HINTS_2_23 = {
+    "SHELL": "Замкнутое тело: выработка, камера, ёмкость, чаша карьера. "
+             "Слой целиком идёт одним телом, как в 2.11. Такие тела дают "
+             "кнопка оболочек окна просмотра, 2.04, 2.11, 2.13 и 2.15.",
+    "MODE": "Снизу - заполнение: вода, закладка, рассол поднимаются "
+            "от дна. Сверху - срезка: уровень, выше которого внутри "
+            "заданный объём, например вынимаемая часть тела.",
+    "TARGET": "Сколько заполнить: кубометры или доля тела в процентах, "
+              "по полю ниже. Больше всего тела - тело заполняется "
+              "целиком, и это пишется в журнал.",
+    "UNIT": "В чём задан объём. Проценты удобны, когда сам объём тела "
+            "заранее неизвестен.",
+    "CELL": "Шаг колонок в плане, м. Ноль - около 400 тысяч колонок "
+            "по охвату тела. Точность объёма ограничена этим шагом, "
+            "а отметка уровня считается точно: по вертикали ступенек "
+            "нет. Расхождение с точным объёмом оболочки печатается.",
+    "OUTPUT": "Заполненная часть телом из ячеек: крышка ровная на "
+              "уровне, стенки ступенчатые по шагу. В атрибутах уровень, "
+              "объём и доля тела. Тело принимают 2.11, 2.12 и 2.14.",
+}
+
+
+class FillToVolumeAlgorithm(IsolinerAlgorithm):
+    """Заполнение тела до заданного объёма: уровень и заполненная часть.
+
+    «До какой отметки дойдёт вода, если в выработку зайдёт столько
+    кубометров», «сколько войдёт до этой отметки». Тело режется на
+    вертикальные колонки, объём ниже уровня - сумма отрезков колонок
+    внутри тела ниже него (fill.py). Уровень ищется делением пополам
+    по этой сумме, сетка тела при этом не перестраивается.
+    """
+
+    MODES = ("bottom", "top")
+
+    def name(self):
+        return "fill_to_volume"
+
+    def displayName(self):
+        return self.tr("2.23 Заполнение тела до объёма")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def createInstance(self):
+        return FillToVolumeAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Находит горизонтальный уровень, ниже которого внутри тела "
+            "заданный объём, и выдаёт заполненную часть отдельным "
+            "телом. Режим «сверху» - наоборот: уровень, выше которого "
+            "внутри тела заданный объём.\n\n"
+            "Вопросы такие. До какой отметки поднимется вода, если "
+            "в выработку зайдёт столько кубометров? Сколько войдёт "
+            "в камеру до этой отметки? Где пройдёт подошва, если "
+            "снять сверху такой объём?\n\n"
+            "Тело режется на вертикальные колонки по плану. В каждой "
+            "колонке берутся отрезки внутри тела, и объём ниже уровня "
+            "складывается из их частей ниже него. Пустоты между "
+            "этажами тела в объём не идут: две камеры одна над другой "
+            "заполняются по очереди, нижняя первой.\n\n"
+            "Точность объёма ограничена шагом колонок, отметка уровня "
+            "по вертикали точная. В журнал идут уровень, объём по "
+            "колонкам и точный объём оболочки: по их расхождению "
+            "видно, хватает ли шага.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "SHELL", self.tr("Тело (полигоны с Z)"),
+            [QgsProcessing.SourceType.TypeVectorPolygon]))
+        self.addParameter(QgsProcessingParameterEnum(
+            "MODE", self.tr("Откуда заполнять"),
+            options=[self.tr("Снизу (заполнение)"),
+                     self.tr("Сверху (срезка)")], defaultValue=0))
+        self.addParameter(QgsProcessingParameterNumber(
+            "TARGET", self.tr("Объём"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=50.0, minValue=0.0))
+        self.addParameter(QgsProcessingParameterEnum(
+            "UNIT", self.tr("Объём задан в"),
+            options=[self.tr("процентах объёма тела"),
+                     self.tr("кубометрах")], defaultValue=0))
+        self.addParameter(QgsProcessingParameterNumber(
+            "CELL", self.tr("Шаг колонок, м (0 - по охвату)"),
+            QgsProcessingParameterNumber.Type.Double,
+            defaultValue=0.0, minValue=0.0))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            "OUTPUT", self.tr("Заполненная часть (тело)"),
+            QgsProcessing.SourceType.TypeVectorPolygon))
+        _hints(self, HINTS_2_23)
+
+    def _process(self, parameters, context, feedback):
+        from qgis.core import (QgsFields, QgsFeature, QgsGeometry,
+                               QgsPoint, QgsLineString, QgsPolygon,
+                               QgsMultiPolygon, QgsWkbTypes)
+        from . import boolean3d, fill, voxel
+        from .cleanup import mesh_volume, shell_defects
+
+        src = self.parameterAsSource(parameters, "SHELL", context)
+        from_top = self.MODES[self.parameterAsEnum(
+            parameters, "MODE", context)] == "top"
+        target = self.parameterAsDouble(parameters, "TARGET", context)
+        in_pct = self.parameterAsEnum(parameters, "UNIT", context) == 0
+        cell = self.parameterAsDouble(parameters, "CELL", context)
+
+        v, f = BooleanShellsAlgorithm._shell_mesh(
+            self, src, feedback, self.tr("Тело"))
+        holes, _pinch = shell_defects(v, f)
+        if holes:
+            raise QgsProcessingException(self.tr(
+                "Оболочка не замкнута, рваных рёбер %d. У незамкнутой "
+                "внутренности нет, и заполнять нечего.") % holes)
+        exact = abs(mesh_volume(v, f))
+        bounds = (float(v[:, 0].min()), float(v[:, 0].max()),
+                  float(v[:, 1].min()), float(v[:, 1].max()))
+        gt, ny, nx, step = fill.plan_grid(bounds, cell)
+        if cell > 0 and step > cell * 1.0001:
+            feedback.pushWarning(self.tr(
+                "Шаг %.3g м дал бы слишком много колонок, взят %.3g м.")
+                % (cell, step))
+        feedback.pushInfo(self.tr("Колонок %d x %d, шаг %.3g м.")
+                          % (nx, ny, step))
+        col, zc = boolean3d.column_cuts(v, f, gt, (ny, nx))
+        cols, lo, hi = fill.intervals(col, zc)
+        if not len(lo):
+            raise QgsProcessingException(self.tr(
+                "Колонки не задели тело: шаг крупнее самого тела."))
+        area = step * step
+        full = fill.total_volume(lo, hi, area)
+        feedback.pushInfo(self.tr(
+            "Объём тела: по колонкам %.1f м3, точный по оболочке "
+            "%.1f м3, расхождение %.2f %%.")
+            % (full, exact, 100.0 * (full - exact) / exact if exact
+               else 0.0))
+        want = full * target / 100.0 if in_pct else target
+        if want > full:
+            feedback.pushWarning(self.tr(
+                "Задано %.1f м3, а в теле только %.1f м3: тело "
+                "заполняется целиком.") % (want, full))
+        level, got = fill.level_for_volume(lo, hi, area, want,
+                                           from_top=from_top)
+        share = 100.0 * got / full if full else 0.0
+        feedback.pushInfo(self.tr(
+            "Уровень %.3f м. Объём %s уровня %.1f м3, %.1f %% тела.")
+            % (level, self.tr("выше") if from_top else self.tr("ниже"),
+               got, share))
+        zspan = float(hi.max() - lo.min())
+        dz = min(step, max(zspan / 200.0, 1e-6))
+        occ, z0, dz = fill.filled_occupancy(cols, lo, hi, gt, ny, nx,
+                                            level, dz, from_top)
+        if boolean3d.cell_budget(occ.shape) > 60000000:
+            raise QgsProcessingException(self.tr(
+                "Ячеек слишком много: укрупните шаг колонок."))
+        verts, faces, _cls, over = voxel.voxel_mesh(
+            occ, gt, z0, dz, classes=np.zeros(occ.shape, np.int32),
+            merge=False)
+        if over:
+            raise QgsProcessingException(self.tr(
+                "Граней вышло слишком много: укрупните шаг колонок."))
+
+        fields = QgsFields()
+        fields.append(_field("mode", QVariant.String))
+        fields.append(_field("level", QVariant.Double))
+        fields.append(_field("volume", QVariant.Double))
+        fields.append(_field("share_pct", QVariant.Double))
+        fields.append(_field("body_vol", QVariant.Double))
+        sink, dest = self.parameterAsSink(
+            parameters, "OUTPUT", context, fields,
+            QgsWkbTypes.Type.MultiPolygonZ, src.sourceCrs())
+        if sink is None:
+            raise QgsProcessingException(self.tr(
+                "Не удалось создать слой результата."))
+        if len(faces):
+            mp = QgsMultiPolygon()
+            for tri in faces:
+                ls = QgsLineString()
+                for vi in (tri[0], tri[1], tri[2], tri[0]):
+                    p = verts[vi]
+                    ls.addVertex(QgsPoint(float(p[0]), float(p[1]),
+                                          float(p[2])))
+                poly = QgsPolygon()
+                poly.setExteriorRing(ls)
+                mp.addGeometry(poly)
+            ft = QgsFeature(fields)
+            ft.setGeometry(QgsGeometry(mp))
+            ft.setAttributes(["top" if from_top else "bottom",
+                              float(level), float(got), float(share),
+                              float(full)])
+            sink.addFeature(ft)
+        else:
+            feedback.pushWarning(self.tr(
+                "Заполненная часть пуста: объём меньше одной ячейки."))
+        _set_output_name(context, dest, self.tr("Заполненная часть"))
+        return {"OUTPUT": dest}
+
+
 ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
@@ -8974,4 +9250,5 @@ ALGORITHMS = [
     BlocksToCubeAlgorithm,
     InversionSectionAlgorithm,
     DemoLayersAlgorithm,
+    FillToVolumeAlgorithm,
 ]

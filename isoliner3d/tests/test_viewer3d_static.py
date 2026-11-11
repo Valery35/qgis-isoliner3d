@@ -780,16 +780,37 @@ def test_turntable_can_be_stopped():
 
 
 def test_turn_capture_writes_frames():
-    """Съёмка оборота пишет кадры по кругу и говорит, сколько сняла."""
+    """Запись облёта пишет кадры по кругу или видео и говорит итог.
+
+    Путь камеры считает flight.py, MP4 пишет video.py (как в PlanetX).
+    Кадры нумеруются с ведущими нулями: иначе склейка перепутает
+    порядок, десятый кадр встанет между первым и вторым.
+    """
     src = _viewer_src()
     assert "def _spin_capture" in src
     start = src.index("def _spin_capture")
     body = src[start:src.index("def _save_png", start)]
     assert "grabFramebuffer()" in body
     assert "360" in body
-    # кадры нумеруются с ведущими нулями: иначе склейка перепутает
-    # порядок, десятый кадр встанет между первым и вторым
-    assert "%03d" in body
+    assert "%05d" in body
+    assert "flight.orbit(" in body and "flight.tour(" in body
+    assert "video.Mp4Writer(" in body
+    # камера после записи возвращается на место
+    assert "self._camera_apply(start)" in body
+    # прерванная запись закрывает файл: ролик из снятых кадров годен
+    assert "writer.close()" in body
+    assert "wasCanceled()" in body
+
+
+def test_fly_views_are_saved_with_the_scene():
+    """Виды облёта живут в сцене проекта, как камера и обрезка."""
+    src = _viewer_src()
+    save = src[src.index('"opts": self._opts,'):]
+    save = save[:save.index("QgsProject.instance().writeEntry")]
+    assert '"fly_views"' in save
+    start = src.index("def _state_apply")
+    load = src[start:src.index("\n    def ", start + 20)]
+    assert '"fly_views"' in load
 
 
 def test_gradient_is_painted_inside_the_view():

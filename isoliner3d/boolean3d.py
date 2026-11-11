@@ -31,13 +31,15 @@ import numpy as np
 OPS = ("difference", "union", "intersection")
 
 
-def shell_occupancy(verts, faces, gt, z0, dz, shape):
-    """Занятость ячеек куба замкнутой оболочкой.
+def column_cuts(verts, faces, gt, shape):
+    """Пересечения вертикальных лучей колонок с треугольниками.
 
-    Возвращает булев массив (nz, ny, nx): True там, где центр ячейки
-    лежит внутри оболочки.
+    Колонка - центр ячейки плана (ny, nx) грида gt. Возвращает
+    (номер колонки, отметка) двумя массивами, отсортированными по
+    колонке, а внутри неё по отметке. У замкнутой оболочки в каждой
+    колонке пересечений чётное число: вход, выход, вход, выход.
     """
-    nz, ny, nx = (int(v) for v in shape)
+    ny, nx = (int(v) for v in shape[-2:])
     v = np.asarray(verts, dtype=float)
     f = np.asarray(faces, dtype=np.int64)
     # Луч сдвигается на ничтожную долю ячейки. Легший ровно на ребро
@@ -78,13 +80,25 @@ def shell_occupancy(verts, faces, gt, z0, dz, shape):
         jj, ii = np.divmod(np.flatnonzero(inside), i1 - i0)
         cols.append((jj + j0) * nx + (ii + i0))
         zcut.append(z)
-    occ = np.zeros((nz, ny, nx), dtype=bool)
     if not cols:
-        return occ
+        return (np.zeros(0, dtype=np.int64), np.zeros(0, dtype=float))
     col = np.concatenate(cols)
     zc = np.concatenate(zcut)
     order = np.lexsort((zc, col))
-    col, zc = col[order], zc[order]
+    return col[order], zc[order]
+
+
+def shell_occupancy(verts, faces, gt, z0, dz, shape):
+    """Занятость ячеек куба замкнутой оболочкой.
+
+    Возвращает булев массив (nz, ny, nx): True там, где центр ячейки
+    лежит внутри оболочки.
+    """
+    nz, ny, nx = (int(v) for v in shape)
+    col, zc = column_cuts(verts, faces, gt, shape)
+    occ = np.zeros((nz, ny, nx), dtype=bool)
+    if not len(col):
+        return occ
     # Границы колонок в отсортированном списке пересечений.
     starts = np.flatnonzero(np.r_[True, col[1:] != col[:-1]])
     ends = np.r_[starts[1:], len(col)]
