@@ -265,3 +265,33 @@ def _run():
 
 if __name__ == "__main__":
     _run()
+
+
+def test_azimuth_counts_from_north_clockwise():
+    from isoliner3d.axes import azimuth
+    assert abs(azimuth((0, 0), (0, 10)) - 0) < 1e-9
+    assert abs(azimuth((0, 0), (10, 0)) - 90) < 1e-9
+    assert abs(azimuth((0, 0), (0, -10)) - 180) < 1e-9
+    assert abs(azimuth((0, 0), (-10, 0)) - 270) < 1e-9
+
+
+def test_section_scales_label_elevation_and_depth():
+    from isoliner3d.axes import section_scales
+    sc = section_scales((0, 0), (1000, 0), -400.0, -100.0, want=3)
+    left = [t for _p, t in sc["left"]]
+    right = [t for _p, t in sc["right"]]
+    assert "-200" in left and "-300" in left
+    # глубина от верхней кромки -100: отметка -200 - это 100 м
+    assert "100" in right and "200" in right
+    assert sc["arrow_label"][1] == "90°"
+    # слева подписи до начала линии, справа после конца
+    assert all(p[0] < 0 for p, _t in sc["left"])
+    assert all(p[0] > 1000 for p, _t in sc["right"])
+    # стрелка над верхней кромкой
+    assert sc["arrow_label"][0][2] > -100.0
+
+
+def test_section_scales_survive_a_zero_line():
+    from isoliner3d.axes import section_scales
+    sc = section_scales((5, 5), (5, 5), 0.0, 10.0)
+    assert sc["segs"]

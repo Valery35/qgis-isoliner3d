@@ -385,6 +385,9 @@ class ViewerDialog(QDialog):
         # виды облёта для видео: камеры по порядку (flight.py)
         self._fly_views = []
         self._recording = False
+        # шкалы вида по разрезу: элементы сцены и концы линии
+        self._section_items = []
+        self._section_ab = None
         self._was_active = False
         self._mask_cache = {}
         self._items = []
@@ -2351,6 +2354,8 @@ class ViewerDialog(QDialog):
     def _section_unlock(self):
         """Снять вид по разрезу: поворот снова свободен."""
         self.view.lock_rotate = False
+        self._section_ab = None
+        self._section_marks_clear()
         btn = getattr(self, "btn_section", None)
         if btn is not None and btn.isChecked():
             btn.blockSignals(True)
@@ -2414,11 +2419,70 @@ class ViewerDialog(QDialog):
         half_w = 0.66 * max(length, 1.0)
         opts['distance'] = (half_w * h / w) / math.tan(math.radians(30.0))
         self.view.lock_rotate = True
+        self._section_ab = (tuple(a), tuple(b))
+        self._section_marks()
         self.view.update()
         self.info.setText(tr(
             "Вид по разрезу: длина линии %.0f м. Поворот заперт, левая "
             "кнопка сдвигает, колёсико приближает. Отжать кнопку или "
             "«Сбросить вид» - поворот снова свободен.") % length)
+
+    def _section_marks_clear(self):
+        """Убрать шкалы вида по разрезу из сцены."""
+        if self.view is None:
+            return
+        for it in self._section_items:
+            try:
+                self.view.removeItem(it)
+            except Exception:  # nosec - элемент уже снят сборкой
+                pass
+        self._section_items = []
+
+    def _section_marks(self):
+        """Шкалы вида по разрезу: отметки, глубины и азимут.
+
+        Слева у начала линии - абсолютные отметки, справа у конца -
+        глубина от верхней кромки сцены, над серединой - стрелка
+        направления линии с азимутом. Короб с подписями на виде
+        по разрезу смотрит торцом, и отметки по нему читать неудобно,
+        а глубина от кровли нужна чаще отметки (axes.section_scales).
+        """
+        from .axes import section_scales
+        self._section_marks_clear()
+        pk = self._pick
+        box = getattr(self, "_box_scene", None)
+        if self.view is None or not pk or not box or \
+                self._section_ab is None:
+            return
+        a, b = self._section_ab
+        cx, cy, cz = pk["cx"], pk["cy"], pk["cz"]
+        vex = float(pk.get("vex", 1.0) or 1.0)
+        sc = section_scales(a, b, box[0][2], box[1][2], want=6, vex=vex)
+
+        def put(p):
+            return (float(p[0]) - cx, float(p[1]) - cy,
+                    (float(p[2]) - cz) * vex)
+        pos = np.array([q for seg in sc["segs"]
+                        for q in (put(seg[0]), put(seg[1]))], dtype=float)
+        item = gl.GLLinePlotItem(pos=pos, mode='lines', width=1.4,
+                                 antialias=True,
+                                 color=(0.20, 0.24, 0.38, 0.95),
+                                 glOptions='translucent')
+        self.view.addItem(item)
+        self._section_items.append(item)
+        TextItem = _halo_text_item(gl)
+        if TextItem is None:
+            return
+        from qgis.PyQt.QtGui import QFont
+        fnt = QFont()
+        fnt.setPointSize(8)
+        labels = list(sc["left"]) + list(sc["right"]) + \
+            [sc["arrow_label"]]
+        for p, text in labels:
+            lab = TextItem(pos=put(p), text=text,
+                           color=(30, 30, 30, 255), font=fnt)
+            self.view.addItem(lab)
+            self._section_items.append(lab)
 
     def _reset_view(self, *_a):
         """Вернуть камеру: раствор 60 градусов, ракурс и кадр по сцене.
@@ -7352,6 +7416,10 @@ class ViewerDialog(QDialog):
             if self._pending_cam:
                 self._camera_apply(self._pending_cam)
                 self._pending_cam = None
+            # сборка убрала шкалы разреза вместе с прочим, а вид
+            # по разрезу остался: ставим их заново по новой сцене
+            if self._section_ab is not None and self.view.lock_rotate:
+                self._section_marks()
         except Exception as err:
             import traceback
             self.info.setText(tr("Сборка сцены не удалась: %s") % err)
@@ -7443,6 +7511,7 @@ class ViewerDialog(QDialog):
         self._crs_now = self._pick_scene_crs()
         # подписи прошлой сборки не переставляем: их элементов уже нет
         self._axes_live = None
+        self._section_marks_clear()
         for m in self._items:
             self.view.removeItem(m)
         self._items = []

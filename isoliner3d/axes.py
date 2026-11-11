@@ -280,3 +280,69 @@ def tick_marks(lo, hi, want=5, length=None, steps=None, sides=None):
             b[other] = a[other] + out_dir * ln
             out.append((axis, val, tuple(a), tuple(b)))
     return out
+
+
+def azimuth(a, b):
+    """Азимут направления от a к b в плане, градусы 0-360 от севера."""
+    dx = float(b[0]) - float(a[0])
+    dy = float(b[1]) - float(a[1])
+    return (np.degrees(np.arctan2(dx, dy)) + 360.0) % 360.0
+
+
+def section_scales(a, b, zlo, zhi, want=6, tick=None, vex=1.0):
+    """Шкалы вида по разрезу: отметки слева, глубины справа, азимут.
+
+    a, b - начало и конец линии разреза в плане (x, y), zlo, zhi -
+    отметки сцены. Слева у начала линии - абсолютные отметки, справа
+    у конца - глубина от верхней кромки zhi. Над серединой - стрелка
+    направления линии и подпись азимута.
+
+    Возвращает словарь: segs - отрезки (p0, p1) в координатах (x, y, z),
+    left и right - списки (точка подписи, текст), arrow_label -
+    (точка, текст), azimuth - градусы.
+    """
+    a = np.asarray(a, dtype=float)[:2]
+    b = np.asarray(b, dtype=float)[:2]
+    zlo, zhi = float(min(zlo, zhi)), float(max(zlo, zhi))
+    d = b - a
+    length = float(np.hypot(*d))
+    if length <= 0:
+        d = np.array([1.0, 0.0])
+        length = 1.0
+    t = d / np.hypot(*d)
+    span = max(zhi - zlo, 1e-9)
+    tick = float(tick) if tick else 0.015 * length
+    out_l = a - t * tick * 0.5          # чуть за краем линии
+    out_r = b + t * tick * 0.5
+    segs = [((out_l[0], out_l[1], zlo), (out_l[0], out_l[1], zhi)),
+            ((out_r[0], out_r[1], zlo), (out_r[0], out_r[1], zhi))]
+    left, right = [], []
+    for z in nice_ticks(zlo, zhi, want):
+        pl = out_l - t * tick
+        pr = out_r + t * tick
+        segs.append(((out_l[0], out_l[1], z), (pl[0], pl[1], z)))
+        segs.append(((out_r[0], out_r[1], z), (pr[0], pr[1], z)))
+        lab_l = out_l - t * tick * 2.2
+        lab_r = out_r + t * tick * 1.4
+        left.append(((lab_l[0], lab_l[1], z), tick_label(z)))
+        right.append(((lab_r[0], lab_r[1], z), tick_label(zhi - z)))
+    # стрелка направления над серединой, длиной в десятую линии
+    mid = 0.5 * (a + b)
+    zt = zhi + 0.06 * span
+    half = 0.05 * length
+    s0 = mid - t * half
+    s1 = mid + t * half
+    head = 0.35 * half
+    tip = (s1[0], s1[1], zt)
+    segs.append(((s0[0], s0[1], zt), tip))
+    q = s1 - t * head
+    # Усы стрелки - в вертикальной плоскости разреза: их видно
+    # с камеры, смотрящей поперёк линии. По высоте они делятся на
+    # преувеличение, иначе на вытянутой сцене стрелка вышла бы копьём.
+    up = head / max(float(vex), 1e-9)
+    for side in (1.0, -1.0):
+        segs.append((tip, (q[0], q[1], zt + side * up)))
+    az = azimuth(a, b)
+    lab = (mid[0], mid[1], zt + 0.04 * span)
+    return {"segs": segs, "left": left, "right": right,
+            "arrow_label": (lab, "%.0f°" % az), "azimuth": az}

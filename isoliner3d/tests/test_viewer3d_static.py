@@ -272,6 +272,8 @@ def test_scene_items_know_their_layer():
             continue          # метка опроса кликом
         if "_draw_" in line:
             continue          # предпросмотр рисуемого контура
+        if "_section_items" in lines[num]:
+            continue          # шкалы вида по разрезу, живут вне сборки
         direct.append(num)
     assert not direct, "элементы мимо _add_item в строках %s" % direct
     assert "def _add_item(self, item, owner=None, gopt=None)" in src
@@ -3906,3 +3908,23 @@ def test_scenes_are_kept_per_name():
     for name in ("_scene_new", "_scene_dup", "_scene_rename",
                  "_scene_delete", "_scene_import", "_camera_state"):
         assert "def %s(self" % name in src, name
+
+
+def test_section_view_has_scales():
+    """Вид по разрезу ставит шкалы отметок и глубин и снимает их.
+
+    Шкалы живут вне списка сцены: сборка их убирает и ставит заново,
+    пока вид по разрезу включён, а снятие вида убирает их сразу.
+    """
+    src = _viewer_src()
+    start = src.index("def _section_view")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "self._section_marks()" in body
+    start = src.index("def _section_unlock")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "self._section_marks_clear()" in body
+    start = src.index("def _section_marks(self)")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "section_scales(" in body and "_halo_text_item" in body
+    i = src.index("self._rebuild_scene()")
+    assert "self._section_marks()" in src[i:i + 700]
