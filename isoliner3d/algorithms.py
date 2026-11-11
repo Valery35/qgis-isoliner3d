@@ -5864,278 +5864,6 @@ class SectionLinesToSurfaceAlgorithm(IsolinerAlgorithm):
         return {"OUTPUT": out_path}
 
 
-HINTS_2_12 = {
-    "INPUT": "Что отбирать: точки, линии или полигоны с высотой. "
-             "Блочная модель из 2.03 и 1.03, пробы, следы выработок, "
-             "оболочки других тел - лишь бы у геометрии была Z.",
-    "SHELL": "Замкнутая оболочка, которой идёт отбор: рудное тело, "
-             "зона отработки, контур подсчёта. Такие даёт кнопка "
-             "оболочек в окне просмотра, 2.04 и 2.11.",
-    "MODE": "Целиком внутри - все вершины объекта внутри оболочки. "
-            "Пересекает - хоть одна внутри: так ловятся скважины "
-            "и выработки, проходящие тело насквозь. Снаружи - "
-            "остаток, то есть всё, что не пересекает.",
-    "STEP": "Шаг опроса вдоль линий и по краю полигонов. Без него "
-            "смотрятся только вершины, и отрезок, прошивший тело "
-            "насквозь между двумя своими вершинами, найден не будет. "
-            "Ноль - только вершины.",
-    "VOLUME": "Поле объёма блока, если отбирается блочная модель. "
-              "С ним считается объём отобранного и сверяется с объёмом "
-              "самой оболочки: расхождение показывает, насколько "
-              "модель груба для этого тела.",
-    "GRADE": "Поле содержания. Среднее по отобранному считается "
-             "взвешенным по объёму, а не простым: блоки бывают разного "
-             "размера, и простое среднее завышает мелкие.",
-    "DENSITY": "Плотность руды. С ней объём переводится в тонны, "
-               "а содержание - в тоннаж металла.",
-    "OUTPUT": "Отобранные объекты со всеми своими полями. Сводка идёт "
-              "в журнал.",
-}
-
-
-class SelectByShellAlgorithm(IsolinerAlgorithm):
-    """Пространственная выборка замкнутой оболочкой.
-
-    Луч из точки вверх: если выше неё оболочка пересекается нечётное
-    число раз, точка внутри. Ячейки для этого не нужны, ответ точный.
-
-    Это последнее звено цепочки, ради которой всё и делалось: куб
-    значений - блочная модель - отбор оболочкой - объём, тоннаж
-    и средневзвешенное содержание. Отбирать можно и линии
-    с полигонами: скважины, выработки, другие тела.
-    """
-
-    MODES = ("inside", "cross", "outside")
-
-    def name(self):
-        return "select_by_shell"
-
-    def displayName(self):
-        return self.tr("2.12 Выборка оболочкой")
-
-    def group(self):
-        return self.tr(GROUP5)
-
-    def groupId(self):
-        return GROUP5_ID
-
-    def helpUrl(self):
-        return _help_url()
-
-    def createInstance(self):
-        return SelectByShellAlgorithm()
-
-    def shortHelpString(self):
-        return _help_version(self.tr(
-            "Отбирает объекты, попавшие в замкнутую оболочку, "
-            "и считает по ним сводку.\n\n"
-            "Так получают запас: блочная модель, оболочка рудного "
-            "тела или зоны отработки, и на выходе объём, тоннаж "
-            "и средневзвешенное содержание отобранного. Отбор "
-            "снаружи даёт остаток, не строя вычитания тел.\n\n"
-            "Отбирать можно не только точки. Линии и полигоны "
-            "с высотой идут тем же путём: скважины, прошившие тело, "
-            "следы выработок, оболочки других тел.\n\n"
-            "Точка считается внутри по правилу чётности: из неё "
-            "вверх пускается луч, и если оболочка пересекается "
-            "нечётное число раз, точка внутри. Ячейки для этого "
-            "не нужны, и ответ выходит точный, а не с точностью "
-            "до ячейки, как у булевых операций.\n\n"
-            "У линий и полигонов смотрятся вершины. Отрезок, "
-            "прошивший тело насквозь между двумя своими вершинами, "
-            "вершинами не ловится - на этот случай есть шаг опроса "
-            "вдоль.\n\n"
-            "Объём отобранных блоков сверяется с объёмом самой "
-            "оболочки: расхождение показывает, насколько модель "
-            "груба для этого тела.\n\n"
-            "Оболочка должна быть замкнута: у незамкнутой "
-            "внутренности нет.") + _credit())
-
-    def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterFeatureSource(
-            "INPUT", self.tr("Что отбирать (объекты с Z)")))
-        self.addParameter(QgsProcessingParameterFeatureSource(
-            "SHELL", self.tr("Оболочка (полигоны с Z)"),
-            [QgsProcessing.SourceType.TypeVectorPolygon]))
-        self.addParameter(QgsProcessingParameterEnum(
-            "MODE", self.tr("Что оставить"),
-            options=[self.tr("Целиком внутри"),
-                     self.tr("Пересекает оболочку"),
-                     self.tr("Снаружи")], defaultValue=0))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            "STEP", self.tr("Шаг опроса вдоль линий, м (0 - вершины)"),
-            QgsProcessingParameterNumber.Type.Double,
-            defaultValue=0.0, minValue=0.0)))
-        self.addParameter(QgsProcessingParameterField(
-            "VOLUME", self.tr("Поле объёма блока"),
-            parentLayerParameterName="INPUT", optional=True,
-            type=QgsProcessingParameterField.DataType.Numeric))
-        self.addParameter(QgsProcessingParameterField(
-            "GRADE", self.tr("Поле содержания"),
-            parentLayerParameterName="INPUT", optional=True,
-            type=QgsProcessingParameterField.DataType.Numeric))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            "DENSITY", self.tr("Плотность, т/м3 (0 - без тоннажа)"),
-            QgsProcessingParameterNumber.Type.Double,
-            defaultValue=0.0, minValue=0.0)))
-        self.addParameter(QgsProcessingParameterFeatureSink(
-            "OUTPUT", self.tr("Отобранные объекты")))
-        _hints(self, HINTS_2_12)
-
-    @staticmethod
-    def _feature_points(geom, step):
-        """Вершины объекта, при заданном шаге - с промежуточными.
-
-        Опрос идёт по вершинам: у точки она одна, у линии и полигона
-        их сколько нарисовано. Шаг добавляет промежуточные, иначе
-        отрезок, прошивший тело насквозь, останется незамеченным.
-        """
-        out = []
-        for part in geom.constParts():
-            n = getattr(part, "numPoints", lambda: 0)()
-            if n:
-                pts = [(part.xAt(k), part.yAt(k), part.zAt(k))
-                       for k in range(n)]
-            else:
-                ring = getattr(part, "exteriorRing", lambda: None)()
-                if ring is None:
-                    z = float(getattr(part, "z", lambda: float("nan"))())
-                    out.append((float(part.x()), float(part.y()), z))
-                    continue
-                pts = [(ring.xAt(k), ring.yAt(k), ring.zAt(k))
-                       for k in range(ring.numPoints())]
-            out.extend(pts)
-            if step > 0 and len(pts) > 1:
-                a = np.asarray(pts, dtype=float)
-                for k in range(len(a) - 1):
-                    d = float(np.linalg.norm(a[k + 1] - a[k]))
-                    m = int(d // step)
-                    for t in range(1, m + 1):
-                        out.append(tuple(a[k] + (a[k + 1] - a[k])
-                                         * (t * step / d)))
-        return [p for p in out if np.isfinite(p).all()]
-
-    def _process(self, parameters, context, feedback):
-        from qgis.core import QgsFeature
-        from . import boolean3d
-        from .cleanup import mesh_volume, shell_defects
-
-        src = self.parameterAsSource(parameters, "INPUT", context)
-        shell = self.parameterAsSource(parameters, "SHELL", context)
-        mode = self.MODES[self.parameterAsEnum(parameters, "MODE",
-                                               context)]
-        step = self.parameterAsDouble(parameters, "STEP", context)
-        vfield = self.parameterAsString(parameters, "VOLUME", context)
-        gfield = self.parameterAsString(parameters, "GRADE", context)
-        dens = self.parameterAsDouble(parameters, "DENSITY", context)
-
-        v, f = SpecAlgorithm._shell_mesh(
-            self, shell, feedback, self.tr("Оболочка"))
-        holes, _pinch = shell_defects(v, f)
-        if holes:
-            raise QgsProcessingException(self.tr(
-                "Оболочка не замкнута, рваных рёбер %d. У незамкнутой "
-                "внутренности нет.") % holes)
-        shell_vol = mesh_volume(v, f)
-        feedback.pushInfo(self.tr("Оболочка: граней %d, объём %.1f м3.")
-                          % (len(f), shell_vol))
-
-        from qgis.core import QgsFeatureRequest
-        # Оболочка на входе - набор смежных треугольников, и годным
-        # мультиполигоном по правилам OGC он не бывает: у соседних
-        # граней общие рёбра. С включённой проверкой обработка
-        # отклонила бы слой, не начав работу.
-        no_check = getattr(
-            getattr(QgsFeatureRequest, "InvalidGeometryCheck",
-                    QgsFeatureRequest), "GeometryNoCheck", None)
-        setter = getattr(src, "setInvalidGeometryCheck", None)
-        if no_check is not None and setter is not None:
-            setter(no_check)
-        feats, pts, owner = [], [], []
-        for ft in src.getFeatures():
-            if feedback.isCanceled():
-                break
-            g = ft.geometry()
-            if g is None or g.isEmpty():
-                continue
-            own = self._feature_points(g, step)
-            if not own:
-                continue
-            i_ft = len(feats)
-            feats.append(ft)
-            pts.extend(own)
-            owner.extend([i_ft] * len(own))
-        if not pts:
-            raise QgsProcessingException(self.tr(
-                "Объектов с высотой не нашлось: у геометрии должна "
-                "быть Z."))
-        feedback.pushInfo(self.tr("Объектов %d, точек опроса %d.")
-                          % (len(feats), len(pts)))
-        feedback.setProgress(30)
-        inside = boolean3d.points_inside(v, f, np.asarray(pts))
-        owner = np.asarray(owner, dtype=np.int64)
-        n_in = np.bincount(owner[inside], minlength=len(feats))
-        n_all = np.bincount(owner, minlength=len(feats))
-        if mode == "inside":
-            keep = n_in == n_all
-        elif mode == "cross":
-            keep = n_in > 0
-        else:
-            keep = n_in == 0
-        feedback.setProgress(70)
-
-        sink, dest = self.parameterAsSink(
-            parameters, "OUTPUT", context, src.fields(),
-            src.wkbType(), src.sourceCrs())
-        if sink is None:
-            raise QgsProcessingException(self.tr(
-                "Не удалось создать слой отобранных объектов."))
-        vol = grade_w = 0.0
-        n = 0
-        for ft, take in zip(feats, keep):
-            if not take:
-                continue
-            n += 1
-            sink.addFeature(QgsFeature(ft))
-            if vfield:
-                q = _num(ft, vfield)
-                vol += q
-                if gfield:
-                    grade_w += q * _num(ft, gfield)
-        _set_output_name(context, dest, self.tr("Отобранные объекты"))
-
-        feedback.pushInfo(self.tr(
-            "Объектов всего %d, отобрано %d (%.1f процента).")
-            % (len(feats), n, 100.0 * n / max(len(feats), 1)))
-        if not vfield:
-            feedback.pushInfo(self.tr(
-                "Поле объёма не задано: объём и тоннаж не считаются. "
-                "У блочной модели из 2.03 и 1.03 это поле vol."))
-            return {"OUTPUT": dest}
-        feedback.pushInfo(self.tr("Объём отобранного: %.1f м3.") % vol)
-        if mode != "outside" and shell_vol > 0:
-            # Объём оболочки точный, объём по блокам - сумма ячеек.
-            # Расхождение между ними и есть грубость модели для этого
-            # тела, и человеку его надо видеть, а не выводить самому.
-            feedback.pushInfo(self.tr(
-                "Объём оболочки %.1f м3, расхождение с блоками "
-                "%+.1f процента. Это грубость блочной модели для этого "
-                "тела: блок либо целиком внутри, либо целиком снаружи.")
-                % (shell_vol, 100.0 * (vol - shell_vol) / shell_vol))
-        if gfield and vol > 0:
-            feedback.pushInfo(self.tr(
-                "Содержание, взвешенное по объёму: %.3f.")
-                % (grade_w / vol))
-        if dens > 0:
-            feedback.pushInfo(self.tr("Тоннаж руды: %.0f т.")
-                              % (vol * dens))
-            if gfield and vol > 0:
-                feedback.pushInfo(self.tr("Тоннаж металла: %.0f т.")
-                                  % (vol * dens * (grade_w / vol)
-                                     / 100.0))
-        return {"OUTPUT": dest}
-
-
 HINTS_2_13 = {
     "INPUT": "Грид пласта: канал кровли и канал подошвы. Такой даёт "
              "1.01 из двух поверхностей или из одной, достроенной "
@@ -8841,7 +8569,8 @@ class SpecAlgorithm(IsolinerAlgorithm):
         return _help_version(self.tr(self.spec().help)) + _credit()
 
     _SOURCES = {"mesh": "TypeVectorPolygon", "lines": "TypeVectorLine",
-                "points": "TypeVectorPoint"}
+                "points": "TypeVectorPoint",
+                "features": "TypeVectorAnyGeometry"}
 
     def initAlgorithm(self, config=None):
         from qgis.core import (QgsProcessingParameterEnum,
@@ -8879,10 +8608,13 @@ class SpecAlgorithm(IsolinerAlgorithm):
                     defaultValue=p.default)
             else:
                 geo = {"lines": "TypeVectorLine",
-                       "points": "TypeVectorPoint"}.get(
+                       "points": "TypeVectorPoint",
+                       "source": "TypeVectorAnyGeometry"}.get(
                            p.geometry, "TypeVectorPolygon")
                 prm = QgsProcessingParameterFeatureSink(
                     p.key, label, getattr(types, geo))
+            if p.advanced:
+                _advanced(prm)
             self.addParameter(prm)
             try:
                 prm.setHelp(self.tr(p.hint))
@@ -8957,6 +8689,9 @@ class SpecAlgorithm(IsolinerAlgorithm):
     def _values(self, parameters, context, feedback):
         """Значения полей для run и источники входов по ключу."""
         values, sources = {}, {}
+        # Геометрия объектов по id: выход «как источник» кладёт её
+        # обратно без изменений, в run она не ходит.
+        self._geoms = {}
         for p in self.spec().params:
             k = p.key
             if p.kind in self._SOURCES:
@@ -8974,7 +8709,8 @@ class SpecAlgorithm(IsolinerAlgorithm):
                         self, src, feedback, title)
                     values[k] = {"verts": v, "faces": f}
                 else:
-                    values[k] = self._features(src, p.kind)
+                    geoms = self._geoms.setdefault(k, {})
+                    values[k] = self._features(src, p.kind, geoms)
             elif p.kind == "field":
                 values[k] = self.parameterAsString(parameters, k, context)
             elif p.kind == "number":
@@ -8986,7 +8722,32 @@ class SpecAlgorithm(IsolinerAlgorithm):
         return values, sources
 
     @staticmethod
-    def _features(src, kind):
+    def _vertex_parts(g):
+        """Вершины частей объекта любой геометрии: (n, 3) на часть.
+
+        У точки одна вершина, у линии - её вершины, у полигона -
+        внешнее кольцо. Без Z третий столбец NaN.
+        """
+        out = []
+        for part in g.constParts():
+            n = getattr(part, "numPoints", lambda: 0)()
+            if n:
+                pts = [(part.xAt(k), part.yAt(k), part.zAt(k))
+                       for k in range(n)]
+            else:
+                ring = getattr(part, "exteriorRing", lambda: None)()
+                if ring is None:
+                    pts = [(float(part.x()), float(part.y()),
+                            float(getattr(part, "z",
+                                          lambda: float("nan"))()))]
+                else:
+                    pts = [(ring.xAt(k), ring.yAt(k), ring.zAt(k))
+                           for k in range(ring.numPoints())]
+            out.append(np.array(pts, dtype=float).reshape(-1, 3))
+        return out
+
+    @staticmethod
+    def _features(src, kind, geoms=None):
         names = src.fields().names()
         out = []
         for ft in _features_unchecked(src):
@@ -8994,7 +8755,12 @@ class SpecAlgorithm(IsolinerAlgorithm):
             attrs = dict(zip(names, (_plain(a) for a in ft.attributes())))
             item = {"id": ft.id(), "attrs": attrs,
                     "row": list(ft.attributes())}
-            if kind == "lines":
+            if geoms is not None:
+                geoms[ft.id()] = g
+            if kind == "features":
+                item["parts"] = [] if g is None or g.isEmpty() else \
+                    SpecAlgorithm._vertex_parts(g)
+            elif kind == "lines":
                 item["parts"] = [] if g is None or g.isEmpty() else [
                     np.array([(q.x(), q.y(), q.z()) for q in part],
                              dtype=float).reshape(-1, 3)
@@ -9040,16 +8806,22 @@ class SpecAlgorithm(IsolinerAlgorithm):
             for nm, typ in res.fields:
                 fields.append(_field(nm if nm not in have else "body_" + nm,
                                      self._TYPES[typ]))
+            as_source = res.geometry == "source"
+            wkb = sources[keep].wkbType() if as_source \
+                else QgsWkbTypes.Type.MultiPolygonZ
             sink, dest = self.parameterAsSink(
-                parameters, p.key, context, fields,
-                QgsWkbTypes.Type.MultiPolygonZ, crs)
+                parameters, p.key, context, fields, wkb, crs)
             if sink is None:
                 raise QgsProcessingException(self.tr(
                     "Не удалось создать слой результата."))
             for geom, vals in res.features:
                 ft = QgsFeature(fields)
-                ft.setGeometry(_mesh_geometry(geom["verts"],
-                                              geom["faces"]))
+                if as_source:
+                    # объект уходит с той же геометрией, что пришёл
+                    ft.setGeometry(self._geoms[keep][geom["source"]])
+                else:
+                    ft.setGeometry(_mesh_geometry(geom["verts"],
+                                                  geom["faces"]))
                 head = list(rows[keep][geom["source"]]) if keep else []
                 ft.setAttributes(head + list(vals))
                 sink.addFeature(ft)
@@ -9069,6 +8841,21 @@ class BooleanShellsAlgorithm(SpecAlgorithm):
 
     def displayName(self):
         return self.tr("2.11 Булевы операции с оболочками")
+
+    def groupId(self):
+        return GROUP5_ID
+
+
+class SelectByShellAlgorithm(SpecAlgorithm):
+    """2.12 Выборка оболочкой (tools/select_by_shell.py)."""
+
+    SPEC = "select_by_shell"
+
+    def name(self):
+        return "select_by_shell"
+
+    def displayName(self):
+        return self.tr("2.12 Выборка оболочкой")
 
     def groupId(self):
         return GROUP5_ID

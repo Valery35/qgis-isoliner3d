@@ -382,6 +382,7 @@ TRANSLATIONS = {
 
     '2.12 Выборка оболочкой':
         '2.12 Selection by a shell',
+    'Выборка оболочкой': 'Selection by a shell',
     'Не удалось создать слой отобранных объектов.':
         'The layer of selected features could not be created.',
     'Объектов %d, точек опроса %d.':

@@ -12,9 +12,10 @@ QGIS: его берут обёртка Processing, выгрузка tools.json �
 классами в algorithms.py.
 """
 
-from . import boolean_shells, fill_volume, sweep_body
+from . import boolean_shells, fill_volume, select_by_shell, sweep_body
 
-TOOLS = [boolean_shells.SPEC, fill_volume.SPEC, sweep_body.SPEC]
+TOOLS = [boolean_shells.SPEC, select_by_shell.SPEC, fill_volume.SPEC,
+         sweep_body.SPEC]
 
 
 def by_name(name):

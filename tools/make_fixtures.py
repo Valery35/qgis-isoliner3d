@@ -361,6 +361,40 @@ def tool_runs(out):
                                      "values": [_plain(x) for x in row]}
                                     for g, row in res.features]},
             "report": rep.lines})
+    tool = by_name("select_by_shell")
+    feats = [
+        {"id": 1, "attrs": {"vol": 8.0, "g": 2.0}, "parts": [[[5, 5, 5]]]},
+        {"id": 2, "attrs": {"vol": 8.0, "g": 9.0},
+         "parts": [[[20, 5, 5]]]},
+        {"id": 3, "attrs": {"vol": None},
+         "parts": [[[-5, 5, 5], [15, 5, 5]]]},
+        {"id": 4, "attrs": {"vol": 4.0, "g": 5.0},
+         "parts": [[[2, 2, 2], [8, 8, 8]]]},
+        {"id": 5, "attrs": {"vol": 1.0}, "parts": [[[5, 5, None]]]},
+    ]
+    feed = [dict(it, parts=[np.array([[np.nan if c is None else c
+                                       for c in p] for p in part],
+                                     dtype=float)
+                            for part in it["parts"]]) for it in feats]
+    for mode in (0, 1, 2):
+        for step in (0.0, 1.0):
+            vals = dict(tool.defaults(), MODE=mode, STEP=step,
+                        VOLUME="vol", GRADE="g", DENSITY=2.5)
+            rep = toolspec.Report()
+            # оболочка - куб 0..10 м по всем осям, первое тело 2.11
+            res = tool.run(dict(vals, INPUT=feed,
+                                SHELL={"verts": va, "faces": fa}),
+                           rep)["OUTPUT"]
+            runs.append({
+                "tool": tool.name, "values": vals,
+                "input": {"INPUT": feats,
+                          "SHELL": {"verts": va.tolist(),
+                                    "faces": fa.tolist()}},
+                "output": {"fields": res.fields,
+                           "geometry": res.geometry,
+                           "features": [{"source": g["source"]}
+                                        for g, _row in res.features]},
+                "report": rep.lines})
     _dump(out, "tool_runs.json", {"runs": runs})
 
 

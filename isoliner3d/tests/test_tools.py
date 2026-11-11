@@ -42,7 +42,8 @@ def test_registry_is_consistent():
             if p.kind == "enum":
                 assert p.options and 0 <= p.default < len(p.options)
             if p.kind == "field":
-                assert t.param(p.parent).kind in ("lines", "points")
+                assert t.param(p.parent).kind in ("lines", "points",
+                                                  "features")
         assert any(p.kind == "sink" for p in t.params), t.code
     with pytest.raises(KeyError):
         by_name("no_such_tool")
@@ -58,6 +59,10 @@ def test_description_goes_to_json():
 def test_param_refuses_unknown_kind():
     with pytest.raises(ValueError):
         toolspec.Param("X", "raster", "a", "b")
+    with pytest.raises(ValueError):
+        toolspec.Result([], geometry="points")
+    with pytest.raises(ValueError):
+        toolspec.Result([], geometry="source")      # без keep_source
     with pytest.raises(ValueError):
         toolspec.Tool("9.99", "t", "t", "9", "", [
             toolspec.Param("A", "number", "a", "b"),
@@ -181,6 +186,73 @@ def test_boolean_refuses_open_shell_and_empty_result():
         tool.run(dict(tool.defaults(), SHELL_A=a, SHELL_B=far, OP=2),
                  toolspec.Report())
     assert "ни одной ячейки" in err.value.template
+
+
+def _select_input():
+    """Объекты для 2.12 вокруг куба 0..10 м."""
+    def feat(i, parts, **attrs):
+        return {"id": i, "attrs": attrs,
+                "parts": [np.asarray(p, dtype=float).reshape(-1, 3)
+                          for p in parts]}
+    return [
+        feat(1, [[(5, 5, 5)]], vol=8.0, g=2.0),          # точка внутри
+        feat(2, [[(20, 5, 5)]], vol=8.0, g=9.0),         # точка снаружи
+        feat(3, [[(-5, 5, 5), (15, 5, 5)]], vol=None),   # прошивает куб
+        feat(4, [[(2, 2, 2), (8, 8, 8)]], vol=4.0, g=5.0),  # внутри
+        feat(5, [[(5, 5, np.nan)]], vol=1.0),            # без Z
+    ]
+
+
+def test_select_by_shell_modes_and_step():
+    """2.12: целиком внутри, пересекает, снаружи, с шагом и без."""
+    tool = by_name("select_by_shell")
+    shell = _box(0, 10, 0, 10, 0, 10)
+
+    def run(mode, step):
+        vals = dict(tool.defaults(), INPUT=_select_input(), SHELL=shell,
+                    MODE=mode, STEP=step)
+        out = tool.run(vals, toolspec.Report())["OUTPUT"]
+        assert out.geometry == "source" and out.keep_source == "INPUT"
+        assert out.fields == []
+        assert all(row == [] for _g, row in out.features)
+        return [g["source"] for g, _row in out.features]
+    assert run(0, 0.0) == [1, 4]
+    assert run(1, 0.0) == [1, 4]
+    assert run(1, 1.0) == [1, 3, 4]
+    assert run(2, 0.0) == [2, 3]
+    assert run(2, 1.0) == [2]
+
+
+def test_select_by_shell_summary():
+    """Объём, взвешенное содержание и тоннаж отобранного в журнале."""
+    tool = by_name("select_by_shell")
+    vals = dict(tool.defaults(), INPUT=_select_input(),
+                SHELL=_box(0, 10, 0, 10, 0, 10), VOLUME="vol", GRADE="g",
+                DENSITY=2.5)
+    rep = toolspec.Report()
+    tool.run(vals, rep)
+    text = "\n".join(t for _k, t in rep.lines)
+    assert "Объектов 4, точек опроса 6." in text
+    assert "отобрано 2 (50.0 процента)" in text
+    assert "Объём отобранного: 12.0 м3." in text
+    assert "взвешенное по объёму: 3.000." in text      # (8*2+4*5)/12
+    assert "Тоннаж руды: 30 т." in text
+    assert "Тоннаж металла: 1 т." in text            # 30 * 3 / 100
+
+
+def test_select_by_shell_refusals():
+    tool = by_name("select_by_shell")
+    box = _box(0, 10, 0, 10, 0, 10)
+    with pytest.raises(toolspec.ToolError) as err:
+        tool.run(dict(tool.defaults(), INPUT=_select_input(),
+                      SHELL=dict(box, faces=box["faces"][:-2])),
+                 toolspec.Report())
+    assert "не замкнута" in err.value.template
+    flat = [{"id": 1, "attrs": {}, "parts": [np.array([[1, 1, np.nan]])]}]
+    with pytest.raises(toolspec.ToolError) as err:
+        tool.run(dict(tool.defaults(), INPUT=flat, SHELL=box),
+                 toolspec.Report())
+    assert "с высотой" in err.value.template
 
 
 def test_report_cancel_stops_the_sweep():

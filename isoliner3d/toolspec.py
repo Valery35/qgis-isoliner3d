@@ -24,13 +24,20 @@ QGIS подключается одной обёрткой (SpecAlgorithm в algo
 - lines  - линии: список {"id", "parts": [массивы (n, 3)], "attrs"},
            у линий без Z третий столбец NaN;
 - points - точки: список {"id", "xyz": (3,), "attrs"};
+- features - объекты любой геометрии: список {"id", "parts":
+           [массивы (n, 3)], "attrs"}. Часть - вершины точки, линии
+           или внешнего кольца полигона, без Z третий столбец NaN;
 - field  - имя поля или пустая строка;
 - number, integer - число; enum - номер выбранного пункта;
 - sink   - выход, на входе run его нет.
 
 Результат run - словарь {ключ выхода: Result}. Result несёт поля
 (имя, тип), объекты (геометрия, значения) и признак keep_source:
-выход начинается полями объекта источника.
+выход начинается полями объекта источника. При geometry="source"
+выход берёт и геометрию источника как есть: так отбор возвращает
+те же объекты, что получил, а геометрия объекта - это {"source": id}.
+
+Поле с advanced=True обёртка прячет в дополнительные параметры.
 
 Строки, которые видит пользователь, помечены N_(): по этой метке
 их находит проверка переводов, а переводит обёртка при показе.
@@ -43,8 +50,9 @@ def N_(text):
     return text
 
 
-KINDS = ("mesh", "lines", "points", "field", "number", "integer",
-         "enum", "sink")
+KINDS = ("mesh", "lines", "points", "features", "field", "number",
+         "integer", "enum", "sink")
+SOURCE_KINDS = ("mesh", "lines", "points", "features")
 
 
 class Param(object):
@@ -52,7 +60,7 @@ class Param(object):
 
     def __init__(self, key, kind, label, hint, default=None, options=(),
                  optional=False, parent=None, minimum=None, maximum=None,
-                 numeric=False, geometry=None):
+                 numeric=False, geometry=None, advanced=False):
         if kind not in KINDS:
             raise ValueError("unknown kind %r" % (kind,))
         self.key = key
@@ -67,6 +75,7 @@ class Param(object):
         self.maximum = maximum
         self.numeric = bool(numeric)
         self.geometry = geometry
+        self.advanced = bool(advanced)
 
     def to_dict(self):
         out = {"key": self.key, "kind": self.kind, "label": self.label,
@@ -82,6 +91,8 @@ class Param(object):
             out["optional"] = True
         if self.numeric:
             out["numeric"] = True
+        if self.advanced:
+            out["advanced"] = True
         return out
 
 
@@ -92,14 +103,23 @@ class Result(object):
     features - [(геометрия, значения)]; геометрия тела -
     {"verts", "faces"}. keep_source - объекты несут сначала значения
     объекта источника (значения в начале списка), потом свои.
+    geometry - "mesh" (тела) или "source": геометрия объекта
+    источника keep_source как есть, тогда геометрия - {"source": id}.
     """
 
+    GEOMETRIES = ("mesh", "source")
+
     def __init__(self, fields, features=None, keep_source=None,
-                 name=None):
+                 name=None, geometry="mesh"):
+        if geometry not in self.GEOMETRIES:
+            raise ValueError("unknown geometry %r" % (geometry,))
+        if geometry == "source" and not keep_source:
+            raise ValueError("geometry='source' needs keep_source")
         self.fields = list(fields)
         self.features = list(features or [])
         self.keep_source = keep_source
         self.name = name
+        self.geometry = geometry
 
     def add(self, geometry, values):
         self.features.append((geometry, list(values)))

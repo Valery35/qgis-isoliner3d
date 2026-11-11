@@ -347,7 +347,7 @@ def test_every_tool_has_field_hints():
              ("DemoDriftAlgorithm", "HINTS_2_09"),
              ("SectionLinesToSurfaceAlgorithm", "HINTS_2_10"),
              ("BooleanShellsAlgorithm", None),
-             ("SelectByShellAlgorithm", "HINTS_2_12"),
+             ("SelectByShellAlgorithm", None),
              ("GridToShellAlgorithm", "HINTS_2_13"),
              ("ZonalShellStatsAlgorithm", "HINTS_2_14"),
              ("FormationBodiesAlgorithm", "HINTS_2_15"),
