@@ -39,6 +39,24 @@ def _both(text, table):
     return {"ru": text, "en": table.get(text, text)}
 
 
+def _messages(tool, spec_texts):
+    """Строки N_() из кода расчёта, кроме строк описания: сообщения
+    отчёта и ошибок. Их шаблоны в стиле printf (%d, %.1f, %s)."""
+    import ast
+    import importlib
+    mod = importlib.import_module(tool.run.__module__)
+    tree = ast.parse(open(mod.__file__, encoding="utf-8").read())
+    out = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call)
+                and getattr(node.func, "id", "") == "N_" and node.args
+                and isinstance(node.args[0], ast.Constant)):
+            text = node.args[0].value
+            if text not in spec_texts and text not in out:
+                out.append(text)
+    return out
+
+
 def build():
     """Описание всех инструментов-объектов словарём для JSON."""
     from isoliner3d.i18n import TRANSLATIONS as tr
@@ -53,6 +71,10 @@ def build():
             pd["hint"] = _both(p.hint, tr)
             if p.options:
                 pd["options"] = [_both(o, tr) for o in p.options]
+        spec_texts = {t.title, t.help}
+        for p in t.params:
+            spec_texts |= {p.label, p.hint} | set(p.options)
+        d["messages"] = [_both(m, tr) for m in _messages(t, spec_texts)]
         tools.append(d)
     return {"format": FORMAT, "module": "isoliner3d",
             "version": _version(), "tools": tools}

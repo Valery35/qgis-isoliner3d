@@ -170,5 +170,7 @@ def test_export_has_both_languages():
         texts = [t["title"], t["help"]]
         for p in t["params"]:
             texts += [p["label"], p["hint"]] + p.get("options", [])
+        texts += t["messages"]
+        # «Тело» в тексте сообщения и единицы вроде м3 - тоже переводы
         same = [x["ru"] for x in texts if x["ru"] == x["en"]]
         assert not same, (t["code"], same)
