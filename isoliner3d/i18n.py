@@ -4442,4 +4442,14 @@ TRANSLATIONS = {
         'Delete scene «%s»? The project layers are not touched.',
     'Это единственная сцена проекта, удалять её незачем.':
         'This is the only scene of the project, there is no point deleting it.',
+    # Инструменты-объекты (tools/): название без номера и общие
+    # сообщения обёртки.
+    'Заполнение тела до объёма': 'Fill a body up to a volume',
+    'Тело вдоль выработки': 'Body along a mine working',
+    'Не удалось открыть слой %s.': 'Could not open layer %s.',
+    'В слое нет ни одного треугольника.': 'The layer has no triangles.',
+    "glTF (*.glb);;STL (*.stl);;OBJ (*.obj);;Пакет сцены Isoliner3D (*.i3dscene)":
+        "glTF (*.glb);;STL (*.stl);;OBJ (*.obj);;Isoliner3D scene package (*.i3dscene)",
+    'Пакет сцены записан: частей %d, видов облёта %d, файл %.1f МБ.':
+        'Scene package written: %d parts, %d fly-through views, file %.1f MB.',
 }

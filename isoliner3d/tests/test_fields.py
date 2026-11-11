@@ -24,7 +24,10 @@ sys.path.insert(0, os.path.dirname(PKG))
 from isoliner3d import fields as F  # noqa: E402
 from isoliner3d import i18n  # noqa: E402
 
-WRITERS = ("algorithms.py", "viewer_dialog.py")
+WRITERS = ("algorithms.py", "viewer_dialog.py",
+           os.path.join("tools", "fill_volume.py"),
+           os.path.join("tools", "sweep_body.py"))
+RESULT_TYPES = ("double", "int", "string")
 
 
 def _written_fields(path):
@@ -49,6 +52,11 @@ def _written_fields(path):
             if (isinstance(a, ast.Constant) and isinstance(a.value, str)
                     and isinstance(b, ast.Attribute)
                     and getattr(b.value, "id", None) == "QVariant"):
+                out.add(a.value)
+            # инструмент-объект: поля Result - пары («имя», «тип»)
+            if (isinstance(a, ast.Constant) and isinstance(a.value, str)
+                    and isinstance(b, ast.Constant)
+                    and b.value in RESULT_TYPES):
                 out.add(a.value)
         elif (isinstance(node, ast.For)
               and isinstance(node.iter, ast.Tuple)

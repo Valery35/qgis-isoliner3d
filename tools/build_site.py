@@ -460,6 +460,9 @@ def tool_list():
                         and getattr(n2.func, "attr", "") == "tr"
                         and n2.args):
                     helps = gt._str_of(n2.args[0])
+        spec = gt._spec_of(node)
+        if spec:
+            helps = gt.specs()[spec].help
         m = re.match(r"(\d\.\d\d) (.+)$", title or "")
         if not m:
             continue

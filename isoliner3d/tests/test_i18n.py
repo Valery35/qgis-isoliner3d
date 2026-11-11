@@ -26,7 +26,11 @@ SOURCES = ("viewer3d.py", "plugin.py", "i18n.py",
 
 
 def _tr_strings(path):
-    """Все строковые литералы, обёрнутые в tr() или _tr() в файле."""
+    """Все строковые литералы в tr(), _tr() и N_() в файле.
+
+    N_() - метка инструментов-объектов в tools/: строку переводит
+    обёртка при показе, а здесь она должна найтись в таблице.
+    """
     with open(path, encoding="utf-8") as fh:
         tree = ast.parse(fh.read())
     out = set()
@@ -35,7 +39,7 @@ def _tr_strings(path):
             continue
         fn = node.func
         name = getattr(fn, "id", None) or getattr(fn, "attr", None)
-        if name not in ("tr", "_tr") or not node.args:
+        if name not in ("tr", "_tr", "N_") or not node.args:
             continue
         arg = node.args[0]
         if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
@@ -72,7 +76,10 @@ def collect():
     годами, и они уходили в сборку непереведёнными.
     """
     keys = set()
-    for name in sorted(os.listdir(PKG)):
+    names = sorted(os.listdir(PKG))
+    names += [os.path.join("tools", n)
+              for n in sorted(os.listdir(os.path.join(PKG, "tools")))]
+    for name in names:
         if not name.endswith(".py"):
             continue
         path = os.path.join(PKG, name)

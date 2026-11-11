@@ -1760,14 +1760,48 @@ class ViewerDialog(QDialog):
             return
         fn, _f = QFileDialog.getSaveFileName(
             self, tr("Выгрузить сцену"), "isoliner_3d.glb",
-            tr("glTF (*.glb);;STL (*.stl);;OBJ (*.obj)"))
+            tr("glTF (*.glb);;STL (*.stl);;OBJ (*.obj);;"
+               "Пакет сцены Isoliner3D (*.i3dscene)"))
         if not fn:
             return
         low = str(fn).lower()
-        if low.endswith(".stl") or low.endswith(".obj"):
+        if low.endswith(".i3dscene"):
+            self._write_package_file(fn)
+        elif low.endswith(".stl") or low.endswith(".obj"):
             self._write_cad_file(fn)
         else:
             self._write_glb_file(fn)
+
+    def _write_package_file(self, fn):
+        """Записать пакет сцены: геометрия GLB и настройки окна.
+
+        Пакет открывают приложения без QGIS: сцена на Rust и RustGIS.
+        Геометрия в нём уже собрана, камера и виды облёта - в настоящих
+        координатах (scene_package.py).
+        """
+        from . import scene_package
+        from .about import read_metadata
+        try:
+            self._state_save()
+            crs = self._scene_crs()
+            pk = self._pick or {}
+            frame = {k: pk.get(k, 0.0) for k in ("cx", "cy", "cz")}
+            frame["vex"] = pk.get("vex", float(self.vex.value())) or 1.0
+            size = scene_package.write(
+                fn, self._export, self._state_dict(),
+                name=self._scene_name or "", frame=frame,
+                crs=crs.authid() if crs.isValid() else "",
+                wkt=crs.toWkt() if crs.isValid() else "",
+                version=read_metadata().get("version", ""))
+        except Exception as err:  # nosec - выгрузка не удалась
+            self.info.setText(tr("Выгрузка не удалась: %s") % err)
+            _log(tr("Выгрузка не удалась: %s") % err)
+            return
+        self.info.setText(
+            tr("Пакет сцены записан: частей %d, видов облёта %d, "
+               "файл %.1f МБ.")
+            % (len(scene_package.describe(self._export)),
+               len(self._fly_views), size / (1024.0 * 1024.0)))
 
     def _write_cad_file(self, fn):
         """Записать сцену в STL или OBJ.

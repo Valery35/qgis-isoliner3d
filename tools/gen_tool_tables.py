@@ -8,7 +8,9 @@
 
 Берётся: номер и название инструмента из `displayName`, порядок полей
 из `initAlgorithm`, подписи из `self.tr(...)` при объявлении поля,
-пояснения из словаря подсказок этого инструмента.
+пояснения из словаря подсказок этого инструмента. У инструмента-
+объекта (класс с `SPEC = "имя"`) поля, подсказки и справка берутся
+из его описания в пакете `isoliner3d/tools`.
 
 Запуск: python3 tools/gen_tool_tables.py [ru|en]
 """
@@ -98,6 +100,31 @@ def _hint_name(fn):
     return None
 
 
+def _spec_of(node):
+    """Имя описания у класса инструмента-объекта или None."""
+    for sub in node.body:
+        if (isinstance(sub, ast.Assign)
+                and getattr(sub.targets[0], "id", "") == "SPEC"
+                and isinstance(sub.value, ast.Constant)):
+            return sub.value.value
+    return None
+
+
+def specs():
+    """Описания инструментов-объектов по имени. Пакет без QGIS."""
+    root = os.path.dirname(PKG)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from isoliner3d.tools import TOOLS
+    return {t.name: t for t in TOOLS}
+
+
+_KIND_NAMES = {"mesh": "FeatureSource", "lines": "FeatureSource",
+               "points": "FeatureSource", "field": "Field",
+               "number": "Number", "integer": "Number", "enum": "Enum",
+               "sink": "FeatureSink"}
+
+
 def collect():
     """Инструменты с полями и подсказками, в порядке номеров."""
     src = open(os.path.join(PKG, "algorithms.py"), encoding="utf-8").read()
@@ -122,6 +149,18 @@ def collect():
                 for n2 in ast.walk(sub):
                     if isinstance(n2, ast.Return):
                         helps = _str_of(n2.value)
+        spec = _spec_of(node)
+        if title and spec:
+            tool = specs()[spec]
+            tools.append({
+                "title": title,
+                # как у классов: справка с версией и подписью
+                # в таблицы не идёт, руководство пишет свой текст
+                "help": "",
+                "params": [(p.key, p.label, _KIND_NAMES[p.kind], p.hint)
+                           for p in tool.params],
+            })
+            continue
         if not title or init is None:
             continue
         # Константы объявляются и парами: ROOF, BOTTOM = "ROOF",

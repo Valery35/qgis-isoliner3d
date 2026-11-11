@@ -358,9 +358,11 @@ def test_every_tool_has_field_hints():
              ("BlocksToCubeAlgorithm", "HINTS_2_20"),
              ("InversionSectionAlgorithm", "HINTS_2_21"),
              ("DemoLayersAlgorithm", "HINTS_2_22"),
-             ("FillToVolumeAlgorithm", "HINTS_2_23"),
-             ("SweepBodyAlgorithm", "HINTS_2_24"))
+             ("FillToVolumeAlgorithm", None),
+             ("SweepBodyAlgorithm", None))
     tree = ast.parse(src)
+    classes = _classes(tree)
+    specs = _specs()
     dicts = {}
     for node in tree.body:
         if isinstance(node, ast.Assign) and \
@@ -368,6 +370,12 @@ def test_every_tool_has_field_hints():
             dicts[node.targets[0].id] = {
                 k.value for k in node.value.keys}
     for cls, name in pairs:
+        spec = _spec_name(classes[cls])
+        if spec:
+            # инструмент-объект: подсказка у каждого поля описания
+            bare = [p.key for p in specs[spec].params if not p.hint]
+            assert not bare, "%s: без подсказки %s" % (cls, bare)
+            continue
         assert name in dicts, name
         i = src.index("class %s(" % cls)
         nxt = re.search(r"\nclass \w+Algorithm\(", src[i + 10:])
@@ -399,6 +407,36 @@ def test_field_hints_say_what_the_other_choice_costs():
             assert len(text) > 40, (key.value, text)
             assert text[0].isupper(), (key.value, text)
             assert text.rstrip().endswith("."), (key.value, text)
+    for spec in _specs().values():
+        for p in spec.params:
+            text = p.hint
+            assert len(text) > 40, (spec.code, p.key, text)
+            assert text[0].isupper(), (spec.code, p.key, text)
+            assert text.rstrip().endswith("."), (spec.code, p.key, text)
+
+
+def test_spec_tools_match_their_classes():
+    """Класс инструмента-объекта и его описание говорят одно и то же.
+
+    Имя и номер в классе - для панели и проверок, в описании - для
+    tools.json и RustGIS. Разойдись они, панель показала бы одно,
+    а выгрузка другое.
+    """
+    src = open(os.path.join(PKG, "algorithms.py"),
+               encoding="utf-8").read()
+    classes = _classes(ast.parse(src))
+    specs = _specs()
+    seen = set()
+    for name, (alg_id, _number) in EXPECTED.items():
+        spec = _spec_name(classes[name])
+        if not spec:
+            continue
+        seen.add(spec)
+        tool = specs[spec]
+        assert tool.name == alg_id == spec, (name, tool.name, alg_id)
+        disp = _returned_const(classes[name], "displayName")
+        assert disp == tool.display_name(), (disp, tool.display_name())
+    assert seen == set(specs), sorted(set(specs) - seen)
 
 
 def test_demo_site_is_one_field():
@@ -1101,11 +1139,35 @@ def test_agents_md_matches_the_tool_numbers():
 
 
 def _method_source(src, cls, method):
-    """Исходный текст метода класса или None, если метода нет."""
+    """Исходный текст метода класса или None, если метода нет.
+
+    Инструмент-объект берёт метод у обёртки SpecAlgorithm: ищем и там.
+    """
     for node in cls.body:
         if isinstance(node, ast.FunctionDef) and node.name == method:
             return ast.get_source_segment(src, node) or ""
+    if "SpecAlgorithm" in [getattr(b, "id", "") for b in cls.bases]:
+        base = _classes(ast.parse(src))["SpecAlgorithm"]
+        return _method_source(src, base, method)
     return None
+
+
+def _spec_name(cls):
+    """Имя описания из tools/ у инструмента-объекта, иначе None."""
+    for node in cls.body:
+        if (isinstance(node, ast.Assign)
+                and getattr(node.targets[0], "id", "") == "SPEC"
+                and isinstance(node.value, ast.Constant)):
+            return node.value.value
+    return None
+
+
+def _specs():
+    """Описания инструментов-объектов по имени (пакет без QGIS)."""
+    import sys
+    sys.path.insert(0, os.path.dirname(PKG))
+    from isoliner3d.tools import TOOLS
+    return {t.name: t for t in TOOLS}
 
 
 def test_every_output_goes_through_the_base_sink():
@@ -1122,13 +1184,15 @@ def test_every_output_goes_through_the_base_sink():
     base = cls["IsolinerAlgorithm"]
     own = {n.name for n in base.body if isinstance(n, ast.FunctionDef)}
     assert {"parameterAsSink", "postProcessAlgorithm"} <= own, own
+    spec_bases = [getattr(b, "id", "") for b in cls["SpecAlgorithm"].bases]
+    assert spec_bases == ["IsolinerAlgorithm"], spec_bases
     bad = []
     for name in EXPECTED:
         node = cls[name]
         bases = [getattr(b, "id", "") for b in node.bases]
-        if "IsolinerAlgorithm" not in bases:
+        if not {"IsolinerAlgorithm", "SpecAlgorithm"} & set(bases):
             bad.append("%s не наследует IsolinerAlgorithm" % name)
-        for fn in node.body:
+        for fn in node.body + cls["SpecAlgorithm"].body:
             if isinstance(fn, ast.FunctionDef) and fn.name in (
                     "parameterAsSink", "postProcessAlgorithm"):
                 bad.append("%s переопределяет %s" % (name, fn.name))

@@ -104,7 +104,9 @@ def test_button_is_wired_in_the_scene():
     # формат выбирается расширением в общем диалоге выгрузки
     i = src.index("def _export_scene")
     pick = src[i:src.index("def _write_cad_file", i)]
-    assert 'tr("glTF (*.glb);;STL (*.stl);;OBJ (*.obj)")' in pick
+    assert 'tr("glTF (*.glb);;STL (*.stl);;OBJ (*.obj);;"' in pick
+    assert '"Пакет сцены Isoliner3D (*.i3dscene)"' in pick
+    assert 'self._write_package_file(fn)' in pick
     assert 'low.endswith(".stl") or low.endswith(".obj")' in pick
     assert 'pt.get("faces") is not None' in body
     assert 'not pt.get("decor")' in body
