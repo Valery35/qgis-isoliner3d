@@ -140,6 +140,49 @@ def test_sweep_matches_the_module():
     assert abs(row[0] - length) < 1e-9
 
 
+def test_boolean_of_two_overlapping_boxes():
+    """2.11: два куба 10 м со сдвигом 5 м. Разность и пересечение
+    по 500 м3, объединение 1500 м3, тела замкнуты.
+
+    Ячейка 0.25 м: на ней справка 2.11 обещает ошибку около двух
+    с половиной процентов, при 0.5 м она доходит до пяти."""
+    tool = by_name("boolean_shells")
+    a = _box(0, 10, 0, 10, 0, 10)
+    b = _box(5, 15, 0, 10, 0, 10)
+    want = {0: ("difference", 500.0), 1: ("union", 1500.0),
+            2: ("intersection", 500.0)}
+    for op, (name, vol) in want.items():
+        vals = dict(tool.defaults(), SHELL_A=a, SHELL_B=b, OP=op,
+                    CELL=0.25)
+        rep = toolspec.Report()
+        out = tool.run(vals, rep)["OUTPUT"]
+        assert out.keep_source is None
+        assert [n for n, _t in out.fields] == ["body", "op", "volume",
+                                               "faces", "closed"]
+        (geom, row), = out.features
+        assert row[0] == 1 and row[1] == name and row[4] == 1, row
+        assert abs(row[2] - vol) / vol < 0.03, (name, row[2])
+        assert row[3] == len(geom["faces"])
+        assert shell_defects(geom["verts"], geom["faces"])[0] == 0
+        assert any("Куб" in text for _k, text in rep.lines)
+
+
+def test_boolean_refuses_open_shell_and_empty_result():
+    tool = by_name("boolean_shells")
+    a = _box(0, 10, 0, 10, 0, 10)
+    hole = dict(a, faces=a["faces"][:-2])
+    with pytest.raises(toolspec.ToolError) as err:
+        tool.run(dict(tool.defaults(), SHELL_A=a, SHELL_B=hole),
+                 toolspec.Report())
+    assert "не замкнута" in err.value.template
+    assert err.value.args_[0] == "Второе тело"
+    far = _box(50, 60, 0, 10, 0, 10)
+    with pytest.raises(toolspec.ToolError) as err:
+        tool.run(dict(tool.defaults(), SHELL_A=a, SHELL_B=far, OP=2),
+                 toolspec.Report())
+    assert "ни одной ячейки" in err.value.template
+
+
 def test_report_cancel_stops_the_sweep():
     class Stop(toolspec.Report):
         def canceled(self):

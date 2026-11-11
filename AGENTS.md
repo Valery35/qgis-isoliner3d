@@ -50,10 +50,10 @@ v3.2.0`, домен codeload из контейнера доступен.
 | Файл | Строк |
 |---|---|
 | `viewer_dialog.py` | 8532 |
-| `algorithms.py` | 9328 |
+| `algorithms.py` | 9140 |
 | `viewer3d.py` | 897 |
 | `viewer_core.py` | 1507 |
-| `i18n.py` | 4457 |
+| `i18n.py` | 4458 |
 
 Инструменты:
 
@@ -180,7 +180,7 @@ v3.2.0`, домен codeload из контейнера доступен.
 | `i18n.py` | словарь RU в EN, `tr`, `set_language`, `missing_keys` |
 | `fields.py` | подписи полей результатов и правило округления, без QGIS |
 | `toolspec.py` | инструмент как объект: `Tool`, `Param`, `Result`, `Report`, `ToolError`, метка `N_`. Без QGIS |
-| `tools/` | описания и расчёты инструментов-объектов (`fill_volume.py` 2.23, `sweep_body.py` 2.24), реестр `TOOLS`. Без QGIS, обёртка `SpecAlgorithm` в `algorithms.py` |
+| `tools/` | описания и расчёты инструментов-объектов (`boolean_shells.py` 2.11, `fill_volume.py` 2.23, `sweep_body.py` 2.24), реестр `TOOLS`. Без QGIS, обёртка `SpecAlgorithm` в `algorithms.py` |
 | `scene_package.py` | пакет сцены `.i3dscene`: GLB плюс `scene.json`, камера в настоящих координатах, чтение GLB обратно. Без QGIS |
 | `icon.svg`, `icon_3d.svg` | иконки панели и меню |
 | `libs/` | вложенные pyqtgraph 0.14.0 и PyOpenGL 3.1.10, заморожены |

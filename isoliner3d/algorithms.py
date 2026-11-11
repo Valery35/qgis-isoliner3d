@@ -5864,274 +5864,6 @@ class SectionLinesToSurfaceAlgorithm(IsolinerAlgorithm):
         return {"OUTPUT": out_path}
 
 
-HINTS_2_11 = {
-    "SHELL_A": "Первое тело: замкнутая оболочка из слоя полигонов с Z. "
-               "Такие даёт кнопка оболочек в окне просмотра "
-               "и инструмент 2.04.",
-    "SHELL_B": "Второе тело. Для вычитания это то, что вырезают "
-               "из первого: отработанная камера, зона обводнения.",
-    "OP": "Вычитание оставляет от первого тела то, чего нет во втором. "
-          "Объединение берёт оба, пересечение - только общую часть.",
-    "CELL": "Сторона ячейки. Она и задаёт точность: ошибка идёт "
-            "по площади поверхности и убывает вместе с ячейкой вдвое "
-            "на каждую половину. На кубе в десять метров ячейка 0.5 м "
-            "дала ошибку объёма 5 процентов, 0.25 м - два с половиной, "
-            "0.1 м - попала точно. "
-            "Память растёт кубом, поэтому мельче нужного не берите.",
-    "OUTPUT": "Тела результата: полигоны с Z, объём каждого "
-              "в атрибутах. Оболочка замкнута всегда, поэтому объём "
-              "по ней считается.",
-}
-
-
-class BooleanShellsAlgorithm(IsolinerAlgorithm):
-    """Булевы операции между оболочками, через занятость ячеек.
-
-    Точная операция над сетками режет треугольники друг о друга,
-    и на касаниях - а в геологии тела касаются постоянно - регулярно
-    даёт вырожденные грани и незамкнутый результат. Объём по такому
-    телу уже не взять, а объём здесь и есть цель.
-
-    Здесь обе оболочки переводятся в занятость общего куба, операция
-    выполняется над занятостью, и результат снова превращается в тело.
-    Оно ступенчатое и точное настолько, насколько мелка ячейка,
-    зато замкнуто всегда.
-    """
-
-    def name(self):
-        return "boolean_shells"
-
-    def displayName(self):
-        return self.tr("2.11 Булевы операции с оболочками")
-
-    def group(self):
-        return self.tr(GROUP5)
-
-    def groupId(self):
-        return GROUP5_ID
-
-    def helpUrl(self):
-        return _help_url()
-
-    def createInstance(self):
-        return BooleanShellsAlgorithm()
-
-    def shortHelpString(self):
-        return _help_version(self.tr(
-            "Вычитает, объединяет и пересекает два тела.\n\n"
-            "Так считают отработку: из оболочки рудного тела вычитают "
-            "оболочку отработанной камеры и получают остаток запасов. "
-            "Пересечение даёт то, что попало в зону, объединение - "
-            "два тела как одно.\n\n"
-            "Работа идёт не по сеткам, а по ячейкам: обе оболочки "
-            "переводятся в занятость общего куба, операция выполняется "
-            "над занятостью, и результат снова превращается в тело. "
-            "Точная операция над сетками режет треугольники друг о "
-            "друга и на касаниях регулярно даёт незамкнутый результат, "
-            "по которому объём уже не взять.\n\n"
-            "Цена этого решения: тело выходит ступенчатым, а точность "
-            "ограничена ячейкой. Ошибка идёт по площади поверхности "
-            "и убывает вместе с ячейкой: на кубе в десять метров "
-            "ячейка 0.5 м дала ошибку объёма пять процентов, "
-            "0.25 м - два с половиной, 0.1 м - попала точно. Память "
-            "при этом растёт кубом.\n\n"
-            "Оболочки на входе должны быть замкнуты: у незамкнутой "
-            "внутренности нет, и определить, что внутри, нечем. "
-            "Незамкнутая на входе - отказ с указанием объекта.") + _credit())
-
-    def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterFeatureSource(
-            "SHELL_A", self.tr("Первое тело (полигоны с Z)"),
-            [QgsProcessing.SourceType.TypeVectorPolygon]))
-        self.addParameter(QgsProcessingParameterFeatureSource(
-            "SHELL_B", self.tr("Второе тело (полигоны с Z)"),
-            [QgsProcessing.SourceType.TypeVectorPolygon]))
-        self.addParameter(QgsProcessingParameterEnum(
-            "OP", self.tr("Действие"),
-            options=[self.tr("Вычитание (первое минус второе)"),
-                     self.tr("Объединение"),
-                     self.tr("Пересечение")], defaultValue=0))
-        self.addParameter(QgsProcessingParameterNumber(
-            "CELL", self.tr("Сторона ячейки, м"),
-            QgsProcessingParameterNumber.Type.Double,
-            defaultValue=1.0, minValue=1e-6))
-        self.addParameter(QgsProcessingParameterFeatureSink(
-            "OUTPUT", self.tr("Результат (тела)"),
-            QgsProcessing.SourceType.TypeVectorPolygon))
-        _hints(self, HINTS_2_11)
-
-    def _shell_mesh(self, src, feedback, title):
-        """Треугольники слоя одним мешем.
-
-        Слой оболочек пишет тело треугольниками, но кольцо бывает
-        и с большим числом вершин: тогда режем веером от первой.
-        """
-        from qgis.core import QgsFeatureRequest
-        # Набор смежных треугольников не бывает годным мультиполигоном
-        # по правилам OGC: у оболочки соседние грани касаются рёбрами.
-        # С включённой проверкой обработка отклоняет такой слой,
-        # не начав работу.
-        no_check = getattr(
-            getattr(QgsFeatureRequest, "InvalidGeometryCheck",
-                    QgsFeatureRequest), "GeometryNoCheck", None)
-        setter = getattr(src, "setInvalidGeometryCheck", None)
-        if no_check is not None and setter is not None:
-            setter(no_check)
-        verts, faces = [], []
-        for ft in src.getFeatures():
-            if feedback.isCanceled():
-                break
-            g = ft.geometry()
-            if g is None or g.isEmpty():
-                continue
-            root = g.constGet()
-            if root is None:
-                continue
-            try:
-                n_part = root.numGeometries()
-            except AttributeError:
-                n_part = 1
-            for pi in range(n_part):
-                try:
-                    cg = root.geometryN(pi) if n_part > 1 else root
-                except AttributeError:
-                    cg = root
-                ring = getattr(cg, "exteriorRing", lambda: None)()
-                if ring is None:
-                    continue
-                pts = np.array([(ring.xAt(k), ring.yAt(k), ring.zAt(k))
-                                for k in range(ring.numPoints())],
-                               dtype=float)
-                if len(pts) > 1 and np.allclose(pts[0], pts[-1]):
-                    pts = pts[:-1]
-                if len(pts) < 3 or not np.isfinite(pts).all():
-                    continue
-                base = len(verts)
-                verts.extend(pts.tolist())
-                for k in range(1, len(pts) - 1):
-                    faces.append([base, base + k, base + k + 1])
-        if not faces:
-            raise QgsProcessingException(self.tr(
-                "%s: треугольников не нашлось. Нужен слой полигонов "
-                "с высотой, какой даёт кнопка оболочек в окне "
-                "просмотра.") % title)
-        # Вершины СШИВАЮТСЯ. Из файла каждая грань приходит своими
-        # тремя точками, общих рёбер нет, и восстановить ориентацию
-        # граней не по чему: формат при записи разворачивает кольца
-        # как ему удобно. Объём такой оболочки выходил втрое меньше
-        # настоящего - слагаемые гасили друг друга.
-        from .iso3d import weld
-        v, f = weld(np.asarray(verts, dtype=float),
-                    np.asarray(faces, dtype=np.int64))
-        return v, f
-
-    def _process(self, parameters, context, feedback):
-        from qgis.core import (QgsFields, QgsFeature, QgsGeometry,
-                               QgsPoint, QgsLineString, QgsPolygon,
-                               QgsMultiPolygon, QgsWkbTypes)
-        from . import boolean3d, voxel
-        from .cleanup import mesh_volume, shell_defects, split_bodies
-
-        src_a = self.parameterAsSource(parameters, "SHELL_A", context)
-        src_b = self.parameterAsSource(parameters, "SHELL_B", context)
-        op = boolean3d.OPS[self.parameterAsEnum(parameters, "OP",
-                                                context)]
-        cell = self.parameterAsDouble(parameters, "CELL", context)
-
-        va, fa = self._shell_mesh(src_a, feedback, self.tr("Первое тело"))
-        vb, fb = self._shell_mesh(src_b, feedback, self.tr("Второе тело"))
-        for tag, (v, f) in ((self.tr("Первое тело"), (va, fa)),
-                            (self.tr("Второе тело"), (vb, fb))):
-            holes, _pinch = shell_defects(v, f)
-            if holes:
-                raise QgsProcessingException(self.tr(
-                    "%s: оболочка не замкнута, рваных рёбер %d. "
-                    "У незамкнутой внутренности нет, и определить, "
-                    "что внутри, нечем.") % (tag, holes))
-            feedback.pushInfo(self.tr("%s: граней %d, объём %.1f м3.")
-                              % (tag, len(f), mesh_volume(v, f)))
-
-        def bounds(v):
-            return (float(v[:, 0].min()), float(v[:, 0].max()),
-                    float(v[:, 1].min()), float(v[:, 1].max()),
-                    float(v[:, 2].min()), float(v[:, 2].max()))
-
-        gt, z0, dz, shape = boolean3d.common_box(
-            bounds(va), bounds(vb), cell, op)
-        cells = boolean3d.cell_budget(shape)
-        feedback.pushInfo(self.tr("Куб %d x %d x %d, ячеек %d.")
-                          % (shape[2], shape[1], shape[0], cells))
-        if cells > 60000000:
-            raise QgsProcessingException(self.tr(
-                "Ячеек слишком много: %d. Память растёт кубом, "
-                "укрупните ячейку.") % cells)
-        occ_a = boolean3d.shell_occupancy(va, fa, gt, z0, dz, shape)
-        feedback.setProgress(35)
-        occ_b = boolean3d.shell_occupancy(vb, fb, gt, z0, dz, shape)
-        feedback.setProgress(60)
-        occ = boolean3d.combine(occ_a, occ_b, op)
-        n_cell = int(occ.sum())
-        if not n_cell:
-            raise QgsProcessingException(self.tr(
-                "От результата не осталось ни одной ячейки. Для "
-                "пересечения это значит, что тела не перекрываются, "
-                "для вычитания - что второе поглотило первое."))
-        feedback.pushInfo(self.tr(
-            "Занято ячеек: %d, объём по ним %.1f м3.")
-            % (n_cell, n_cell * abs(gt[1] * gt[5]) * dz))
-
-        # Слияние граней снимаем: оно ломает замкнутость, а объём
-        # здесь и есть цель.
-        verts, faces, _cls, over = voxel.voxel_mesh(
-            occ, gt, z0, dz, classes=np.zeros(occ.shape, np.int32),
-            merge=False)
-        if over:
-            raise QgsProcessingException(self.tr(
-                "Граней вышло слишком много: укрупните ячейку."))
-        feedback.setProgress(80)
-
-        fields = QgsFields()
-        fields.append(_field("body", QVariant.Int))
-        fields.append(_field("op", QVariant.String))
-        fields.append(_field("volume", QVariant.Double))
-        fields.append(_field("faces", QVariant.Int))
-        fields.append(_field("closed", QVariant.Int))
-        sink, dest = self.parameterAsSink(
-            parameters, "OUTPUT", context, fields,
-            QgsWkbTypes.Type.MultiPolygonZ, src_a.sourceCrs())
-        if sink is None:
-            raise QgsProcessingException(self.tr(
-                "Не удалось создать слой результата."))
-        total = 0.0
-        n_body = 0
-        for bv, bf, _tag in split_bodies(verts, faces):
-            holes, _pinch = shell_defects(bv, bf)
-            vol = mesh_volume(bv, bf)
-            total += vol
-            n_body += 1
-            mp = QgsMultiPolygon()
-            for tri in bf:
-                ls = QgsLineString()
-                for vi in (tri[0], tri[1], tri[2], tri[0]):
-                    p = bv[vi]
-                    ls.addVertex(QgsPoint(float(p[0]), float(p[1]),
-                                          float(p[2])))
-                poly = QgsPolygon()
-                poly.setExteriorRing(ls)
-                mp.addGeometry(poly)
-            ft = QgsFeature(fields)
-            ft.setGeometry(QgsGeometry(mp))
-            ft.setAttributes([n_body, op, float(vol), int(len(bf)),
-                              1 if holes == 0 else 0])
-            sink.addFeature(ft)
-        _set_output_name(context, dest, self.tr("Результат (тела)"))
-        feedback.pushInfo(self.tr(
-            "Тел: %d, объём по оболочкам %.1f м3. Точность ограничена "
-            "ячейкой: ошибка идёт по площади поверхности и убывает "
-            "вместе с ячейкой.") % (n_body, total))
-        return {"OUTPUT": dest}
-
-
 HINTS_2_12 = {
     "INPUT": "Что отбирать: точки, линии или полигоны с высотой. "
              "Блочная модель из 2.03 и 1.03, пробы, следы выработок, "
@@ -6297,7 +6029,7 @@ class SelectByShellAlgorithm(IsolinerAlgorithm):
         gfield = self.parameterAsString(parameters, "GRADE", context)
         dens = self.parameterAsDouble(parameters, "DENSITY", context)
 
-        v, f = BooleanShellsAlgorithm._shell_mesh(
+        v, f = SpecAlgorithm._shell_mesh(
             self, shell, feedback, self.tr("Оболочка"))
         holes, _pinch = shell_defects(v, f)
         if holes:
@@ -9157,6 +8889,71 @@ class SpecAlgorithm(IsolinerAlgorithm):
             except AttributeError:  # nosec
                 pass
 
+    def _shell_mesh(self, src, feedback, title):
+        """Треугольники слоя одним мешем.
+
+        Слой оболочек пишет тело треугольниками, но кольцо бывает
+        и с большим числом вершин: тогда режем веером от первой.
+        """
+        from qgis.core import QgsFeatureRequest
+        # Набор смежных треугольников не бывает годным мультиполигоном
+        # по правилам OGC: у оболочки соседние грани касаются рёбрами.
+        # С включённой проверкой обработка отклоняет такой слой,
+        # не начав работу.
+        no_check = getattr(
+            getattr(QgsFeatureRequest, "InvalidGeometryCheck",
+                    QgsFeatureRequest), "GeometryNoCheck", None)
+        setter = getattr(src, "setInvalidGeometryCheck", None)
+        if no_check is not None and setter is not None:
+            setter(no_check)
+        verts, faces = [], []
+        for ft in src.getFeatures():
+            if feedback.isCanceled():
+                break
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                continue
+            root = g.constGet()
+            if root is None:
+                continue
+            try:
+                n_part = root.numGeometries()
+            except AttributeError:
+                n_part = 1
+            for pi in range(n_part):
+                try:
+                    cg = root.geometryN(pi) if n_part > 1 else root
+                except AttributeError:
+                    cg = root
+                ring = getattr(cg, "exteriorRing", lambda: None)()
+                if ring is None:
+                    continue
+                pts = np.array([(ring.xAt(k), ring.yAt(k), ring.zAt(k))
+                                for k in range(ring.numPoints())],
+                               dtype=float)
+                if len(pts) > 1 and np.allclose(pts[0], pts[-1]):
+                    pts = pts[:-1]
+                if len(pts) < 3 or not np.isfinite(pts).all():
+                    continue
+                base = len(verts)
+                verts.extend(pts.tolist())
+                for k in range(1, len(pts) - 1):
+                    faces.append([base, base + k, base + k + 1])
+        if not faces:
+            raise QgsProcessingException(self.tr(
+                "%s: треугольников не нашлось. Нужен слой полигонов "
+                "с высотой, какой даёт кнопка оболочек в окне "
+                "просмотра.") % title)
+        # Вершины СШИВАЮТСЯ. Из файла каждая грань приходит своими
+        # тремя точками, общих рёбер нет, и восстановить ориентацию
+        # граней не по чему: формат при записи разворачивает кольца
+        # как ему удобно. Объём такой оболочки выходил втрое меньше
+        # настоящего - слагаемые гасили друг друга.
+        from .iso3d import weld
+        v, f = weld(np.asarray(verts, dtype=float),
+                    np.asarray(faces, dtype=np.int64))
+        return v, f
+
     def _values(self, parameters, context, feedback):
         """Значения полей для run и источники входов по ключу."""
         values, sources = {}, {}
@@ -9173,7 +8970,7 @@ class SpecAlgorithm(IsolinerAlgorithm):
                 sources[k] = src
                 if p.kind == "mesh":
                     title = self.tr(p.label.split(" (")[0])
-                    v, f = BooleanShellsAlgorithm._shell_mesh(
+                    v, f = SpecAlgorithm._shell_mesh(
                         self, src, feedback, title)
                     values[k] = {"verts": v, "faces": f}
                 else:
@@ -9260,6 +9057,21 @@ class SpecAlgorithm(IsolinerAlgorithm):
                 _set_output_name(context, dest, self.tr(res.name))
             out[p.key] = dest
         return out
+
+
+class BooleanShellsAlgorithm(SpecAlgorithm):
+    """2.11 Булевы операции с оболочками (tools/boolean_shells.py)."""
+
+    SPEC = "boolean_shells"
+
+    def name(self):
+        return "boolean_shells"
+
+    def displayName(self):
+        return self.tr("2.11 Булевы операции с оболочками")
+
+    def groupId(self):
+        return GROUP5_ID
 
 
 class FillToVolumeAlgorithm(SpecAlgorithm):

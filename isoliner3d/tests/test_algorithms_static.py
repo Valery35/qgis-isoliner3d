@@ -346,7 +346,7 @@ def test_every_tool_has_field_hints():
              ("Kriging3DAlgorithm", "HINTS_2_06"),
              ("DemoDriftAlgorithm", "HINTS_2_09"),
              ("SectionLinesToSurfaceAlgorithm", "HINTS_2_10"),
-             ("BooleanShellsAlgorithm", "HINTS_2_11"),
+             ("BooleanShellsAlgorithm", None),
              ("SelectByShellAlgorithm", "HINTS_2_12"),
              ("GridToShellAlgorithm", "HINTS_2_13"),
              ("ZonalShellStatsAlgorithm", "HINTS_2_14"),

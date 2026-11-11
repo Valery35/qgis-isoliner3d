@@ -492,6 +492,7 @@ TRANSLATIONS = {
         '%s: %d faces, volume %.1f m3.',
     '2.11 Булевы операции с оболочками':
         '2.11 Boolean operations on shells',
+    'Булевы операции с оболочками': 'Boolean operations on shells',
     'Второе тело':
         'The second body',
     'Второе тело (полигоны с Z)':

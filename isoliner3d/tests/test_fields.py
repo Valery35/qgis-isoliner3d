@@ -24,9 +24,12 @@ sys.path.insert(0, os.path.dirname(PKG))
 from isoliner3d import fields as F  # noqa: E402
 from isoliner3d import i18n  # noqa: E402
 
-WRITERS = ("algorithms.py", "viewer_dialog.py",
-           os.path.join("tools", "fill_volume.py"),
-           os.path.join("tools", "sweep_body.py"))
+# Инструменты-объекты переезжают в tools/ по одному, и список руками
+# отставал бы от каждого переноса: берём все модули пакета.
+WRITERS = ("algorithms.py", "viewer_dialog.py") + tuple(
+    os.path.join("tools", n) for n in sorted(os.listdir(
+        os.path.join(PKG, "tools")))
+    if n.endswith(".py") and n != "__init__.py")
 RESULT_TYPES = ("double", "int", "string")
 
 

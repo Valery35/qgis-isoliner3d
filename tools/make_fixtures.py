@@ -327,6 +327,28 @@ def tool_runs(out):
                                     for _g, row in res.features]},
             "report": rep.lines,
             "tolerance": {"level": 0.05, "volume_rel": 0.02}})
+    tool = by_name("boolean_shells")
+    prof = sweep.profile("rect", 10.0, 10.0)
+    va, fa, _l, _t = sweep.sweep([(0, 5, 0), (10, 5, 0)], prof)
+    vb, fb, _l, _t = sweep.sweep([(5, 7, 2), (15, 7, 2)], prof)
+    for op in (0, 1, 2):
+        vals = dict(tool.defaults(), OP=op, CELL=0.5)
+        rep = toolspec.Report()
+        res = tool.run(dict(vals, SHELL_A={"verts": va, "faces": fa},
+                            SHELL_B={"verts": vb, "faces": fb}),
+                       rep)["OUTPUT"]
+        runs.append({
+            "tool": tool.name, "values": vals,
+            "input": {"SHELL_A": {"verts": va.tolist(),
+                                  "faces": fa.tolist()},
+                      "SHELL_B": {"verts": vb.tolist(),
+                                  "faces": fb.tolist()}},
+            "output": {"fields": res.fields,
+                       "features": [{"n_verts": len(g["verts"]),
+                                     "n_faces": len(g["faces"]),
+                                     "values": [_plain(x) for x in row]}
+                                    for g, row in res.features]},
+            "report": rep.lines})
     _dump(out, "tool_runs.json", {"runs": runs})
 
 
