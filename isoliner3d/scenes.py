@@ -24,7 +24,16 @@
 import json
 import os
 import zipfile
-import xml.etree.ElementTree as ET
+
+try:  # defusedxml в QGIS не входит, но если стоит - берём его
+    from defusedxml.ElementTree import fromstring as _defused
+except ImportError:
+    _defused = None
+# Разбор чужого файла проекта. Заголовок <!DOCTYPE qgis ...> у проекта
+# QGIS есть всегда, внешний DTD expat не загружает. Опасны только
+# объявления сущностей (раздувание «миллиард смешков»): текст с ними
+# отклоняется в _xml_root до разбора.
+from xml.etree.ElementTree import fromstring as _std_fromstring  # nosec B405
 
 DEFAULT_NAME = "Сцена 1"
 
@@ -82,13 +91,26 @@ def _json_or_none(raw):
         return None
 
 
+def _xml_root(text):
+    """Корень XML проекта без сущностей и внешних ссылок.
+
+    Проект QGIS сущностей не объявляет. Файл с <!ENTITY - не проект,
+    а ловушка для разборщика, и он отклоняется.
+    """
+    if _defused is not None:
+        return _defused(text)
+    if "<!ENTITY" in text.upper():
+        raise ValueError("в файле проекта объявлены сущности XML")
+    return _std_fromstring(text)  # nosec B314 - сущности отклонены выше
+
+
 def parse_project(text):
     """Сцены и слои проекта из его XML.
 
     Возвращает (сцены {имя: состояние}, текущее имя или None,
     слои {id: {name, source, provider, type}}).
     """
-    root = ET.fromstring(text)
+    root = _xml_root(text)
     props = root.find("properties")
     scenes = {}
     got = _json_or_none(_entry(props, "scenes"))
