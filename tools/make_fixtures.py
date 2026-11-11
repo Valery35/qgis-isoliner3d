@@ -106,7 +106,8 @@ def points_parts():
     """Демо с пробами и бороздами: пакет формата 2.
 
     Штрек, точки проб по борту кругами с размером в пикселях,
-    реперы плоскими квадратами в метрах, борозды линиями. Собраны
+    реперы, устья, точки разлома и пикеты плоскими значками в метрах
+    (квадрат, ромб, треугольник, крест), борозды линиями. Собраны
     тем же `vector_export_parts`, что и в окне.
     """
     parts = [p for p in demo_parts() if p["name"] == "Штрек"]
@@ -116,12 +117,22 @@ def points_parts():
                 "samples", 6.0 + i % 3 * 3.0, "") for i in range(12)]
     vpoints += [(X0 + 120.0, Y0 + 30.0 * k, -296.0, "#1a9850", "marks",
                  7.0, "") for k in range(4)]
+    # остальные плоские значки окна: ромб, треугольник, крест
+    flat = {"holes": ("Устья скважин", "diamond", 4.0, "#542788"),
+            "faults": ("Точки разлома", "triangle", 2.5, "#b35806"),
+            "survey": ("Пикеты", "cross", 2.0, "#252525")}
+    for k, (lid, (title, _shape, _size, col)) in enumerate(flat.items()):
+        names[lid] = title
+        vpoints += [(X0 + 15.0 * j, Y0 + 40.0 + 20.0 * k, -290.0 - k,
+                     col, lid, 7.0, "") for j in range(3)]
     vlines = [([(X0 + 20.0 * k, Y0 - 2.5, -300.5),
                 (X0 + 20.0 * k, Y0 - 2.5, -298.0),
                 (X0 + 20.0 * k + 1.0, Y0 - 2.5, -297.5)],
                "#7b3294", "б%d" % k, "channels") for k in range(5)]
-    parts += vector_export_parts(vpoints, vlines, names,
-                                 {"marks": ("square", 3.0)})
+    shapes = {"marks": ("square", 3.0)}
+    shapes.update({lid: (s, size) for lid, (_t, s, size, _c)
+                   in flat.items()})
+    parts += vector_export_parts(vpoints, vlines, names, shapes)
     parts.append(_box())
     return parts
 
@@ -193,6 +204,7 @@ def _scene(out, stem, parts, name):
                                 np.asarray(part["colors"])[0]]}
         if kind == "points":
             item["sizes"] = [float(s) for s in part["sizes"]]
+            item["colors"] = np.asarray(part["colors"]).tolist()
             item["shape"] = part.get("shape", "circle")
         if part.get("shape"):
             item["shape"] = part["shape"]
