@@ -3027,6 +3027,8 @@ TRANSLATIONS = {
     'Блочная модель: %s': 'Block model: %s',
     'В выгрузку: %s, вершин %d, граней %d':
         'To the export: %s, %d vertices, %d faces',
+    'В выгрузку: %s, вершин %d, элементов %d':
+        'To the export: %s, %d vertices, %d elements',
     'В определении разреза нет полей ox и oy: чертёж наложить не по чему. '
     'Постройте разрез текущей версией Isoliner.':
         'The section definition has no ox and oy fields: there is nothing to '

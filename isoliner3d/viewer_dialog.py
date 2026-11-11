@@ -39,7 +39,7 @@ from .viewer3d import (    # noqa: F401
     layer_lift, polygon_mask, polyline_dist_side, ramp_colors,
     sample_bilinear, shade_colors, split_by_alpha, symbol_alpha,
     gradient_bands, utm_epsg,
-    thin_labels_xy, tr, walk_rings, z_range_mask)
+    thin_labels_xy, tr, vector_export_parts, walk_rings, z_range_mask)
 
 import numpy as np                                # noqa: E402
 
@@ -1817,10 +1817,11 @@ class ViewerDialog(QDialog):
         """
         from .cadmesh import write_cad
         # Линии и подписи короба в CAD не идут: там нужны тела,
-        # а не украшение вида.
+        # а не украшение вида. Плоские значки точек (у них есть
+        # фигура, shape) тоже не тела.
         parts = [pt for pt in self._export
                  if pt.get("faces") is not None and len(pt["faces"])
-                 and not pt.get("decor")]
+                 and not pt.get("decor") and not pt.get("shape")]
         try:
             size = write_cad(fn, parts)
         except Exception as e:  # nosec
@@ -1911,10 +1912,13 @@ class ViewerDialog(QDialog):
             # неудачу от удачи не отличить, и человек открывает
             # прежний файл, гадая, почему ничего не изменилось.
             n_box = sum(1 for pt in parts if pt.get("decor"))
+            # Точки и линии слоёв телами не считаются.
+            n_body = sum(1 for pt in parts if pt.get("faces") is not None
+                         and not pt.get("decor"))
             self.info.setText(
                 tr("Выгружено: тел %d, короб %s, преувеличение %s, "
                    "файл %.1f МБ.")
-                % (len(parts) - n_box,
+                % (n_body,
                    tr("есть") if n_box else tr("нету"),
                    tr("есть") if keep_vex else tr("нету"),
                    size / (1024.0 * 1024.0))
@@ -7380,6 +7384,42 @@ class ViewerDialog(QDialog):
                                  glOptions=gopt)
             self._add_item(item, lid, gopt)
             prof.count("tris", len(f)).count("verts", len(v))
+            # Труба выгружается мешем, как нарисована. Сечение
+            # строится в координатах окна, и после снятия
+            # преувеличения оно сплюснуто: с тем же преувеличением
+            # в другой программе труба снова круглая.
+            self._keep_for_export(lyr.name() if lyr else "tubes", v, f,
+                                  cols[own])
+
+    def _keep_vectors_for_export(self, vpoints, vlines):
+        """Точки и линии слоёв в выгрузку, как они нарисованы.
+
+        Расчёт без QGIS - `viewer_core.vector_export_parts`. Отсюда
+        идут имена слоёв и фигура значка. Линии трубами сюда
+        не попадают: их меш кладёт в выгрузку `_tube_items`.
+        """
+        prj = QgsProject.instance()
+        names, shapes, tubes = {}, {}, set()
+        for lid in {r[4] for r in vpoints} | {r[3] for r in vlines}:
+            lyr = prj.mapLayer(lid)
+            if lyr is None:
+                continue
+            o = self._opts_of(lyr)
+            names[lid] = lyr.name()
+            shapes[lid] = (o.get("shape") or "circle",
+                           float(o.get("msize", 20.0) or 20.0))
+            if o.get("line") == "tube":
+                tubes.add(lid)
+        plain = [r for r in vlines if r[3] not in tubes]
+        for part in vector_export_parts(vpoints, plain, names, shapes):
+            self._export.append(part)
+            idx = part.get("points")
+            if idx is None:
+                idx = part.get("lines")
+            if idx is None:
+                idx = part.get("faces")
+            _log(tr("В выгрузку: %s, вершин %d, элементов %d")
+                 % (part["name"], len(part["verts"]), len(idx)))
 
     def _add_item(self, item, owner=None, gopt=None):
         """Положить элемент в сцену, запомнив, чьего он слоя.
@@ -8367,6 +8407,9 @@ class ViewerDialog(QDialog):
             msg += " " + tr("Точек: %d.") % len(vpoints)
         if nbeds:
             msg += " " + tr("Тел пластов: %d.") % nbeds
+        # --- пробы и борозды в выгрузку: пакет сцены и GLB
+        if vpoints or vlines:
+            self._keep_vectors_for_export(vpoints, vlines)
         # --- линии векторных слоёв: изолинии, разломы, трассы
         if vlines:
             # группируем по слою, а не по цвету: так галка прячет

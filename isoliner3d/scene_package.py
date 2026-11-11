@@ -29,6 +29,14 @@
 сцены (cx, cy), высота - (z - cz) * vex. Здесь она переводится
 в настоящие координаты и обратно (frame = cx, cy, cz, vex).
 
+Формат. Номер в scene.json - наименьший, которым пакет читается.
+Формат 1: части-тела и линии. Формат 2: ещё и точки (пробы, значки
+скважин): примитив POINTS в GLB и размер значка в пикселях атрибутом
+_SIZE. Пакет без точек пишется первым форматом, и его по-прежнему
+читают программы, которые точек не знают. Пакет с точками такая
+программа не откроет и скажет, что он новее неё, а не упадёт на
+незнакомом примитиве.
+
 Модуль Qt и QGIS не знает.
 """
 
@@ -41,7 +49,8 @@ import numpy as np
 
 from . import gltf
 
-FORMAT = 1
+FORMAT = 2          # наибольший формат, который модуль пишет и читает
+FORMAT_POINTS = 2   # с него в пакете бывают точки
 EXT = ".i3dscene"
 GLB_NAME = "scene.glb"
 JSON_NAME = "scene.json"
@@ -85,6 +94,8 @@ def _kind(part):
         kind, idx = "mesh", part["faces"]
     elif part.get("lines") is not None:
         kind, idx = "lines", part["lines"]
+    elif part.get("points") is not None:
+        kind, idx = "points", part["points"]
     else:
         return None
     if v is None or not len(v) or not len(idx):
@@ -100,12 +111,13 @@ def describe(parts):
         kind = _kind(part)
         if kind is None:
             continue
-        idx = part["faces"] if kind == "mesh" else part["lines"]
+        idx = part[{"mesh": "faces", "lines": "lines",
+                    "points": "points"}[kind]]
         item = {"node": node, "name": part.get("name", "part"),
                 "kind": kind, "verts": int(len(part["verts"])),
                 "elements": int(len(idx)),
                 "decor": bool(part.get("decor", False))}
-        for key in ("layer", "opacity"):
+        for key in ("layer", "opacity", "shape"):
             if part.get(key) is not None:
                 item[key] = part[key]
         out.append(item)
@@ -125,8 +137,10 @@ def pack(parts, state, name="", frame=None, crs="", wkt="",
     _cx, _cy, _cz, vex = _frame(frame)
     georef = {"crs": crs, "wkt": wkt, "vex": 1.0}
     glb = gltf.build_glb(parts, name or "Isoliner3D", georef=georef)
+    info = describe(parts)
+    fmt = FORMAT_POINTS if any(i["kind"] == "points" for i in info) else 1
     meta = {
-        "format": FORMAT,
+        "format": fmt,
         "module": "isoliner3d",
         "version": version,
         "name": name,
@@ -137,7 +151,7 @@ def pack(parts, state, name="", frame=None, crs="", wkt="",
         "views": [camera_to_world(v, frame)
                   for v in state.get("fly_views") or []
                   if isinstance(v, dict)],
-        "parts": describe(parts),
+        "parts": info,
         "glb": GLB_NAME,
         "state": state,
     }
@@ -192,8 +206,9 @@ _DTYPES = {5126: np.float32, 5125: np.uint32}
 
 
 def read_glb(glb):
-    """Части из GLB в настоящих координатах: [{name, verts, faces|lines,
-    colors}], и привязка из asset.extras.isoliner3d.
+    """Части из GLB в настоящих координатах: [{name, verts,
+    faces|lines|points, colors, sizes}], и привязка
+    из asset.extras.isoliner3d.
 
     Читает то, что пишет gltf.py. Нужен проверкам и как образец для
     читателя на Rust.
@@ -227,13 +242,19 @@ def read_glb(glb):
         verts = np.column_stack([pos[:, 0], -pos[:, 2], pos[:, 1]]) + shift
         idx = array(prim["indices"]).astype(np.int64)
         part = {"name": node.get("name", "")}
-        if prim.get("mode", 4) == 1:
+        mode = prim.get("mode", 4)
+        if mode == 1:
             part["lines"] = idx.reshape(-1, 2)
+        elif mode == 0:
+            part["points"] = idx
         else:
             part["faces"] = idx.reshape(-1, 3)
         part["verts"] = verts
         if "COLOR_0" in prim["attributes"]:
             part["colors"] = array(prim["attributes"]["COLOR_0"]).astype(
+                float)
+        if "_SIZE" in prim["attributes"]:
+            part["sizes"] = array(prim["attributes"]["_SIZE"]).astype(
                 float)
         parts.append(part)
     return parts, extras

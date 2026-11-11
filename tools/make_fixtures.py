@@ -13,6 +13,8 @@
 
 - scene_demo.i3dscene и scene_demo.expected.json - пакет сцены
   в настоящих координатах и то, что из него должно прочитаться;
+- scene_points.i3dscene и scene_points.expected.json - то же
+  с пробами, реперами и бороздами, пакет формата 2;
 - tools.json - описания инструментов-объектов;
 - flight.json - кадры оборота и облёта по видам (flight.py);
 - sweep.json - сечения и тела вдоль оси (sweep.py, 2.24);
@@ -37,6 +39,7 @@ sys.path.insert(0, HERE)
 from isoliner3d import flight, scene_package, sweep, toolspec  # noqa: E402
 from isoliner3d.cleanup import mesh_volume, shell_defects  # noqa: E402
 from isoliner3d.tools import by_name  # noqa: E402
+from isoliner3d.viewer_core import vector_export_parts  # noqa: E402
 
 X0, Y0 = 512345.0, 6401234.0
 CRS = "EPSG:32640"
@@ -95,16 +98,45 @@ def demo_parts():
                   "faces": np.asarray(faces, dtype=np.int64),
                   "colors": cols, "opacity": 0.85, "layer": "roof"})
     # координатный короб: рёбра, без граней
+    parts.append(_box())
+    return parts
+
+
+def points_parts():
+    """Демо с пробами и бороздами: пакет формата 2.
+
+    Штрек, точки проб по борту кругами с размером в пикселях,
+    реперы плоскими квадратами в метрах, борозды линиями. Собраны
+    тем же `vector_export_parts`, что и в окне.
+    """
+    parts = [p for p in demo_parts() if p["name"] == "Штрек"]
+    names = {"samples": "Пробы", "marks": "Реперы", "channels": "Борозды"}
+    vpoints = [(X0 + 10.0 * i, Y0 + 1.5, -299.0 - 0.02 * i,
+                ["#d73027", "#fc8d59", "#91bfdb", "#4575b4"][i % 4],
+                "samples", 6.0 + i % 3 * 3.0, "") for i in range(12)]
+    vpoints += [(X0 + 120.0, Y0 + 30.0 * k, -296.0, "#1a9850", "marks",
+                 7.0, "") for k in range(4)]
+    vlines = [([(X0 + 20.0 * k, Y0 - 2.5, -300.5),
+                (X0 + 20.0 * k, Y0 - 2.5, -298.0),
+                (X0 + 20.0 * k + 1.0, Y0 - 2.5, -297.5)],
+               "#7b3294", "б%d" % k, "channels") for k in range(5)]
+    parts += vector_export_parts(vpoints, vlines, names,
+                                 {"marks": ("square", 3.0)})
+    parts.append(_box())
+    return parts
+
+
+def _box():
+    """Координатный короб: рёбра, без граней."""
     lo = np.array([X0 - 60.0, Y0 - 60.0, -320.0])
     hi = np.array([X0 + 180.0, Y0 + 130.0, 0.0])
     corners = np.array([[x, y, z] for z in (lo[2], hi[2])
                         for y in (lo[1], hi[1]) for x in (lo[0], hi[0])])
     edges = [[0, 1], [2, 3], [0, 2], [1, 3], [4, 5], [6, 7], [4, 6],
              [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]]
-    parts.append({"name": "Координатный короб", "decor": True,
-                  "verts": corners, "lines": np.asarray(edges),
-                  "colors": _rgba(8, [0.35, 0.38, 0.45, 1.0])})
-    return parts
+    return {"name": "Координатный короб", "decor": True,
+            "verts": corners, "lines": np.asarray(edges),
+            "colors": _rgba(8, [0.35, 0.38, 0.45, 1.0])}
 
 
 FRAME = {"cx": X0 + 60.0, "cy": Y0 + 35.0, "cz": -160.0, "vex": 2.0}
@@ -129,25 +161,29 @@ def _bbox(v):
 
 
 def scene(out):
-    parts = demo_parts()
-    data = scene_package.pack(parts, demo_state(), name="Демо: выработки",
+    _scene(out, "scene_demo", demo_parts(), "Демо: выработки")
+    _scene(out, "scene_points", points_parts(), "Демо: пробы и борозды")
+
+
+def _scene(out, stem, parts, name):
+    data = scene_package.pack(parts, demo_state(), name=name,
                               frame=FRAME, crs=CRS, wkt="",
                               version=_version())
-    path = os.path.join(out, "scene_demo.i3dscene")
+    path = os.path.join(out, stem + ".i3dscene")
     with open(path, "wb") as fh:
         fh.write(data)
     meta, glb = scene_package.unpack(data)
     back, extras = scene_package.read_glb(glb)
-    exp = {"name": meta["name"], "crs": CRS, "origin": meta["origin"],
+    exp = {"name": meta["name"], "format": meta["format"], "crs": CRS,
+           "origin": meta["origin"],
            "vex": meta["vex"], "camera": meta["camera"],
            "views": meta["views"], "parts": []}
+    keys = {"mesh": "faces", "lines": "lines", "points": "points"}
     for part, got in zip([p for p in parts if scene_package._kind(p)],
                          back):
-        idx = part.get("faces") if part.get("faces") is not None \
-            else part.get("lines")
-        item = {"name": part["name"],
-                "kind": "mesh" if part.get("faces") is not None
-                else "lines",
+        kind = scene_package._kind(part)
+        idx = part[keys[kind]]
+        item = {"name": part["name"], "kind": kind,
                 "verts": int(len(part["verts"])),
                 "elements": int(len(idx)),
                 "bbox": _bbox(part["verts"]),
@@ -155,7 +191,12 @@ def scene(out):
                                           - part["verts"]).max()),
                 "first_color": [float(x) for x in
                                 np.asarray(part["colors"])[0]]}
-        if part.get("faces") is not None:
+        if kind == "points":
+            item["sizes"] = [float(s) for s in part["sizes"]]
+            item["shape"] = part.get("shape", "circle")
+        if part.get("shape"):
+            item["shape"] = part["shape"]
+        if kind == "mesh" and not part.get("shape"):
             closed = shell_defects(part["verts"], part["faces"])[0] == 0
             item["closed"] = bool(closed)
             if closed:
@@ -163,7 +204,7 @@ def scene(out):
                                                        part["faces"])))
         exp["parts"].append(item)
     exp["bbox"] = _bbox(np.vstack([p["verts"] for p in parts]))
-    _dump(out, "scene_demo.expected.json", exp)
+    _dump(out, stem + ".expected.json", exp)
 
 
 def flights(out):

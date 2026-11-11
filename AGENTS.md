@@ -49,11 +49,11 @@ v3.2.0`, домен codeload из контейнера доступен.
 
 | Файл | Строк |
 |---|---|
-| `viewer_dialog.py` | 8489 |
+| `viewer_dialog.py` | 8532 |
 | `algorithms.py` | 9328 |
 | `viewer3d.py` | 897 |
-| `viewer_core.py` | 1446 |
-| `i18n.py` | 4455 |
+| `viewer_core.py` | 1507 |
+| `i18n.py` | 4457 |
 
 Инструменты:
 

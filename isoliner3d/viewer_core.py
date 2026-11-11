@@ -229,6 +229,67 @@ def flat_marker_mesh(rows, shape, size):
     return verts, faces
 
 
+def vector_export_parts(vpoints, vlines, names, shapes=None):
+    """Точки и линии векторных слоёв окна в части выгрузки.
+
+    Пакет сцены и GLB получали только тела и поверхности, а пробы
+    и борозды оставались в окне. Здесь они собираются так же, как
+    рисуются: часть на слой, координаты настоящие, без сдвига к центру
+    и без преувеличения.
+
+    `vpoints` - строки (x, y, z, цвет, слой, размер в пикселях,
+    подпись), как их отдаёт окно. `vlines` - (точки линии, цвет, имя,
+    слой, ...). `names` - имя слоя по id. `shapes` - {слой: (фигура,
+    размер в метрах)} для слоёв с плоскими значками: такие точки
+    идут мешем, ровно как в окне, остальные кругами - точками
+    с размером в пикселях.
+    """
+    import numpy as np
+    shapes = shapes or {}
+    parts = []
+    by_layer = {}
+    for row in vpoints:
+        by_layer.setdefault(row[4], []).append(row)
+    for lid, rows in by_layer.items():
+        xyz = np.array([r[:3] for r in rows], dtype=float)
+        cols = np.array([_css_rgba(r[3]) for r in rows], dtype=float)
+        name = names.get(lid) or lid
+        shape, msize = shapes.get(lid, ("circle", 0.0))
+        flat = flat_marker_mesh([(p, None, None) for p in xyz], shape,
+                                msize)
+        if flat is not None:
+            fv, ff = flat
+            per = len(fv) // len(rows)
+            parts.append({"name": name, "verts": fv, "faces": ff,
+                          "colors": np.repeat(cols, per, axis=0),
+                          "layer": lid, "shape": shape})
+            continue
+        parts.append({"name": name, "verts": xyz,
+                      "points": np.arange(len(xyz)), "colors": cols,
+                      "sizes": np.array([float(r[5]) for r in rows]),
+                      "layer": lid, "shape": "circle"})
+    by_line = {}
+    for row in vlines:
+        by_line.setdefault(row[3], []).append(row)
+    for lid, rows in by_line.items():
+        verts, segs, cols = [], [], []
+        for row in rows:
+            pts = np.asarray(row[0], dtype=float)
+            if len(pts) < 2:
+                continue
+            k = sum(len(v) for v in verts)
+            verts.append(pts)
+            segs.append(np.column_stack([np.arange(len(pts) - 1),
+                                         np.arange(1, len(pts))]) + k)
+            cols.append(np.tile(_css_rgba(row[1]), (len(pts), 1)))
+        if not verts:
+            continue
+        parts.append({"name": names.get(lid) or lid,
+                      "verts": np.vstack(verts), "lines": np.vstack(segs),
+                      "colors": np.vstack(cols), "layer": lid})
+    return parts
+
+
 def z_range_mask(z, zlo, zhi):
     """Отбор по отметке: что попадает в заданный диапазон.
 

@@ -40,6 +40,7 @@ _ARRAY_BUFFER = 34962
 _ELEMENT_ARRAY_BUFFER = 34963
 _TRIANGLES = 4
 _LINES = 1
+_POINTS = 0
 
 
 def _pad(data, fill=b"\x00"):
@@ -105,6 +106,12 @@ def build_glb(parts, name="Isoliner3D", georef=None):
     Линии нужны координатному коробу: рёбра и штрихи писать
     треугольниками незачем, а без них в файле нет масштаба.
 
+    Точки - `points` (M,), номера вершин, и необязательные `sizes`
+    (N,): размер значка в пикселях экрана, как в окне. Размер пишется
+    своим атрибутом `_SIZE`: подчёркивание в начале имени glTF
+    отводит под атрибуты приложения, и чужой просмотрщик его
+    пропускает, а точки показывает.
+
     `georef` - словарь привязки: `crs` (код, например EPSG:32640),
     `wkt`, `origin` (x, y, z или None - тогда считается по охвату),
     `vex` (применённое преувеличение). Без него координаты пишутся
@@ -152,6 +159,9 @@ def build_glb(parts, name="Isoliner3D", georef=None):
             raw = part.get("lines")
             mode = _LINES
         if raw is None:
+            raw = part.get("points")
+            mode = _POINTS
+        if raw is None:
             continue
         f = np.asarray(raw, dtype=np.uint32)
         if not len(v) or not len(f):
@@ -185,6 +195,13 @@ def build_glb(parts, name="Isoliner3D", georef=None):
             attrs["COLOR_0"] = len(accessors) - 1
             soft = float(c[:, 3].min()) < 0.999
             need_blend = need_blend or soft
+        sizes = part.get("sizes") if mode == _POINTS else None
+        if sizes is not None and len(sizes) == len(pos):
+            s = np.asarray(sizes, dtype=np.float32)
+            si = add_view(s.tobytes(), _ARRAY_BUFFER)
+            accessors.append({"bufferView": si, "componentType": _FLOAT,
+                              "count": len(s), "type": "SCALAR"})
+            attrs["_SIZE"] = len(accessors) - 1
 
         meshes.append({"name": part.get("name", "part"),
                        "primitives": [{"attributes": attrs,

@@ -60,7 +60,7 @@ def test_pack_and_unpack():
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         assert sorted(z.namelist()) == [sp.GLB_NAME, sp.JSON_NAME]
     meta, glb = sp.unpack(data)
-    assert meta["format"] == sp.FORMAT and meta["name"] == "Шахта"
+    assert meta["format"] == 1 and meta["name"] == "Шахта"
     assert meta["crs"]["authid"] == "EPSG:32640"
     assert meta["vex"] == 5.0
     assert [p["name"] for p in meta["parts"]] == ["Штрек", "Короб"]
@@ -106,6 +106,73 @@ def test_newer_format_is_refused():
         z.writestr(sp.GLB_NAME, b"")
     with pytest.raises(ValueError):
         sp.unpack(buf.getvalue())
+
+
+def _points_part():
+    xyz = np.array([(X0 + 10.0, Y0, -299.0), (X0 + 20.0, Y0, -299.5),
+                    (X0 + 30.0, Y0 + 5.0, -300.0)])
+    return {"name": "Пробы", "verts": xyz, "points": np.arange(3),
+            "colors": np.array([[1, 0, 0, 1], [0, 1, 0, 1], [0, 0, 1, 1]],
+                               dtype=float),
+            "sizes": np.array([7.0, 10.5, 14.0]), "shape": "circle",
+            "layer": "samples_1"}
+
+
+def test_points_survive_the_package():
+    """Пробы точками: вид points, узел в GLB, размер в пикселях."""
+    parts = _parts() + [_points_part()]
+    meta, glb = sp.unpack(sp.pack(parts, _state(), frame=FRAME))
+    assert meta["format"] == 2
+    info = meta["parts"][-1]
+    assert info["kind"] == "points" and info["node"] == 2
+    assert info["verts"] == 3 and info["elements"] == 3
+    assert info["shape"] == "circle" and info["layer"] == "samples_1"
+    got, _extras = sp.read_glb(glb)
+    pts = got[-1]
+    assert np.array_equal(pts["points"], [0, 1, 2])
+    assert np.abs(pts["verts"] - parts[-1]["verts"]).max() < 0.01
+    assert np.allclose(pts["sizes"], [7.0, 10.5, 14.0])
+    assert np.allclose(pts["colors"][1], [0, 1, 0, 1])
+
+
+def test_package_without_points_stays_format_1():
+    """Пакет без точек читают и прежние программы."""
+    meta, _glb = sp.unpack(sp.pack(_parts(), _state(), frame=FRAME))
+    assert meta["format"] == 1
+
+
+def test_window_points_and_lines_become_parts():
+    """Точки и линии окна в части выгрузки: по слою, настоящие XYZ."""
+    from isoliner3d.viewer_core import vector_export_parts
+    vpoints = [(X0, Y0, -300.0, "#ff0000", "s1", 7.0, "п1"),
+               (X0 + 5, Y0, -301.0, "#00ff00", "s1", 9.0, ""),
+               (X0 + 9, Y0, -302.0, "#0000ff", "s2", 7.0, "")]
+    vlines = [([(X0, Y0, -300.0), (X0 + 2, Y0, -300.0),
+                (X0 + 4, Y0, -300.5)], "#336699", "б1", "ch"),
+              ([(X0, Y0 + 1, -300.0), (X0 + 3, Y0 + 1, -300.0)],
+               "#996633", "б2", "ch")]
+    names = {"s1": "Пробы", "s2": "Квадраты", "ch": "Борозды"}
+    shapes = {"s2": ("square", 2.0)}
+    parts = vector_export_parts(vpoints, vlines, names, shapes)
+    by = {p["name"]: p for p in parts}
+    assert set(by) == {"Пробы", "Квадраты", "Борозды"}
+    p = by["Пробы"]
+    assert np.array_equal(p["points"], [0, 1])
+    assert np.allclose(p["verts"][1], (X0 + 5, Y0, -301.0))
+    assert np.allclose(p["sizes"], [7.0, 9.0])
+    assert np.allclose(p["colors"][0], [1, 0, 0, 1])
+    assert p["layer"] == "s1" and p["shape"] == "circle"
+    q = by["Квадраты"]          # плоский значок в плане - меш
+    assert q.get("points") is None and len(q["faces"]) == 2
+    assert np.allclose(q["verts"][:, 2], -302.0)
+    assert np.ptp(q["verts"][:, 0]) == 2.0
+    ln = by["Борозды"]
+    assert np.array_equal(ln["lines"], [[0, 1], [1, 2], [3, 4]])
+    assert np.allclose(ln["verts"][4], (X0 + 3, Y0 + 1, -300.0))
+    assert len(ln["colors"]) == 5
+    meta, _glb = sp.unpack(sp.pack(parts, _state(), frame=FRAME))
+    assert [i["kind"] for i in meta["parts"]] == ["points", "mesh",
+                                                   "lines"]
 
 
 def test_file_round_trip(tmp_path):

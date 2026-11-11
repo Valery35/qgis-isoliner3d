@@ -33,8 +33,8 @@ from .viewer_core import (    # noqa: F401
     _tri_rings, cache_clear, cache_size, clip_wall, colormap, draw_depth,
     field_color, flat_marker_mesh, is_available, is_bed_grid, layer_lift,
     ramp_colors, volume_beyond_box, bed_pairs, split_by_alpha, symbol_alpha,
-    shade_colors, tri_cache_clear, tri_cache_size, walk_rings, wkb_rings,
-    wkb_triangles, z_range_mask)
+    shade_colors, tri_cache_clear, tri_cache_size, vector_export_parts,
+    walk_rings, wkb_rings, wkb_triangles, z_range_mask)
 
 
 from .i18n import tr
