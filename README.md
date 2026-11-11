@@ -120,6 +120,8 @@ values: a grid band is a horizontal level.
 | 2.20 Block model to cube | A block model from Micromine, Datamine or Surpac, or an x, y, z table of an inversion, on the grid of a cube. Sub-blocks are averaged by volume | A cube of values |
 | 2.21 2D inversion section into the volume | An x, y, z table along a profile becomes a wall of cells in the scene, a bent profile and several profiles in one table | Section cells with Z |
 | 2.22 Demo formations in boreholes (demo) | Borehole intervals over a layered site: beds, a pinch-out and a lens, with the site outline | Borehole intervals and the site outline |
+| 2.23 Fill a body up to a volume | The level below which a body holds a given volume, in cubic metres or per cent, and the filled part | The filled part as a body |
+| 2.24 Body along a mine working | A section with an arch, a rectangle or a circle swept along a line: drifts, shafts, trenches | Closed bodies with length and volume |
 
 A bed grid assembled by the first tool is read by the 3D window as a body:
 computed and looked at right away.
