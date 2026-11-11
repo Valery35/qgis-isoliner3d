@@ -52,6 +52,7 @@ EXPECTED = {
     "InversionSectionAlgorithm": ("inversion_section", "2.21"),
     "DemoLayersAlgorithm": ("demo_layers", "2.22"),
     "FillToVolumeAlgorithm": ("fill_to_volume", "2.23"),
+    "SweepBodyAlgorithm": ("sweep_body", "2.24"),
 }
 
 
@@ -357,7 +358,8 @@ def test_every_tool_has_field_hints():
              ("BlocksToCubeAlgorithm", "HINTS_2_20"),
              ("InversionSectionAlgorithm", "HINTS_2_21"),
              ("DemoLayersAlgorithm", "HINTS_2_22"),
-             ("FillToVolumeAlgorithm", "HINTS_2_23"))
+             ("FillToVolumeAlgorithm", "HINTS_2_23"),
+             ("SweepBodyAlgorithm", "HINTS_2_24"))
     tree = ast.parse(src)
     dicts = {}
     for node in tree.body:

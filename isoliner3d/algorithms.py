@@ -7066,6 +7066,22 @@ HINTS_2_15 = {
 }
 
 
+def _mesh_geometry(verts, faces):
+    """Тело треугольниками: мультиполигон Z, грань - полигон."""
+    from qgis.core import (QgsGeometry, QgsLineString, QgsMultiPolygon,
+                           QgsPoint, QgsPolygon)
+    mp = QgsMultiPolygon()
+    for tri in faces:
+        ls = QgsLineString()
+        for vi in (tri[0], tri[1], tri[2], tri[0]):
+            p = verts[vi]
+            ls.addVertex(QgsPoint(float(p[0]), float(p[1]), float(p[2])))
+        poly = QgsPolygon()
+        poly.setExteriorRing(ls)
+        mp.addGeometry(poly)
+    return QgsGeometry(mp)
+
+
 def _features_unchecked(src):
     """Объекты источника без проверки геометрии.
 
@@ -9115,9 +9131,7 @@ class FillToVolumeAlgorithm(IsolinerAlgorithm):
         _hints(self, HINTS_2_23)
 
     def _process(self, parameters, context, feedback):
-        from qgis.core import (QgsFields, QgsFeature, QgsGeometry,
-                               QgsPoint, QgsLineString, QgsPolygon,
-                               QgsMultiPolygon, QgsWkbTypes)
+        from qgis.core import QgsFields, QgsFeature, QgsWkbTypes
         from . import boolean3d, fill, voxel
         from .cleanup import mesh_volume, shell_defects
 
@@ -9196,18 +9210,8 @@ class FillToVolumeAlgorithm(IsolinerAlgorithm):
             raise QgsProcessingException(self.tr(
                 "Не удалось создать слой результата."))
         if len(faces):
-            mp = QgsMultiPolygon()
-            for tri in faces:
-                ls = QgsLineString()
-                for vi in (tri[0], tri[1], tri[2], tri[0]):
-                    p = verts[vi]
-                    ls.addVertex(QgsPoint(float(p[0]), float(p[1]),
-                                          float(p[2])))
-                poly = QgsPolygon()
-                poly.setExteriorRing(ls)
-                mp.addGeometry(poly)
             ft = QgsFeature(fields)
-            ft.setGeometry(QgsGeometry(mp))
+            ft.setGeometry(_mesh_geometry(verts, faces))
             ft.setAttributes(["top" if from_top else "bottom",
                               float(level), float(got), float(share),
                               float(full)])
@@ -9216,6 +9220,225 @@ class FillToVolumeAlgorithm(IsolinerAlgorithm):
             feedback.pushWarning(self.tr(
                 "Заполненная часть пуста: объём меньше одной ячейки."))
         _set_output_name(context, dest, self.tr("Заполненная часть"))
+        return {"OUTPUT": dest}
+
+
+
+HINTS_2_24 = {
+    "INPUT": "Оси выработок: линии. С высотой в геометрии берутся свои "
+             "отметки, без высоты - отметка из поля или постоянная ниже. "
+             "Маркшейдерская съёмка по почве, осевая линия проекта, "
+             "трасса канавы.",
+    "ELEV_FIELD": "Поле отметки оси для линий без Z. Пусто - постоянная "
+                  "отметка из следующего поля.",
+    "ELEV": "Отметка оси для линий без Z, м. У линий с Z не нужна.",
+    "PROFILE": "Форма сечения. Прямоугольник со сводом - штрек и камера "
+               "калийного рудника. Прямоугольник - канава, траншея, "
+               "камера с плоской кровлей. Круг - ствол, тоннель "
+               "комбайнового проходческого щита.",
+    "WIDTH": "Ширина сечения, м, у круга - диаметр. Берётся проектная "
+             "или средняя по съёмке: объём растёт вместе с ней "
+             "в той же доле.",
+    "WIDTH_FIELD": "Поле ширины, если сечения разные. Пусто или пустое "
+                   "значение - ширина из поля выше.",
+    "HEIGHT": "Высота стенок, м. У прямоугольника - вся высота. У круга "
+              "не нужна.",
+    "HEIGHT_FIELD": "Поле высоты стенок. Пусто - высота из поля выше.",
+    "RISE": "Подъём свода над стенками, м. Ноль - полуциркульный свод, "
+            "подъём в половину ширины. Меньший подъём - пологий свод.",
+    "ANCHOR": "Где лежит ось в сечении. По почве - как снимают "
+              "выработки по почве. По центру - осевая линия проекта, "
+              "ось ствола.",
+    "SEGMENTS": "Число граней на круге и на своде. Больше - глаже, "
+                "но тяжелее сцена.",
+    "OUTPUT": "Тела выработок, по телу на линию, со всеми полями оси "
+              "и полями длины, площади сечения и объёма. Тела замкнуты, "
+              "их принимают 2.11, 2.12, 2.14 и 2.23.",
+}
+
+
+class SweepBodyAlgorithm(IsolinerAlgorithm):
+    """Тело вдоль оси: сечение протягивается по линии (sweep.py)."""
+
+    PROFILES = ("arch", "rect", "circle")
+    ANCHORS = ("floor", "centre")
+
+    def name(self):
+        return "sweep_body"
+
+    def displayName(self):
+        return self.tr("2.24 Тело вдоль выработки")
+
+    def group(self):
+        return self.tr(GROUP5)
+
+    def groupId(self):
+        return GROUP5_ID
+
+    def helpUrl(self):
+        return _help_url()
+
+    def createInstance(self):
+        return SweepBodyAlgorithm()
+
+    def shortHelpString(self):
+        return _help_version(self.tr(
+            "Строит замкнутое тело вдоль линии: сечение ставится поперёк "
+            "оси в каждой её вершине и протягивается по ней, торцы "
+            "закрываются. Штрек, камера, уклон, ствол, канава.\n\n"
+            "Сечение - прямоугольник со сводом, прямоугольник или круг. "
+            "Ширина и высота задаются числом или полем линии, так "
+            "у каждой выработки может быть своё сечение.\n\n"
+            "Поперечник сечения всегда горизонтален: у наклонной "
+            "выработки стенки остаются вертикальными, как у настоящего "
+            "уклона. На изломе оси сечение ставится по биссектрисе "
+            "и расширяется так, чтобы стенка не сужалась на повороте. "
+            "Излом круче 100° даёт самопересечение тела, и об этом "
+            "предупреждение в журнале.\n\n"
+            "Тела замкнуты: объём, пробы внутри, заполнение водой "
+            "считают 2.11, 2.12, 2.14 и 2.23.") + _credit())
+
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "INPUT", self.tr("Оси выработок (линии)"),
+            [QgsProcessing.SourceType.TypeVectorLine]))
+        self.addParameter(QgsProcessingParameterField(
+            "ELEV_FIELD", self.tr("Поле отметки оси (для линий без Z)"),
+            parentLayerParameterName="INPUT", optional=True,
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterNumber(
+            "ELEV", self.tr("Отметка оси для линий без Z, м"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=0.0))
+        self.addParameter(QgsProcessingParameterEnum(
+            "PROFILE", self.tr("Сечение"),
+            options=[self.tr("Прямоугольник со сводом"),
+                     self.tr("Прямоугольник"), self.tr("Круг")],
+            defaultValue=0))
+        self.addParameter(QgsProcessingParameterNumber(
+            "WIDTH", self.tr("Ширина (у круга - диаметр), м"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=5.0,
+            minValue=0.01))
+        self.addParameter(QgsProcessingParameterField(
+            "WIDTH_FIELD", self.tr("Поле ширины"),
+            parentLayerParameterName="INPUT", optional=True,
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterNumber(
+            "HEIGHT", self.tr("Высота стенок, м"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=3.0,
+            minValue=0.01))
+        self.addParameter(QgsProcessingParameterField(
+            "HEIGHT_FIELD", self.tr("Поле высоты стенок"),
+            parentLayerParameterName="INPUT", optional=True,
+            type=QgsProcessingParameterField.DataType.Numeric))
+        self.addParameter(QgsProcessingParameterNumber(
+            "RISE", self.tr("Подъём свода, м (0 - полуциркульный)"),
+            QgsProcessingParameterNumber.Type.Double, defaultValue=1.0,
+            minValue=0.0))
+        self.addParameter(QgsProcessingParameterEnum(
+            "ANCHOR", self.tr("Ось в сечении"),
+            options=[self.tr("По почве"), self.tr("По центру")],
+            defaultValue=0))
+        self.addParameter(QgsProcessingParameterNumber(
+            "SEGMENTS", self.tr("Граней на круге и своде"),
+            QgsProcessingParameterNumber.Type.Integer, defaultValue=16,
+            minValue=6, maxValue=128))
+        self.addParameter(QgsProcessingParameterFeatureSink(
+            "OUTPUT", self.tr("Тела выработок"),
+            QgsProcessing.SourceType.TypeVectorPolygon))
+        _hints(self, HINTS_2_24)
+
+    def _process(self, parameters, context, feedback):
+        from qgis.core import QgsFeature, QgsFields, QgsWkbTypes
+        from . import sweep
+        from .cleanup import shell_defects
+
+        src = self.parameterAsSource(parameters, "INPUT", context)
+        elev_f = self.parameterAsString(parameters, "ELEV_FIELD", context)
+        elev = self.parameterAsDouble(parameters, "ELEV", context)
+        kind = self.PROFILES[self.parameterAsEnum(
+            parameters, "PROFILE", context)]
+        width = self.parameterAsDouble(parameters, "WIDTH", context)
+        width_f = self.parameterAsString(parameters, "WIDTH_FIELD",
+                                         context)
+        height = self.parameterAsDouble(parameters, "HEIGHT", context)
+        height_f = self.parameterAsString(parameters, "HEIGHT_FIELD",
+                                          context)
+        rise = self.parameterAsDouble(parameters, "RISE", context)
+        anchor = self.ANCHORS[self.parameterAsEnum(
+            parameters, "ANCHOR", context)]
+        segs = self.parameterAsInt(parameters, "SEGMENTS", context)
+
+        fields = QgsFields(src.fields())
+        have = {f.name() for f in fields}
+        extra = []
+        for nm, typ in (("length", QVariant.Double),
+                        ("area", QVariant.Double),
+                        ("volume", QVariant.Double),
+                        ("closed", QVariant.Int)):
+            name = nm if nm not in have else "body_" + nm
+            extra.append(name)
+            fields.append(_field(name, typ))
+        sink, dest = self.parameterAsSink(
+            parameters, "OUTPUT", context, fields,
+            QgsWkbTypes.Type.MultiPolygonZ, src.sourceCrs())
+        if sink is None:
+            raise QgsProcessingException(self.tr(
+                "Не удалось создать слой тел выработок."))
+        total = max(src.featureCount(), 1)
+        n_body = n_bad = n_skip = 0
+        vol_sum = 0.0
+        sharp = []
+        for k, ft in enumerate(_features_unchecked(src)):
+            if feedback.isCanceled():
+                break
+            g = ft.geometry()
+            if g is None or g.isEmpty():
+                n_skip += 1
+                continue
+            w = _numv(ft[width_f]) if width_f else None
+            h = _numv(ft[height_f]) if height_f else None
+            w = w if w is not None and w > 0 else width
+            h = h if h is not None and h > 0 else height
+            z_ft = _numv(ft[elev_f]) if elev_f else None
+            z_ft = elev if z_ft is None else z_ft
+            prof = sweep.profile(kind, w, h, rise or None, segs)
+            for part in _line_parts(g):
+                pts = np.array([(q.x(), q.y(), q.z()) for q in part],
+                               dtype=float)
+                if len(pts) and not np.isfinite(pts[:, 2]).all():
+                    pts[:, 2] = z_ft
+                try:
+                    v, f, length, turn = sweep.sweep(pts, prof, anchor)
+                except ValueError:
+                    n_skip += 1
+                    continue
+                if turn > sweep.MAX_TURN:
+                    sharp.append(ft.id())
+                holes, _p = shell_defects(v, f)
+                vol = sweep.signed_volume(v, f)
+                out = QgsFeature(fields)
+                out.setGeometry(_mesh_geometry(v, f))
+                out.setAttributes(list(ft.attributes()) + [
+                    float(length), float(sweep.section_area(prof)),
+                    float(vol), 1 if holes == 0 else 0])
+                sink.addFeature(out)
+                n_body += 1
+                vol_sum += vol
+                n_bad += 1 if holes else 0
+            feedback.setProgress(100.0 * (k + 1) / total)
+        _set_output_name(context, dest, self.tr("Тела выработок"))
+        feedback.pushInfo(self.tr("Тел: %d, объём всех %.1f м3.")
+                          % (n_body, vol_sum))
+        if n_skip:
+            feedback.pushWarning(self.tr(
+                "Пропущено линий без двух разных вершин: %d.") % n_skip)
+        if sharp:
+            feedback.pushWarning(self.tr(
+                "Излом оси круче 100° у объектов %s: тело там "
+                "самопересекается, объём завышен. Разбейте линию "
+                "на излом.") % ", ".join(str(x) for x in sharp[:20]))
+        if n_bad:
+            feedback.pushWarning(self.tr("Незамкнутых тел: %d.") % n_bad)
         return {"OUTPUT": dest}
 
 
@@ -9251,4 +9474,5 @@ ALGORITHMS = [
     InversionSectionAlgorithm,
     DemoLayersAlgorithm,
     FillToVolumeAlgorithm,
+    SweepBodyAlgorithm,
 ]
