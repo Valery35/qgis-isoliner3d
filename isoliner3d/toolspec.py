@@ -29,6 +29,8 @@ QGIS подключается одной обёрткой (SpecAlgorithm в algo
            или внешнего кольца полигона, без Z третий столбец NaN;
 - meshes - слой тел, тело на объект: список {"id", "attrs", "verts",
            "faces"}, у объекта без граней verts и faces - None;
+- table  - таблица или слой любой геометрии: список {"id", "attrs",
+           "xyz"}, xyz - первая вершина (3,) или None без геометрии;
 - field  - имя поля или пустая строка;
 - string - строка; bool - True или False;
 - number, integer - число; enum - номер выбранного пункта, при
@@ -37,8 +39,9 @@ QGIS подключается одной обёрткой (SpecAlgorithm в algo
            необязательный приходит True, если его заказали.
 
 К каждому слою на входе обёртка добавляет values["@КЛЮЧ"] =
-{"name": имя слоя, "geometry": "point" | "line" | "polygon",
-"fields": [имена полей]}. Без QGIS этот словарь можно не давать.
+{"name": имя слоя, "geometry": "point" | "line" | "polygon" | "none",
+"hasz": есть ли Z, "fields": [имена полей]}. Без QGIS этот словарь
+можно не давать.
 
 Результат run - словарь {ключ выхода: Result}. Result несёт поля
 (имя, тип), объекты (геометрия, значения) и признак keep_source:
@@ -59,9 +62,9 @@ def N_(text):
     return text
 
 
-KINDS = ("mesh", "meshes", "lines", "points", "features", "field",
-         "string", "bool", "number", "integer", "enum", "sink")
-SOURCE_KINDS = ("mesh", "meshes", "lines", "points", "features")
+KINDS = ("mesh", "meshes", "lines", "points", "features", "table",
+         "field", "string", "bool", "number", "integer", "enum", "sink")
+SOURCE_KINDS = ("mesh", "meshes", "lines", "points", "features", "table")
 
 
 class Param(object):
@@ -116,14 +119,15 @@ class Result(object):
     features - [(геометрия, значения)]; геометрия тела -
     {"verts", "faces"}. keep_source - объекты несут сначала значения
     объекта источника (значения в начале списка), потом свои.
-    geometry - "mesh" (тела) или "source": геометрия объекта
-    источника keep_source как есть, тогда геометрия - {"source": id}.
+    geometry - "mesh" (тела), "line" (линия с Z, геометрия -
+    {"points": (n, 3)}) или "source": геометрия объекта источника
+    keep_source как есть, тогда геометрия - {"source": id}.
     replace - свои поля с именем поля источника пишутся в него,
     а не рядом. Значения объекта тогда - словарь {поле: значение}:
     чего в словаре нет, остаётся от источника, у новых полей пусто.
     """
 
-    GEOMETRIES = ("mesh", "source")
+    GEOMETRIES = ("mesh", "line", "source")
 
     def __init__(self, fields, features=None, keep_source=None,
                  name=None, geometry="mesh", replace=False):

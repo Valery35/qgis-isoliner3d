@@ -396,7 +396,52 @@ def tool_runs(out):
                                         for g, _row in res.features]},
                 "report": rep.lines})
     runs += _zonal_runs()
+    runs += _desurvey_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
+
+
+def _desurvey_runs():
+    """2.17: устья таблицей и точками, инклинометрия, три соглашения."""
+    tool = by_name("desurvey_holes")
+    collars = [
+        {"id": 1, "xyz": None, "attrs": {"hole": " H1", "x": 100.0,
+                                         "y": 200.0, "z": 50.0,
+                                         "eoh": 120.0}},
+        {"id": 2, "xyz": None, "attrs": {"hole": "H2", "x": 150.0,
+                                         "y": 200.0, "z": 48.0,
+                                         "eoh": 80.0}},
+        {"id": 3, "xyz": None, "attrs": {"hole": "H3", "x": 1.0, "y": 1.0,
+                                         "z": 0.0, "eoh": None}},
+    ]
+    survey = [
+        {"id": 10, "xyz": None, "attrs": {"hole": "H1", "depth": 0.0,
+                                          "azimuth": 45.0, "dip": -60.0}},
+        {"id": 11, "xyz": None, "attrs": {"hole": "H1", "depth": 60.0,
+                                          "azimuth": 50.0, "dip": -55.0}},
+        {"id": 12, "xyz": None, "attrs": {"hole": "LOST", "depth": 0.0,
+                                          "azimuth": 0.0, "dip": -90.0}},
+    ]
+    meta = {"@COLLARS": {"name": "collars", "geometry": "none",
+                         "hasz": False,
+                         "fields": ["hole", "x", "y", "z", "eoh"]},
+            "@SURVEY": {"name": "survey", "geometry": "none",
+                        "hasz": False,
+                        "fields": ["hole", "depth", "azimuth", "dip"]}}
+    runs = []
+    for conv in (0, 1, 2):
+        vals = dict(tool.defaults(), CONVENTION=conv, STEP=5.0)
+        rep = toolspec.Report()
+        res = tool.run(dict(vals, COLLARS=collars, SURVEY=survey, **meta),
+                       rep)["OUTPUT"]
+        runs.append({
+            "tool": tool.name, "values": dict(vals, **meta),
+            "input": {"COLLARS": collars, "SURVEY": survey},
+            "output": {"fields": res.fields, "geometry": res.geometry,
+                       "features": [{"points": g["points"].tolist(),
+                                     "values": [_plain(x) for x in row]}
+                                    for g, row in res.features]},
+            "report": rep.lines})
+    return runs
 
 
 def _zonal_runs():

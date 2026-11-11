@@ -3920,6 +3920,8 @@ TRANSLATIONS = {
     # 2.17-2.19 скважины, плашка сцены
     '2.17 Стволы скважин по инклинометрии':
         '2.17 Borehole traces from downhole surveys',
+    'Стволы скважин по инклинометрии':
+        'Borehole traces from downhole surveys',
     '2.18 Интервалы по стволу скважины':
         '2.18 Intervals along a borehole',
     '2.19 Демонстрационное бурение (демо)':

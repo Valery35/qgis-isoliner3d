@@ -121,7 +121,8 @@ def specs():
 
 _KIND_NAMES = {"mesh": "FeatureSource", "lines": "FeatureSource",
                "points": "FeatureSource", "features": "FeatureSource",
-               "meshes": "FeatureSource", "field": "Field",
+               "meshes": "FeatureSource", "table": "FeatureSource",
+               "field": "Field",
                "string": "String", "bool": "Boolean",
                "number": "Number", "integer": "Number", "enum": "Enum",
                "sink": "FeatureSink"}

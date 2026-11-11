@@ -352,7 +352,7 @@ def test_every_tool_has_field_hints():
              ("ZonalShellStatsAlgorithm", None),
              ("FormationBodiesAlgorithm", "HINTS_2_15"),
              ("DemoRiversAlgorithm", "HINTS_2_16"),
-             ("DesurveyAlgorithm", "HINTS_2_17"),
+             ("DesurveyAlgorithm", None),
              ("HoleIntervalsAlgorithm", "HINTS_2_18"),
              ("DemoDrillingAlgorithm", "HINTS_2_19"),
              ("BlocksToCubeAlgorithm", "HINTS_2_20"),

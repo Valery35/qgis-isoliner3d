@@ -337,6 +337,103 @@ def test_zonal_refuses_a_name_clash_unless_allowed():
     assert rows[11] == {"old_n": 2}
 
 
+def _desurvey_values(**kw):
+    tool = by_name("desurvey_holes")
+    collars = [
+        {"id": 1, "xyz": None, "attrs": {"hole": " H1", "x": 100.0,
+                                         "y": 200.0, "z": 50.0,
+                                         "eoh": 120.0}},
+        {"id": 2, "xyz": None, "attrs": {"hole": "H2", "x": 150.0,
+                                         "y": 200.0, "z": 48.0,
+                                         "eoh": 80.0}},
+        {"id": 3, "xyz": None, "attrs": {"hole": "H3", "x": 1.0, "y": 1.0,
+                                         "z": 0.0, "eoh": None}},
+        {"id": 4, "xyz": None, "attrs": {"hole": None, "x": 1.0,
+                                         "y": 1.0}},
+    ]
+    survey = [
+        {"id": 10, "xyz": None, "attrs": {"hole": "H1", "depth": 0.0,
+                                          "azimuth": 45.0, "dip": -60.0}},
+        {"id": 11, "xyz": None, "attrs": {"hole": "H1", "depth": 60.0,
+                                          "azimuth": 50.0, "dip": -55.0}},
+        {"id": 12, "xyz": None, "attrs": {"hole": "H1", "depth": 100.0,
+                                          "azimuth": "x", "dip": -50.0}},
+        {"id": 13, "xyz": None, "attrs": {"hole": "LOST", "depth": 0.0,
+                                          "azimuth": 0.0, "dip": -90.0}},
+    ]
+    vals = dict(tool.defaults(), COLLARS=collars, SURVEY=survey)
+    vals["@COLLARS"] = {"name": "collars", "geometry": "none",
+                        "hasz": False,
+                        "fields": ["hole", "x", "y", "z", "eoh"]}
+    vals["@SURVEY"] = {"name": "survey", "geometry": "none",
+                       "hasz": False,
+                       "fields": ["hole", "depth", "azimuth", "dip"]}
+    vals.update(kw)
+    return tool, vals
+
+
+def test_desurvey_matches_the_module():
+    """2.17: ствол тот же, что из wells.py, поля и предупреждения."""
+    from isoliner3d import wells
+    tool, vals = _desurvey_values()
+    rep = toolspec.Report()
+    out = tool.run(vals, rep)["OUTPUT"]
+    assert out.geometry == "line" and out.keep_source is None
+    assert [n for n, _t in out.fields] == ["hole", "eoh", "n_survey"]
+    (g1, r1), (g2, r2) = out.features
+    sd, sa, sg = wells.with_collar([0.0, 60.0], [45.0, 50.0],
+                                   [-60.0, -55.0], None, None)
+    pts, mds = wells.desurvey((100.0, 200.0, 50.0), sd, sa, sg,
+                              max_depth=120.0, step=1.0)
+    assert np.allclose(g1["points"], pts)
+    assert r1 == ["H1", float(mds[-1]), 2]
+    assert np.allclose(g2["points"][-1], (150.0, 200.0, -32.0))
+    assert r2 == ["H2", 80.0, 0]
+    text = "\n".join("%s %s" % kt for kt in rep.lines)
+    assert "warn Строк инклинометрии с пустыми или нечисловыми " \
+        "значениями: 1" in text
+    assert "Стволов: 2." in text
+    assert "Скважин без инклинометрии: 2." in text
+    assert "Пропущено устьев: 2" in text
+    assert "Инклинометрия без устья: 1 скважин, например LOST." in text
+    assert "X x, Y y, Z z." in text
+
+
+def test_desurvey_takes_points_with_z():
+    """Устья точками: координаты и отметка из геометрии."""
+    tool, vals = _desurvey_values(SURVEY=None)
+    vals["COLLARS"] = [
+        {"id": 1, "xyz": np.array([5.0, 6.0, 70.0]),
+         "attrs": {"hole": "P1", "eoh": 10.0}},
+        {"id": 2, "xyz": np.array([9.0, 6.0, np.nan]),
+         "attrs": {"hole": "P2", "eoh": 10.0}},
+    ]
+    vals["@COLLARS"] = {"name": "c", "geometry": "point", "hasz": True,
+                        "fields": ["hole", "eoh"]}
+    del vals["@SURVEY"]
+    rep = toolspec.Report()
+    out = tool.run(vals, rep)["OUTPUT"]
+    (g1, _r1), (g2, _r2) = out.features
+    assert np.allclose(g1["points"][0], (5, 6, 70))
+    assert np.allclose(g1["points"][-1], (5, 6, 60))
+    assert np.allclose(g2["points"][0], (9, 6, 0))      # без Z - на ноль
+    assert any(k == "warn" and "Устьев без отметки: 1" in t
+               for k, t in rep.lines)
+
+
+def test_desurvey_refusals():
+    tool, vals = _desurvey_values()
+    vals["@COLLARS"]["fields"] = ["name", "x", "y"]
+    with pytest.raises(toolspec.ToolError) as err:
+        tool.run(vals, toolspec.Report())
+    assert "номера скважины" in err.value.template
+    tool, vals = _desurvey_values()
+    vals["@SURVEY"]["fields"] = ["hole", "depth"]
+    with pytest.raises(toolspec.ToolError) as err:
+        tool.run(vals, toolspec.Report())
+    assert "не выбраны поля" in err.value.template
+
+
 def test_report_cancel_stops_the_sweep():
     class Stop(toolspec.Report):
         def canceled(self):
