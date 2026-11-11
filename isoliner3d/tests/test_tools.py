@@ -434,6 +434,93 @@ def test_desurvey_refusals():
     assert "не выбраны поля" in err.value.template
 
 
+def _intervals_values(**kw):
+    tool = by_name("hole_intervals")
+    traces = [
+        {"id": 1, "attrs": {"hole": "H1"},
+         "parts": [np.array([(0, 0, 0.0), (0, 0, -100.0)])]},
+        {"id": 2, "attrs": {"hole": "H2"},
+         "parts": [np.array([(10, 0, 0.0), (10, 0, -50.0)])]},
+        {"id": 3, "attrs": {"hole": "H3"},
+         "parts": [np.array([(20, 0, np.nan), (20, 5, np.nan)])]},
+    ]
+
+    def row(i, hole, a, b, au, lith):
+        return {"id": i, "xyz": None,
+                "attrs": {"hole": hole, "from_m": a, "to_m": b, "au": au,
+                          "lith": lith}}
+    table = [row(1, "H1", 0.0, 10.0, 1.5, "A"),
+             row(2, "H1", 10.0, 30.0, 3.0, "B"),
+             row(3, "H1", 90.0, 105.0, 0.5, "C"),
+             row(4, "H2", 5.0, 5.0, 9.0, "D"),
+             row(5, "LOST", 0.0, 1.0, 1.0, "E")]
+    vals = dict(tool.defaults(), TRACES=traces, TABLE=table)
+    vals["@TRACES"] = {"name": "t", "geometry": "line", "hasz": True,
+                       "fields": ["hole"]}
+    vals["@TABLE"] = {"name": "assay", "geometry": "none", "hasz": False,
+                      "fields": ["hole", "from_m", "to_m", "au", "lith"],
+                      "numeric": ["from_m", "to_m", "au"]}
+    vals.update(kw)
+    return tool, vals
+
+
+def test_intervals_from_the_table():
+    """2.18 из таблицы: поля таблицы переходят, забой режет."""
+    tool, vals = _intervals_values(MODE=0)
+    rep = toolspec.Report()
+    res = tool.run(vals, rep)
+    out, pts = res["OUTPUT"], res["OUTPUT_POINTS"]
+    assert out.geometry == "line" and pts.geometry == "point"
+    assert out.fields == pts.fields == [
+        ("hole", "string"), ("from_m", "double"), ("to_m", "double"),
+        ("length_m", "double"), ("au", "copy:TABLE"),
+        ("lith", "copy:TABLE")]
+    rows = [r for _g, r in out.features]
+    assert rows == [["H1", 0.0, 10.0, 10.0, 1.5, "A"],
+                    ["H1", 10.0, 30.0, 20.0, 3.0, "B"],
+                    ["H1", 90.0, 100.0, 10.0, 0.5, "C"]]
+    assert np.allclose(pts.features[0][0]["xyz"], (0, 0, -5))
+    assert np.allclose(out.features[2][0]["points"][-1], (0, 0, -100))
+    text = "\n".join(t for _k, t in rep.lines)
+    assert "Поля таблицы: скважина hole, от from_m, до to_m." in text
+    assert "Стволов: 2, интервалов: 3." in text
+    assert "с концом не дальше начала: 1" in text
+    assert "Интервалов глубже забоя: 1." in text
+    assert "Интервалы без ствола: 1 скважин, например LOST." in text
+
+
+def test_intervals_equal_and_composites():
+    tool, vals = _intervals_values(MODE=1, LENGTH=25.0, TABLE=None)
+    del vals["@TABLE"]
+    out = tool.run(vals, toolspec.Report())["OUTPUT"]
+    assert [r[1:3] for _g, r in out.features] == [
+        [0.0, 25.0], [25.0, 50.0], [50.0, 75.0], [75.0, 100.0],
+        [0.0, 25.0], [25.0, 50.0]]
+    tool, vals = _intervals_values(MODE=2, LENGTH=20.0)
+    out = tool.run(vals, toolspec.Report())["OUTPUT"]
+    assert [n for n, _t in out.fields][4:] == ["au", "cover"]
+    rows = [r for _g, r in out.features]
+    assert rows[0][:4] == ["H1", 0.0, 20.0, 20.0]
+    assert abs(rows[0][4] - 2.25) < 1e-9 and rows[0][5] == 1.0
+    assert rows[1][4] == 3.0 and abs(rows[1][5] - 0.5) < 1e-9
+    assert len(rows) == 3          # пустые композиты 40-80 м не пишутся
+    tool, vals = _intervals_values(MODE=2, LENGTH=20.0, VALUES=["au"])
+    assert len(tool.run(vals, toolspec.Report())["OUTPUT"].features) == 3
+
+
+def test_intervals_refusals():
+    tool, vals = _intervals_values(MODE=0, TABLE=None)
+    del vals["@TABLE"]
+    with pytest.raises(toolspec.ToolError) as err:
+        tool.run(vals, toolspec.Report())
+    assert "нужна таблица" in err.value.template
+    tool, vals = _intervals_values(MODE=1)
+    vals["@TRACES"]["fields"] = ["name"]
+    with pytest.raises(toolspec.ToolError) as err:
+        tool.run(vals, toolspec.Report())
+    assert "номера скважины в стволах" in err.value.template
+
+
 def test_report_cancel_stops_the_sweep():
     class Stop(toolspec.Report):
         def canceled(self):

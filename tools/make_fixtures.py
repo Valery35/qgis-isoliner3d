@@ -397,7 +397,50 @@ def tool_runs(out):
                 "report": rep.lines})
     runs += _zonal_runs()
     runs += _desurvey_runs()
+    runs += _interval_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
+
+
+def _interval_runs():
+    """2.18: из таблицы, равные, композиты. Тип "copy:TABLE" - поле
+    переходит из таблицы с её типом."""
+    tool = by_name("hole_intervals")
+    traces = [{"id": 1, "attrs": {"hole": "H1"},
+               "parts": [[[0, 0, 0.0], [0, 0, -60.0], [10, 0, -100.0]]]},
+              {"id": 2, "attrs": {"hole": "H2"},
+               "parts": [[[20, 0, 0.0], [20, 0, -50.0]]]}]
+    table = [{"id": i, "xyz": None,
+              "attrs": {"hole": h, "from_m": a, "to_m": b, "au": au,
+                        "lith": lith}}
+             for i, (h, a, b, au, lith) in enumerate((
+                 ("H1", 0.0, 10.0, 1.5, "A"), ("H1", 10.0, 30.0, 3.0, "B"),
+                 ("H1", 90.0, 120.0, None, "C"), ("H2", 5.0, 15.0, 7.0, "D"),
+                 ("H2", 5.0, 5.0, 9.0, "E"), ("LOST", 0.0, 1.0, 1.0, "F")))]
+    meta = {"@TRACES": {"name": "t", "geometry": "line", "hasz": True,
+                        "fields": ["hole"]},
+            "@TABLE": {"name": "assay", "geometry": "none", "hasz": False,
+                       "fields": ["hole", "from_m", "to_m", "au", "lith"],
+                       "numeric": ["from_m", "to_m", "au"]}}
+    feed = [dict(t, parts=[np.array(p, dtype=float) for p in t["parts"]])
+            for t in traces]
+    runs = []
+    for kw in (dict(MODE=0), dict(MODE=1, LENGTH=25.0),
+               dict(MODE=2, LENGTH=20.0)):
+        vals = dict(tool.defaults(), **kw)
+        rep = toolspec.Report()
+        res = tool.run(dict(vals, TRACES=feed, TABLE=table, **meta), rep)
+        outs = {}
+        for key, r in res.items():
+            outs[key] = {"fields": r.fields, "geometry": r.geometry,
+                         "features": [
+                             {"geometry": {k: _plain(x)
+                                           for k, x in g.items()},
+                              "values": [_plain(x) for x in row]}
+                             for g, row in r.features]}
+        runs.append({"tool": tool.name, "values": dict(vals, **meta),
+                     "input": {"TRACES": traces, "TABLE": table},
+                     "output": outs, "report": rep.lines})
+    return runs
 
 
 def _desurvey_runs():

@@ -6754,299 +6754,6 @@ def _key(v):
     return "" if v is None else str(v).strip()
 
 
-HINTS_2_18 = {
-    "TRACES": "Стволы скважин: линии с Z от устья к забою, например "
-              "из 2.17. Глубина по стволу считается длиной линии "
-              "от её начала.",
-    "T_HOLE": "Поле номера скважины в стволах. По нему ствол "
-              "сводится со строками таблицы интервалов.",
-    "MODE": "Интервалы из таблицы кладут каждую строку опробования "
-            "на ствол как есть. Равные интервалы режут ствол на "
-            "пробы заданной длины от устья до забоя. Композиты "
-            "режут так же и считают в каждом среднее по таблице, "
-            "взвешенное по длине.",
-    "TABLE": "Таблица интервалов: скважина, от, до и значения. Нужна "
-             "для интервалов из таблицы и для композитов.",
-    "F_HOLE": "Поле номера скважины в таблице интервалов. Номера "
-              "сводятся со стволами как текст.",
-    "F_FROM": "Поле начала интервала, метры по стволу от устья, "
-              "не отметка.",
-    "F_TO": "Поле конца интервала, метры по стволу. Строка с концом "
-            "не дальше начала пропускается.",
-    "VALUES": "Числовые поля для композитов. Пусто - все числовые, "
-              "кроме начала и конца интервала.",
-    "LENGTH": "Длина равного интервала или композита, метры. "
-              "Последний интервал до забоя короче, если длина "
-              "не делится нацело.",
-    "OUTPUT": "Интервалы: куски ствола с Z от начала до конца "
-              "интервала, с полями от, до, длина и значениями. "
-              "В сцене их показывают трубами с толщиной или цветом "
-              "по содержанию.",
-    "OUTPUT_POINTS": "Середины интервалов: точки с Z и теми же полями. "
-                     "Это вход для 2.02, 2.06 и 2.07.",
-}
-
-
-class HoleIntervalsAlgorithm(IsolinerAlgorithm):
-    """Интервалы по стволу: из таблицы, равные или композиты."""
-
-    TRACES, T_HOLE, MODE = "TRACES", "T_HOLE", "MODE"
-    TABLE, F_HOLE, F_FROM, F_TO = "TABLE", "F_HOLE", "F_FROM", "F_TO"
-    VALUES, LENGTH = "VALUES", "LENGTH"
-    OUTPUT, OUTPUT_POINTS = "OUTPUT", "OUTPUT_POINTS"
-
-    def name(self):
-        return "hole_intervals"
-
-    def displayName(self):
-        return self.tr("2.18 Интервалы по стволу скважины")
-
-    def group(self):
-        return self.tr(GROUP5)
-
-    def groupId(self):
-        return GROUP5_ID
-
-    def helpUrl(self):
-        return _help_url()
-
-    def createInstance(self):
-        return HoleIntervalsAlgorithm()
-
-    def shortHelpString(self):
-        return _help_version(self.tr(
-            "Режет стволы скважин на интервалы.\n\n"
-            "Три способа. Интервалы из таблицы: каждая строка "
-            "опробования ложится на ствол от своей глубины до своей "
-            "со всеми полями. Равные интервалы: ствол режется "
-            "на пробы заданной длины от устья. Композиты: так же, "
-            "но в каждом интервале считается среднее по таблице, "
-            "взвешенное по длине пересечения. Простое среднее "
-            "завысило бы короткую богатую пробу.\n\n"
-            "Композит без единой пробы получает пустое значение, "
-            "а не ноль, поле cover показывает опробованную долю его "
-            "длины.\n\n"
-            "На выходе куски ствола с Z и середины интервалов точками. "
-            "Куски показывают в сцене трубами, точки идут в "
-            "интерполяцию 2.02, 2.06 и 2.07.") + _credit())
-
-    def initAlgorithm(self, config=None):
-        anyv = [QgsProcessing.SourceType.TypeVector]
-        num = QgsProcessingParameterField.DataType.Numeric
-        self.addParameter(QgsProcessingParameterFeatureSource(
-            self.TRACES, self.tr("Стволы скважин (линии с Z)"),
-            [QgsProcessing.SourceType.TypeVectorLine]))
-        self.addParameter(QgsProcessingParameterField(
-            self.T_HOLE, self.tr("Поле номера скважины в стволах"),
-            "hole", self.TRACES, optional=True))
-        self.addParameter(QgsProcessingParameterEnum(
-            self.MODE, self.tr("Как резать"),
-            options=[self.tr("Интервалы из таблицы"),
-                     self.tr("Равные интервалы заданной длины"),
-                     self.tr("Композиты по длине из таблицы")],
-            defaultValue=0))
-        self.addParameter(QgsProcessingParameterFeatureSource(
-            self.TABLE, self.tr("Таблица интервалов"), anyv,
-            optional=True))
-        self.addParameter(QgsProcessingParameterField(
-            self.F_HOLE, self.tr("Поле номера скважины в таблице"),
-            "hole", self.TABLE, optional=True))
-        self.addParameter(QgsProcessingParameterField(
-            self.F_FROM, self.tr("Поле начала интервала"), "from_m",
-            self.TABLE, type=num, optional=True))
-        self.addParameter(QgsProcessingParameterField(
-            self.F_TO, self.tr("Поле конца интервала"), "to_m",
-            self.TABLE, type=num, optional=True))
-        self.addParameter(QgsProcessingParameterField(
-            self.VALUES, self.tr("Поля для композитов (пусто - все "
-                                 "числовые)"), None, self.TABLE,
-            type=num, allowMultiple=True, optional=True))
-        self.addParameter(QgsProcessingParameterNumber(
-            self.LENGTH, self.tr("Длина интервала, м"),
-            QgsProcessingParameterNumber.Type.Double,
-            defaultValue=1.0, minValue=0.01))
-        self.addParameter(QgsProcessingParameterFeatureSink(
-            self.OUTPUT, self.tr("Интервалы"),
-            QgsProcessing.SourceType.TypeVectorLine))
-        self.addParameter(QgsProcessingParameterFeatureSink(
-            self.OUTPUT_POINTS, self.tr("Середины интервалов"),
-            QgsProcessing.SourceType.TypeVectorPoint))
-        _hints(self, HINTS_2_18)
-
-    @staticmethod
-    def _trace_xyz(g):
-        """Вершины ствола (N, 3) и глубины по стволу как длина."""
-        # у составной линии берётся первая часть: ствол один
-        if g.isMultipart():
-            g = QgsGeometry(g.constGet().geometryN(0).clone())
-        pts = np.array([(v.x(), v.y(), v.z()) for v in g.vertices()],
-                       dtype=float)
-        if len(pts) < 2 or not np.isfinite(pts).all():
-            return None, None
-        md = np.concatenate([[0.0], np.cumsum(np.linalg.norm(
-            np.diff(pts, axis=0), axis=1))])
-        return pts, md
-
-    def _process(self, parameters, context, feedback):
-        from qgis.core import (QgsFields, QgsFeature, QgsLineString,
-                               QgsPoint, QgsWkbTypes)
-        from . import wells
-
-        tr_src = self.parameterAsSource(parameters, self.TRACES, context)
-        t_hole = self.parameterAsString(parameters, self.T_HOLE, context)
-        mode = self.parameterAsEnum(parameters, self.MODE, context)
-        tab = self.parameterAsSource(parameters, self.TABLE, context)
-        f_hole = self.parameterAsString(parameters, self.F_HOLE, context)
-        f_from = self.parameterAsString(parameters, self.F_FROM, context)
-        f_to = self.parameterAsString(parameters, self.F_TO, context)
-        vals = self.parameterAsFields(parameters, self.VALUES, context)
-        length = self.parameterAsDouble(parameters, self.LENGTH, context)
-        from . import colnames
-        t_hole = colnames.resolve(t_hole, tr_src.fields().names(), "hole")
-        if not t_hole:
-            raise QgsProcessingException(self.tr(
-                "Не найдено поле номера скважины в стволах: выберите "
-                "его."))
-        if tab is not None:
-            tn = tab.fields().names()
-            f_hole = colnames.resolve(f_hole, tn, "hole")
-            f_from = colnames.resolve(f_from, tn, "from")
-            f_to = colnames.resolve(f_to, tn, "to")
-            feedback.pushInfo(self.tr(
-                "Поля таблицы: скважина %s, от %s, до %s.")
-                % tuple((f or "-") for f in (f_hole, f_from, f_to)))
-        if mode in (0, 2) and (tab is None or not (f_hole and f_from
-                                                   and f_to)):
-            raise QgsProcessingException(self.tr(
-                "Для этого способа нужна таблица интервалов с полями "
-                "скважины, начала и конца."))
-
-        traces = {}
-        for ft in tr_src.getFeatures():
-            g = ft.geometry()
-            if g is None or g.isEmpty():
-                continue
-            pts, md = self._trace_xyz(g)
-            if pts is not None:
-                traces[_key(ft[t_hole])] = (pts, md)
-        if not traces:
-            raise QgsProcessingException(self.tr(
-                "Стволов с отметками не нашлось."))
-
-        fields = QgsFields()
-        fields.append(_field("hole", QVariant.String))
-        for nm in ("from_m", "to_m", "length_m"):
-            fields.append(_field(nm, QVariant.Double))
-        carry = []
-        if mode == 0:
-            for fd in tab.fields():
-                if fd.name() in (f_hole, f_from, f_to) or \
-                        fields.indexOf(fd.name()) >= 0:
-                    continue
-                fields.append(fd)
-                carry.append(fd.name())
-        elif mode == 2:
-            if not vals:
-                vals = [fd.name() for fd in tab.fields()
-                        if fd.isNumeric() and fd.name() not in
-                        (f_from, f_to)]
-            for nm in vals:
-                if fields.indexOf(nm) < 0:
-                    fields.append(_field(nm, QVariant.Double))
-            fields.append(_field("cover", QVariant.Double))
-        crs = tr_src.sourceCrs()
-        sink, dest = self.parameterAsSink(
-            parameters, self.OUTPUT, context, fields,
-            QgsWkbTypes.Type.LineStringZ, crs)
-        sink_p, dest_p = self.parameterAsSink(
-            parameters, self.OUTPUT_POINTS, context, fields,
-            QgsWkbTypes.Type.PointZ, crs)
-        if sink is None or sink_p is None:
-            raise QgsProcessingException(self.tr(
-                "Не удалось создать слой интервалов."))
-
-        rows = {}
-        n_bad = 0
-        if tab is not None and mode in (0, 2):
-            for ft in tab.getFeatures():
-                a, b = _numv(ft[f_from]), _numv(ft[f_to])
-                if a is None or b is None or b <= a:
-                    n_bad += 1
-                    continue
-                rows.setdefault(_key(ft[f_hole]), []).append((a, b, ft))
-
-        def put(name, pts, md, a, b, extra):
-            seg = wells.segment(pts, md, a, b)
-            if len(seg) < 2:
-                return 0
-            attrs = [name, float(a), float(b), float(b - a)] + extra
-            out = QgsFeature(fields)
-            out.setGeometry(QgsGeometry(QgsLineString(
-                [QgsPoint(float(x), float(y), float(z))
-                 for x, y, z in seg])))
-            out.setAttributes(attrs)
-            sink.addFeature(out)
-            mid = wells.at_depth(pts, md, [(a + b) / 2.0])[0]
-            op = QgsFeature(fields)
-            op.setGeometry(QgsGeometry(QgsPoint(
-                float(mid[0]), float(mid[1]), float(mid[2]))))
-            op.setAttributes(attrs)
-            sink_p.addFeature(op)
-            return 1
-
-        made = beyond = 0
-        for name, (pts, md) in traces.items():
-            if feedback.isCanceled():
-                break
-            end = float(md[-1])
-            if mode == 0:
-                for a, b, ft in rows.get(name, []):
-                    # хорды узлов короче дуги на доли миллиметра, поэтому
-                    # проба до самого забоя кончается чуть дальше линии:
-                    # это не ошибка данных, предупреждать не о чем
-                    if b > end + 0.05:
-                        beyond += 1
-                    made += put(name, pts, md, a, min(b, end),
-                                [ft[c] for c in carry])
-            elif mode == 1:
-                for a, b in wells.equal_intervals(end, length):
-                    made += put(name, pts, md, a, b, [])
-            else:
-                r = rows.get(name, [])
-                if not r:
-                    continue
-                vv = np.array([[_numv(ft[c]) if _numv(ft[c]) is not None
-                                else np.nan for c in vals]
-                               for _a, _b, ft in r], dtype=float)
-                iv, cv, cover = wells.composite(
-                    [x[0] for x in r], [x[1] for x in r], vv, length,
-                    end=end)
-                for k, (a, b) in enumerate(iv):
-                    if cover[k] <= 0:
-                        continue
-                    extra = [None if not np.isfinite(x) else float(x)
-                             for x in cv[k]] + [float(cover[k])]
-                    made += put(name, pts, md, a, b, extra)
-        _set_output_name(context, dest, self.tr("Интервалы"))
-        _set_output_name(context, dest_p, self.tr("Середины интервалов"))
-        feedback.pushInfo(self.tr("Стволов: %d, интервалов: %d.")
-                          % (len(traces), made))
-        if n_bad:
-            feedback.pushWarning(self.tr(
-                "Строк таблицы без начала и конца или с концом не "
-                "дальше начала: %d, они пропущены.") % n_bad)
-        if beyond:
-            feedback.pushWarning(self.tr(
-                "Интервалов глубже забоя: %d. Они обрезаны по забою: "
-                "проверьте глубину скважины в устьях.") % beyond)
-        orphan = sorted(set(rows) - set(traces))
-        if orphan:
-            feedback.pushWarning(self.tr(
-                "Интервалы без ствола: %d скважин, например %s.")
-                % (len(orphan), ", ".join(orphan[:5])))
-        return {self.OUTPUT: dest, self.OUTPUT_POINTS: dest_p}
-
-
 HINTS_2_19 = {
     "EXTENT": "Куда положить пример. Пусто означает взять охват окна "
               "вида: участок ляжет туда, куда вы смотрите.",
@@ -7830,6 +7537,8 @@ class SpecAlgorithm(IsolinerAlgorithm):
                     kw["type"] = QgsProcessingParameterField.DataType.Numeric
                 if p.default is not None:
                     kw["defaultValue"] = p.default
+                if p.multiple:
+                    kw["allowMultiple"] = True
                 prm = QgsProcessingParameterField(
                     p.key, label, parentLayerParameterName=p.parent,
                     optional=p.optional, **kw)
@@ -7976,6 +7685,9 @@ class SpecAlgorithm(IsolinerAlgorithm):
                 else:
                     geoms = self._geoms.setdefault(k, {})
                     values[k] = self._features(src, p.kind, geoms)
+            elif p.kind == "field" and p.multiple:
+                values[k] = list(self.parameterAsFields(parameters, k,
+                                                        context))
             elif p.kind == "field":
                 values[k] = self.parameterAsString(parameters, k, context)
             elif p.kind == "number":
@@ -8010,7 +7722,9 @@ class SpecAlgorithm(IsolinerAlgorithm):
             "line" if "Line" in kind else "polygon"
         return {"name": src.sourceName() or "", "geometry": geom,
                 "hasz": bool(QgsWkbTypes.hasZ(wkb)),
-                "fields": list(src.fields().names())}
+                "fields": list(src.fields().names()),
+                "numeric": [f.name() for f in src.fields()
+                            if f.isNumeric()]}
 
     @staticmethod
     def _meshes(src, feedback, geoms):
@@ -8129,12 +7843,18 @@ class SpecAlgorithm(IsolinerAlgorithm):
             for nm, typ in res.fields:
                 if res.replace and nm in have:
                     continue          # пишется в поле источника
+                if typ.startswith("copy:"):
+                    # поле переходит из слоя со своим типом
+                    fields.append(sources[typ[5:]].fields().field(nm))
+                    continue
                 fields.append(_field(nm if nm not in have else "body_" + nm,
                                      self._TYPES[typ]))
             as_source = res.geometry == "source"
             as_line = res.geometry == "line"
+            as_point = res.geometry == "point"
             wkb = sources[keep].wkbType() if as_source \
                 else QgsWkbTypes.Type.LineStringZ if as_line \
+                else QgsWkbTypes.Type.PointZ if as_point \
                 else QgsWkbTypes.Type.MultiPolygonZ
             sink, dest = self.parameterAsSink(
                 parameters, p.key, context, fields, wkb, crs)
@@ -8150,6 +7870,10 @@ class SpecAlgorithm(IsolinerAlgorithm):
                     ft.setGeometry(QgsGeometry(QgsLineString(
                         [QgsPoint(float(a), float(b), float(c))
                          for a, b, c in geom["points"]])))
+                elif as_point:
+                    a, b, c = geom["xyz"]
+                    ft.setGeometry(QgsGeometry(QgsPoint(
+                        float(a), float(b), float(c))))
                 else:
                     ft.setGeometry(_mesh_geometry(geom["verts"],
                                                   geom["faces"]))
@@ -8223,6 +7947,21 @@ class DesurveyAlgorithm(SpecAlgorithm):
 
     def displayName(self):
         return self.tr("2.17 Стволы скважин по инклинометрии")
+
+    def groupId(self):
+        return GROUP5_ID
+
+
+class HoleIntervalsAlgorithm(SpecAlgorithm):
+    """2.18 Интервалы по стволу скважины (tools/hole_intervals.py)."""
+
+    SPEC = "hole_intervals"
+
+    def name(self):
+        return "hole_intervals"
+
+    def displayName(self):
+        return self.tr("2.18 Интервалы по стволу скважины")
 
     def groupId(self):
         return GROUP5_ID

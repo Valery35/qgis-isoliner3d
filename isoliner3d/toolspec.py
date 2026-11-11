@@ -40,8 +40,9 @@ QGIS подключается одной обёрткой (SpecAlgorithm в algo
 
 К каждому слою на входе обёртка добавляет values["@КЛЮЧ"] =
 {"name": имя слоя, "geometry": "point" | "line" | "polygon" | "none",
-"hasz": есть ли Z, "fields": [имена полей]}. Без QGIS этот словарь
-можно не давать.
+"hasz": есть ли Z, "fields": [имена полей], "numeric": [числовые
+поля]}. Без QGIS этот словарь можно не давать. Поле field
+с multiple=True приходит списком имён.
 
 Результат run - словарь {ключ выхода: Result}. Result несёт поля
 (имя, тип), объекты (геометрия, значения) и признак keep_source:
@@ -115,19 +116,21 @@ class Param(object):
 class Result(object):
     """Выход инструмента: поля и объекты.
 
-    fields - [(имя, тип)], тип "double", "int" или "string".
+    fields - [(имя, тип)], тип "double", "int", "string" или
+    "copy:КЛЮЧ" - поле с тем же именем и типом, что у слоя КЛЮЧ.
     features - [(геометрия, значения)]; геометрия тела -
     {"verts", "faces"}. keep_source - объекты несут сначала значения
     объекта источника (значения в начале списка), потом свои.
     geometry - "mesh" (тела), "line" (линия с Z, геометрия -
-    {"points": (n, 3)}) или "source": геометрия объекта источника
+    {"points": (n, 3)}), "point" (точка с Z, геометрия - {"xyz": (3,)})
+    или "source": геометрия объекта источника
     keep_source как есть, тогда геометрия - {"source": id}.
     replace - свои поля с именем поля источника пишутся в него,
     а не рядом. Значения объекта тогда - словарь {поле: значение}:
     чего в словаре нет, остаётся от источника, у новых полей пусто.
     """
 
-    GEOMETRIES = ("mesh", "line", "source")
+    GEOMETRIES = ("mesh", "line", "point", "source")
 
     def __init__(self, fields, features=None, keep_source=None,
                  name=None, geometry="mesh", replace=False):
@@ -214,7 +217,8 @@ class Tool(object):
         out = {}
         for p in self.params:
             if p.kind != "sink":
-                out[p.key] = list(p.default) if p.multiple else p.default
+                out[p.key] = list(p.default or []) if p.multiple \
+                    else p.default
             elif p.optional:
                 out[p.key] = False
         return out

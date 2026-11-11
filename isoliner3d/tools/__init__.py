@@ -13,10 +13,12 @@ QGIS: его берут обёртка Processing, выгрузка tools.json �
 """
 
 from . import (boolean_shells, desurvey_holes, fill_volume,
-               select_by_shell, sweep_body, zonal_shell_stats)
+               hole_intervals, select_by_shell, sweep_body,
+               zonal_shell_stats)
 
 TOOLS = [boolean_shells.SPEC, select_by_shell.SPEC, zonal_shell_stats.SPEC,
-         desurvey_holes.SPEC, fill_volume.SPEC, sweep_body.SPEC]
+         desurvey_holes.SPEC, hole_intervals.SPEC, fill_volume.SPEC,
+         sweep_body.SPEC]
 
 
 def by_name(name):

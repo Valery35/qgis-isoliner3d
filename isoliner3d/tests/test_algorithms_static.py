@@ -353,7 +353,7 @@ def test_every_tool_has_field_hints():
              ("FormationBodiesAlgorithm", "HINTS_2_15"),
              ("DemoRiversAlgorithm", "HINTS_2_16"),
              ("DesurveyAlgorithm", None),
-             ("HoleIntervalsAlgorithm", "HINTS_2_18"),
+             ("HoleIntervalsAlgorithm", None),
              ("DemoDrillingAlgorithm", "HINTS_2_19"),
              ("BlocksToCubeAlgorithm", "HINTS_2_20"),
              ("InversionSectionAlgorithm", "HINTS_2_21"),
