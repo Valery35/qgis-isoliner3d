@@ -3043,7 +3043,34 @@ def test_edge_triangles_are_cut_not_dropped():
     end = src.index("        def _clip_geom", start)
     body = src[start:end]
     assert "n_in == 3" in body and "(n_in > 0) & (n_in < 3)" in body
-    assert "_bary_z(tri" in body
+    # отметка новой вершины: вдоль ребра, иначе по плоскости грани
+    assert "cut_z(tri" in body
+    # грань, сквозь которую проходит граница, режется и тогда, когда
+    # все её вершины по одну сторону (длинные грани штрека)
+    assert "boundary_crossing(" in body and "thru" in body
+
+
+def test_export_uses_the_frame_of_this_build():
+    """Выгрузка переводит координаты по центру ТЕКУЩЕЙ сборки.
+
+    _pick с центром пишется в конце сборки, уже после того, как части
+    отложены в выгрузку, и перевод шёл по центру прошлой сборки: при
+    первой поверхности уходили в координатах окна, при повторной тела,
+    и без того настоящие, сдвигались второй раз. Тело штрека
+    в пакете сцены выходило в пять раз меньше и в стороне. Живая
+    проверка - tools/qgis_check/run_clip.py и повторная сборка окна.
+    """
+    src = _viewer_src()
+    start = src.index("def _rebuild_scene")
+    body = src[start:src.index("\n    def ", start + 20)]
+    i_frame = body.index("self._export_frame = ")
+    assert i_frame < body.index("self._keep_for_export(")
+    assert body.index("cz = 0.5 * (min(zs_)") < i_frame
+    # тела уже в настоящих координатах: второй раз их не переводят
+    assert "np.vstack(allmap), bf, np.vstack(allc), real=True" in body
+    keep = src[src.index("def _keep_for_export"):]
+    keep = keep[:keep.index("\n    def ", 10)]
+    assert "self._export_frame" in keep and "if not real" in keep
 
 
 def test_closed_shell_is_recognised():

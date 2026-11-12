@@ -719,6 +719,93 @@ def walk_rings(segs, snap=1e-6):
     return [r for r in rings if len(r) >= 3]
 
 
+def boundary_crossing(tv, flat, edges, chunk=4000):
+    """Грани, сквозь которые в плане проходит граница области обрезки.
+
+    Обрезка решала судьбу грани по её вершинам: все внутри - оставить,
+    все снаружи - выбросить, смешанные - резать. Длинная грань ломалась
+    на этом: у штрека грань во всю длину колена, контур пересекает её
+    посередине, а вершины обе снаружи. Грань выбрасывалась целиком
+    вместе с куском тела внутри контура, а при «убрать внутри»
+    оставалась целой и тело не резалось вовсе.
+
+    Граница проходит сквозь грань, если её отрезок пересекает сторону
+    грани или её вершина лежит внутри грани: так ловится и маленький
+    контур целиком внутри большой грани. У отвесной грани, которая
+    в плане вырождается в отрезок, проверяется её самая длинная
+    сторона в плане.
+
+    `tv` - треугольники (T, 3, 3), `flat` - (T,) признак отвесной
+    грани, `edges` - отрезки границы (E, 2, 2) в плане. Возвращает
+    (T,) bool.
+    """
+    import numpy as np
+    tv = np.asarray(tv, dtype=float)
+    out = np.zeros(len(tv), dtype=bool)
+    edges = np.asarray(edges, dtype=float).reshape(-1, 2, 2)
+    if not len(tv) or not len(edges):
+        return out
+    p = tv[:, :, :2]
+    # охват границы целиком: грань вне его не трогаем вовсе
+    e_lo = edges.reshape(-1, 2).min(axis=0)
+    e_hi = edges.reshape(-1, 2).max(axis=0)
+    t_lo, t_hi = p.min(axis=1), p.max(axis=1)
+    near = np.nonzero((t_hi >= e_lo).all(axis=1)
+                      & (t_lo <= e_hi).all(axis=1))[0]
+    if not len(near):
+        return out
+    flat = np.asarray(flat, dtype=bool)
+    ea, eb = edges[:, 0], edges[:, 1]
+    eb_lo, eb_hi = np.minimum(ea, eb), np.maximum(ea, eb)
+
+    def orient(a, b, c):
+        return ((b[..., 0] - a[..., 0]) * (c[..., 1] - a[..., 1])
+                - (b[..., 1] - a[..., 1]) * (c[..., 0] - a[..., 0]))
+
+    def cross(a, b, c, d):
+        o1, o2 = orient(a, b, c), orient(a, b, d)
+        o3, o4 = orient(c, d, a), orient(c, d, b)
+        return ((o1 * o2 <= 0) & (o3 * o4 <= 0)
+                & ~((o1 == 0) & (o2 == 0)))
+
+    for s in range(0, len(near), chunk):
+        idx = near[s:s + chunk]
+        q = p[idx]
+        # пары «грань - отрезок границы» с пересекающимися охватами
+        lo, hi = q.min(axis=1), q.max(axis=1)
+        ti, ei = np.nonzero(
+            (hi[:, None, 0] >= eb_lo[None, :, 0])
+            & (lo[:, None, 0] <= eb_hi[None, :, 0])
+            & (hi[:, None, 1] >= eb_lo[None, :, 1])
+            & (lo[:, None, 1] <= eb_hi[None, :, 1]))
+        if not len(ti):
+            continue
+        a, b = ea[ei], eb[ei]
+        tri = q[ti]
+        is_flat = flat[idx][ti]
+        hit = np.zeros(len(ti), dtype=bool)
+        # обычная грань: отрезок границы режет одну из сторон
+        for k in range(3):
+            hit |= cross(tri[:, k], tri[:, (k + 1) % 3], a, b)
+        # или вершина границы внутри грани
+        for pt in (a, b):
+            d0 = orient(tri[:, 0], tri[:, 1], pt)
+            d1 = orient(tri[:, 1], tri[:, 2], pt)
+            d2 = orient(tri[:, 2], tri[:, 0], pt)
+            hit |= (((d0 > 0) & (d1 > 0) & (d2 > 0))
+                    | ((d0 < 0) & (d1 < 0) & (d2 < 0)))
+        if is_flat.any():
+            # отвесная грань: её отрезок в плане - самая длинная сторона
+            ft = tri[is_flat]
+            dd = ft[:, [1, 2, 0]] - ft
+            k = np.argmax((dd ** 2).sum(axis=2), axis=1)
+            r = np.arange(len(ft))
+            s0, s1 = ft[r, k], ft[r, k] + dd[r, k]
+            hit[is_flat] = cross(s0, s1, a[is_flat], b[is_flat])
+        out[idx[np.unique(ti[hit])]] = True
+    return out
+
+
 def clip_wall(tri, spans):
     """Отвесная грань, обрезанная по доле длины в плане.
 
@@ -961,6 +1048,39 @@ def _bary_z(tri, xs, ys):
     l2 = ((y3 - y1) * (xs - x3) + (x1 - x3) * (ys - y3)) / den
     l3 = 1.0 - l1 - l2
     return l1 * z1 + l2 * z2 + l3 * z3
+
+
+def cut_z(tri, xs, ys, tol=1e-5):
+    """Отметки новых вершин грани после резки по контуру.
+
+    Точка на ребре грани берёт отметку вдоль этого ребра, остальные -
+    из плоскости грани (_bary_z). На крутой узкой грани, которая
+    в плане щель в несколько сантиметров, отметка по плоскости
+    неустойчива: соседние грани ставили точку на общем ребре на разную
+    высоту, расхождение доходило до сантиметра, вершины не сшивались,
+    и тело после резки оставалось с щелями, а крышка на срезе не
+    собиралась. Вдоль ребра обе грани считают одно и то же.
+    """
+    import numpy as np
+    tri = np.asarray(tri, dtype=float)
+    xs = np.asarray(xs, dtype=float)
+    ys = np.asarray(ys, dtype=float)
+    z = np.asarray(_bary_z(tri, xs, ys), dtype=float).copy()
+    best = np.full(xs.shape, np.inf)
+    for k in range(3):
+        a, b = tri[k], tri[(k + 1) % 3]
+        d = b[:2] - a[:2]
+        ln2 = float((d ** 2).sum())
+        if ln2 <= 0:
+            continue                # отвесное ребро: в плане точка
+        t = ((xs - a[0]) * d[0] + (ys - a[1]) * d[1]) / ln2
+        px, py = a[0] + t * d[0], a[1] + t * d[1]
+        dist = np.hypot(xs - px, ys - py)
+        on = (dist <= tol) & (t >= -1e-9) & (t <= 1 + 1e-9) & (dist < best)
+        tc = np.clip(t, 0.0, 1.0)
+        z = np.where(on, a[2] + tc * (b[2] - a[2]), z)
+        best = np.where(on, dist, best)
+    return z
 
 
 _TRI_PART_TYPES = {1003, 1017, 0x80000003, 0x80000011}

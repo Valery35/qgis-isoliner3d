@@ -34,7 +34,8 @@ from .viewer3d import (    # noqa: F401
     _css_rgba, _draw_on_top, _find_data, _flat_z, _halo_text_item,
     _import_gl, _layer_budget, _layer_has_z, _log, _map_order, _parts_xyz,
     _prism, _ramp_from_renderer, _read_raster, _tessellate, _tool_icon,
-    _tri_cached, bed_to_mesh_arrays, clip_wall, colormap, cylinder,
+    _tri_cached, bed_to_mesh_arrays, boundary_crossing, clip_wall,
+    colormap, cut_z, cylinder,
     draw_depth, field_color, flat_marker_mesh, grid_to_mesh_arrays,
     layer_lift, polygon_mask, polyline_dist_side, ramp_colors,
     sample_bilinear, shade_colors, split_by_alpha, symbol_alpha,
@@ -469,6 +470,7 @@ class ViewerDialog(QDialog):
         self._clip_geom_now = None   # он же геометрией, для резки тел
         self._layer_colors_cache = {}   # цвета из стиля слоя
         self._export = []        # части сцены для выгрузки в GLB
+        self._export_frame = None    # центр и vex сборки для выгрузки
         self._vox_colors = {}    # цвета граней вокселей по слою
         self._dirty = False      # сцена отстала от настроек
         self._style_ramp = {}    # цвета вершин по шкале слоя
@@ -4746,11 +4748,10 @@ class ViewerDialog(QDialog):
         # у которого хоть одна вершина вне диапазона, целиком
         # выбрасывается. Резать его по горизонтали было бы точнее,
         # но грани тут мельче шага уровней, и разница не видна.
-        inside_v = (self._points_kept(v[:, 0], v[:, 1])
-                    & self._z_kept(v[:, 2], v[:, 0], v[:, 1]))
+        z_v = self._z_kept(v[:, 2], v[:, 0], v[:, 1])
+        inside_v = self._points_kept(v[:, 0], v[:, 1]) & z_v
         tri_in = inside_v[f]
         n_in = tri_in.sum(axis=1)
-        keep_all = n_in == 3
         # Отвесная грань в плане вырождается в отрезок нулевой
         # площади: пересечение с контуром даёт пусто, и такие грани
         # пропадали целиком. У вокселей это все стенки ячеек,
@@ -4762,13 +4763,31 @@ class ViewerDialog(QDialog):
             (tv[:, 1, 0] - tv[:, 0, 0]) * (tv[:, 2, 1] - tv[:, 0, 1])
             - (tv[:, 2, 0] - tv[:, 0, 0]) * (tv[:, 1, 1] - tv[:, 0, 1]))
         flat_tri = _plan_area < 1e-9
+        # Грань, сквозь которую проходит граница, режется, даже если
+        # все её вершины по одну сторону. По вершинам это не видно:
+        # у штрека грань во всю длину колена, контур пересекает её
+        # посередине, обе вершины снаружи. Такая грань выбрасывалась
+        # вместе с куском тела внутри контура, а при «убрать внутри»
+        # оставалась целой. Грань вне диапазона отметок не трогаем:
+        # по отметке грань отбрасывается целиком, как и прежде.
+        thru = np.zeros(len(f), dtype=bool)
+        if cg is not None:
+            whole = ((n_in == 0) | (n_in == 3)) & z_v[f].all(axis=1)
+            if whole.any():
+                edges = self._clip_edges(cg)
+                if len(edges):
+                    sel = np.nonzero(whole)[0]
+                    thru[sel] = boundary_crossing(tv[sel], flat_tri[sel],
+                                                  edges)
+        part_in = ((n_in > 0) & (n_in < 3)) | thru
+        keep_all = (n_in == 3) & ~thru & ~flat_tri
         # Отвесную грань раньше оставляли целиком, если хоть одна
         # вершина внутри. Она торчала за контур, соседняя
         # горизонтальная была обрезана по нему, и между ними
         # оставалась щель: это и были дырки. Теперь режем её точно,
         # вдоль отрезка, в который она вырождается в плане.
-        wall_cut = flat_tri & (n_in > 0) & (n_in < 3)
-        keep_all = keep_all | (flat_tri & (n_in == 3))
+        wall_cut = flat_tri & part_in
+        keep_all = keep_all | (flat_tri & (n_in == 3) & ~thru)
         if cg is None:
             # Резать нечем: оставляем стенку целиком, это лучше,
             # чем потерять её вовсе.
@@ -4777,7 +4796,7 @@ class ViewerDialog(QDialog):
         # Счётчики для отчёта: по картинке не понять, кто срезал.
         self._clip_seen += int(len(f))
         self._clip_kept += int(keep_all.sum())
-        mixed = (n_in > 0) & (n_in < 3) & ~flat_tri
+        mixed = part_in & ~flat_tri
         out_v = [v]
         out_f = [f[keep_all]]
         base = len(v)
@@ -4801,7 +4820,7 @@ class ViewerDialog(QDialog):
                 if not len(cf):
                     continue
                 cv = cv.copy()
-                cv[:, 2] = _bary_z(tri, cv[:, 0], cv[:, 1])
+                cv[:, 2] = cut_z(tri, cv[:, 0], cv[:, 1])
                 out_v.append(cv)
                 out_f.append(np.asarray(cf, dtype=np.int64) + base)
                 base += len(cv)
@@ -4887,6 +4906,25 @@ class ViewerDialog(QDialog):
         for g2 in parts[1:]:
             out = out.combine(g2)
         return out
+
+    def _clip_edges(self, cg):
+        """Отрезки границы области обрезки в плане: (E, 2, 2).
+
+        По ним boundary_crossing находит грани, сквозь которые
+        проходит граница, хотя все их вершины по одну сторону.
+        """
+        import numpy as np
+        line = self._clip_boundary(cg)
+        segs = []
+        if line is not None and not line.isEmpty():
+            if line.isMultipart():
+                polylines = line.asMultiPolyline()
+            else:
+                polylines = [line.asPolyline()]
+            for pl in polylines:
+                for a, b in zip(pl[:-1], pl[1:]):
+                    segs.append(((a.x(), a.y()), (b.x(), b.y())))
+        return np.asarray(segs, dtype=float).reshape(-1, 2, 2)
 
     def _build_box_controls(self):
         """Настройки координатного короба: рёбра, деления, охват.
@@ -7307,22 +7345,26 @@ class ViewerDialog(QDialog):
              % (lyr.name(), n_cells, vis, len(faces) // 2))
         return verts, faces, colors
 
-    def _keep_for_export(self, name, verts, faces, colors=None):
+    def _keep_for_export(self, name, verts, faces, colors=None,
+                         real=False):
         """Отложить часть сцены для выгрузки.
 
         Координаты приводятся к настоящим: центр сцены возвращается
         на место, вертикальное преувеличение снимается. Преувеличение
         это способ смотреть, а не свойство модели, и в файле ему
-        не место.
+        не место. Перевод идёт по кадру этой сборки (_export_frame).
+        real=True - вершины уже настоящие, как у тел, и переводить
+        их нечего.
         """
         import numpy as np
-        pk = self._pick or {}
+        pk = getattr(self, "_export_frame", None) or self._pick or {}
         cx, cy = pk.get("cx", 0.0), pk.get("cy", 0.0)
         cz, vex = pk.get("cz", 0.0), pk.get("vex", 1.0) or 1.0
         v = np.asarray(verts, dtype=float).copy()
-        v[:, 0] += cx
-        v[:, 1] += cy
-        v[:, 2] = v[:, 2] / vex + cz
+        if not real:
+            v[:, 0] += cx
+            v[:, 1] += cy
+            v[:, 2] = v[:, 2] / vex + cz
         self._export.append({"name": name, "verts": v,
                              "faces": np.asarray(faces),
                              "colors": colors})
@@ -7913,6 +7955,10 @@ class ViewerDialog(QDialog):
         cx = 0.5 * (min(xs) + max(xs))
         cy = 0.5 * (min(ys) + max(ys))
         cz = 0.5 * (min(zs_) + max(zs_))
+        # Кадр этой сборки для выгрузки. _pick пишется в конце, уже
+        # после того, как части отложены, и перевод шёл по центру
+        # прошлой сборки: тела в выгрузке уезжали и сжимались.
+        self._export_frame = dict(cx=cx, cy=cy, cz=cz, vex=vex)
         # Подъём слоёв меряется размахом отметок: в плане километры,
         # по высоте метры, и общая мера тут не годится.
         span_z = max(max(zs_) - min(zs_), 0.0) * float(vex)
@@ -8161,7 +8207,7 @@ class ViewerDialog(QDialog):
                     lyr_e = QgsProject.instance().mapLayer(lid_b)
                     self._keep_for_export(
                         lyr_e.name() if lyr_e else "body",
-                        np.vstack(allmap), bf, np.vstack(allc))
+                        np.vstack(allmap), bf, np.vstack(allc), real=True)
         self._clip_report(prof)
         if attr is not None:
             self._show_legend(attr[1], attr[2])
