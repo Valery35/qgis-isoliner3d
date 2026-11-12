@@ -223,6 +223,13 @@ Opened by a button on the toolbar. The sections are **View**,
 **Clipping**, **Appearance**, **The coordinate box** and **Box
 extent**. All the settings are saved into the project.
 
+**Clipping** hides everything outside and closes the cut of a body with
+a cap, so the section is seen rather than the inside of the shell.
+Every mode gets the cap: a contour, a corridor along a line, the side
+left or right of a line and a band of elevations. A face the boundary
+crosses is cut along it even when all its vertices are outside, so
+a long wall of a drift does not vanish whole.
+
 **The coordinate box** is set up for the task. The tick in the group title turns the whole box on and off, edges with ticks and labels, like the box button on the view toolbar:
 
 - **Edges**: all twelve, three axes from the origin corner as on a drawing, or no edges. Three axes do not block the body.
@@ -425,6 +432,14 @@ a solid from. The box and the labels do not go there, and the
 elevations are the true ones. At the end the count of bodies that came
 out closed is reported: a shell that is not closed will show in CAD as
 a mesh, but no solid can be made from it.
+
+**A scene package** (`.i3dscene`) is for applications without QGIS.
+It holds a GLB with all the geometry and a description of the scene:
+the parts, their colours, the camera and the flight views in true
+coordinates. Points and lines of vector layers go into the package the
+way the window draws them: round markers as points with a size, flat
+markers and tubes as a mesh, lines as lines. The clipping in the
+package is the same as on screen.
 
 ## Spin and video
 
