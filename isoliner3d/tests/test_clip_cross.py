@@ -22,7 +22,8 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
 
-from isoliner3d.viewer_core import boundary_crossing, cut_z  # noqa: E402
+from isoliner3d.viewer_core import (  # noqa: E402
+    boundary_crossing, cut_z, ring_start_shift)
 
 
 def _square(x0, x1, y0, y1):
@@ -100,6 +101,37 @@ def test_cut_point_inside_takes_the_plane():
     tri = _tri((0, 0, 0), (10, 0, 10), (0, 10, 0))
     assert abs(cut_z(tri, np.array([2.0]), np.array([3.0]))[0] - 2.0) \
         < 1e-12
+
+
+def test_ring_start_moves_off_the_cut():
+    """Кольцо коридора начинается во внутреннем углу, на самом срезе:
+    точки среза у конца кольца и у его начала. Начало отсчёта уходит
+    в самый большой пустой промежуток, и срез идёт подряд."""
+    s = [499.6, 499.9, 0.0, 20.7, 82.0, 82.04]
+    spans = [(499.6, 499.9), (499.9, 0.0), (0.0, 20.7), (20.7, 82.0)]
+    s0 = ring_start_shift(s, 501.09, spans)
+    assert 82.04 < s0 < 499.6
+    moved = sorted((x - s0) % 501.09 for x in s)
+    # после сдвига срез идёт одним куском, без скачка через длину кольца
+    assert moved[-1] - moved[0] < 101.0
+
+
+def test_ring_start_stays_when_the_cut_is_away():
+    assert ring_start_shift([100.0, 150.0, 160.0], 1000.0) == 0.0
+    assert ring_start_shift([5.0], 1000.0) == 0.0
+
+
+def test_ring_start_does_not_split_a_long_edge():
+    """Самый большой промежуток перекрыт одним ребром среза: туда
+    начало не ставится, берётся следующий по величине."""
+    s = [0.0, 10.0, 400.0, 420.0]
+    spans = [(10.0, 400.0, 200.0)]       # середина ребра - на 200 м
+    s0 = ring_start_shift(s, 500.0, spans)
+    assert not (10.0 < s0 < 400.0)
+    assert 420.0 < s0 < 500.0 or s0 == 0.0
+    # то же ребро, но идущее через начало кольца: середина на 480 м
+    s0 = ring_start_shift(s, 500.0, [(10.0, 400.0, 480.0)])
+    assert 10.0 < s0 < 400.0
 
 
 if __name__ == "__main__":

@@ -806,6 +806,56 @@ def boundary_crossing(tv, flat, edges, chunk=4000):
     return out
 
 
+def ring_start_shift(positions, length, spans=()):
+    """Сдвиг начала отсчёта вдоль замкнутой границы: в пустой промежуток.
+
+    Крышка на срезе строится в плоскости «путь вдоль границы -
+    отметка». У замкнутого кольца путь где-то начинается, и если
+    начало попадает на сам срез, путь там прыгает с длины кольца на
+    ноль: кусок среза уходит на другой край плоскости, и крышка его
+    теряет. Буфер QGIS начинает кольцо коридора как раз во внутреннем
+    углу излома, и у штрека вдоль колена оставалась щель.
+
+    Возвращает s0 - середину самого большого промежутка между точками
+    среза по кругу. Путь отсчитывается от неё: (s - s0) mod length.
+    Промежуток, который перекрывает ребро среза, не годится: сдвиг
+    разорвал бы само ребро. `spans` - рёбра среза парами положений
+    концов (a, b) или тройками (a, b, середина): по середине видно,
+    идёт ли ребро напрямую или через начало кольца. Без середины
+    берётся короткий путь. Если лучший промежуток уже идёт через
+    начало кольца, сдвиг ноль.
+    """
+    import numpy as np
+    if length <= 0:
+        return 0.0
+    s = np.sort(np.mod(np.asarray(positions, dtype=float), length))
+    if len(s) < 2:
+        return 0.0
+    inner, wrap_used = [], False
+    for sp in spans:
+        lo, hi = min(sp[0], sp[1]), max(sp[0], sp[1])
+        if len(sp) > 2:
+            direct = lo - 1e-9 <= sp[2] <= hi + 1e-9
+        else:
+            direct = hi - lo <= 0.5 * length
+        if direct:
+            inner.append((lo, hi))
+        else:
+            wrap_used = True
+    best, s0 = -1.0, 0.0
+    if not wrap_used:
+        best = s[0] + length - s[-1]
+    for k in range(len(s) - 1):
+        g = s[k + 1] - s[k]
+        if g <= best:
+            continue
+        if any(lo <= s[k] + 1e-9 and hi >= s[k + 1] - 1e-9
+               for lo, hi in inner):
+            continue
+        best, s0 = g, float(s[k] + 0.5 * g)
+    return s0
+
+
 def clip_wall(tri, spans):
     """Отвесная грань, обрезанная по доле длины в плане.
 

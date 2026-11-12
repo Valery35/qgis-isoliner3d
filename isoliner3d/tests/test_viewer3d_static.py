@@ -3073,6 +3073,32 @@ def test_export_uses_the_frame_of_this_build():
     assert "self._export_frame" in keep and "if not real" in keep
 
 
+def test_clip_rings_come_only_from_polygons():
+    """Линия обрезки не становится кольцом контура.
+
+    _clip_rings брал вершины любого слоя, и ломаная из трёх и больше
+    вершин уходила в кольца: обрезка шла веткой контура по
+    треугольнику, замыкающему ломаную, а коридор и стороны линии
+    не работали вовсе. Прямая из двух вершин проскакивала, поэтому
+    на простой линии этого не было видно.
+    """
+    src = _viewer_src()
+    start = src.index("def _clip_rings")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert 'self._geom_kind(lyr) != "polygon"' in body
+
+
+def test_cap_moves_the_ring_start_off_the_cut():
+    """Крышка уводит начало отсчёта вдоль кольца границы с самого
+    среза: буфер коридора начинает кольцо во внутреннем углу излома,
+    и у штрека вдоль колена оставалась щель."""
+    src = _viewer_src()
+    start = src.index("def _cap_cut")
+    body = src[start:src.index("\n    def ", start + 20)]
+    assert "ring_start_shift(" in body
+    assert "(float(s_) + s0) % ring_len" in body
+
+
 def test_closed_shell_is_recognised():
     """Замкнутая оболочка отличается от открытого пояса по рёбрам.
 

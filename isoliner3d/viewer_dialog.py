@@ -35,7 +35,7 @@ from .viewer3d import (    # noqa: F401
     _import_gl, _layer_budget, _layer_has_z, _log, _map_order, _parts_xyz,
     _prism, _ramp_from_renderer, _read_raster, _tessellate, _tool_icon,
     _tri_cached, bed_to_mesh_arrays, boundary_crossing, clip_wall,
-    colormap, cut_z, cylinder,
+    colormap, cut_z, cylinder, ring_start_shift,
     draw_depth, field_color, flat_marker_mesh, grid_to_mesh_arrays,
     layer_lift, polygon_mask, polyline_dist_side, ramp_colors,
     sample_bilinear, shade_colors, split_by_alpha, symbol_alpha,
@@ -5387,12 +5387,31 @@ class ViewerDialog(QDialog):
                     and y0 <= float(v[i, 1]) <= y1)
 
         self._cap_edges_seen += len(border)
+        cut = [(a, b) for a, b in border
+               if near_box(a) and near_box(b) and on_cut(a) and on_cut(b)]
+        # Начало отсчёта вдоль замкнутой границы уводим с самого среза:
+        # иначе путь на нём прыгает с длины кольца на ноль, и крышка
+        # теряет кусок. Буфер коридора начинает кольцо как раз во
+        # внутреннем углу излома, у штрека вдоль колена там была щель.
+        s0, ring_len = 0.0, 0.0
+        if cut and not line.isMultipart():
+            ring = line.asPolyline()
+            if len(ring) > 2 and ring[0] == ring[-1]:
+                ring_len = float(line.length())
+                spans = []
+                for a, b in cut:
+                    # по середине ребра видно, идёт ли оно напрямую
+                    # или через начало кольца
+                    mid = QgsGeometry.fromPointXY(QgsPointXY(
+                        0.5 * float(v[a, 0] + v[b, 0]),
+                        0.5 * float(v[a, 1] + v[b, 1])))
+                    spans.append((spos[a], spos[b],
+                                  float(line.lineLocatePoint(mid))))
+                s0 = ring_start_shift(list(spos.values()), ring_len, spans)
+        if s0:
+            spos = {i: (s - s0) % ring_len for i, s in spos.items()}
         segs, pairs = [], []
-        for a, b in border:
-            if not (near_box(a) and near_box(b)):
-                continue
-            if not (on_cut(a) and on_cut(b)):
-                continue
+        for a, b in cut:
             pa = QgsPointXY(spos[a], float(v[a, 2]))
             pb = QgsPointXY(spos[b], float(v[b, 2]))
             if abs(pa.x() - pb.x()) < 1e-12 and \
@@ -5444,7 +5463,9 @@ class ViewerDialog(QDialog):
             pts = []
             for s_, z_, _q in cv:
                 try:
-                    pnt = line.interpolate(float(s_)).asPoint()
+                    s_line = (float(s_) + s0) % ring_len if s0 \
+                        else float(s_)
+                    pnt = line.interpolate(s_line).asPoint()
                 except Exception:  # nosec
                     pnt = None
                 if pnt is None:
@@ -6730,7 +6751,10 @@ class ViewerDialog(QDialog):
         if not lid:
             return []
         lyr = QgsProject.instance().mapLayer(lid)
-        if lyr is None:
+        # Кольца бывают только у полигонов. Ломаная из трёх и больше
+        # вершин раньше уходила сюда же, обрезка шла по треугольнику,
+        # замыкающему её, а коридор и стороны линии не работали.
+        if lyr is None or self._geom_kind(lyr) != "polygon":
             return []
         from qgis.core import QgsGeometry
         tr_ = self._xform(lyr)
