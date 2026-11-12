@@ -54,7 +54,8 @@ def find_app(configured="", which=shutil.which, localappdata=None,
     """Путь к программе или пустая строка.
 
     Порядок по договору: путь из настроек модуля, программа в PATH,
-    место установки в %LOCALAPPDATA%\\Programs. Путь из настроек,
+    место установки в %LOCALAPPDATA%\\Programs\\Isoliner Scene, сама
+    папка, потом её bin. Путь из настроек,
     которого нет на диске, пропускается: программу могли переставить.
     """
     if configured and isfile(configured):
@@ -65,9 +66,13 @@ def find_app(configured="", which=shutil.which, localappdata=None,
     if localappdata is None:
         localappdata = os.environ.get("LOCALAPPDATA", "")
     if localappdata:
-        path = os.path.join(localappdata, "Programs", APP_DIR, APP_EXE)
-        if isfile(path):
-            return path
+        # Архив программы раскладывает её в bin\ (так нужно RustGIS):
+        # распакованный в папку установки, он кладёт exe туда.
+        root = os.path.join(localappdata, "Programs", APP_DIR)
+        for path in (os.path.join(root, APP_EXE),
+                     os.path.join(root, "bin", APP_EXE)):
+            if isfile(path):
+                return path
     return ""
 
 

@@ -55,7 +55,13 @@ def test_app_search_order():
                               isfile) == "/usr/bin/isoliner-scene"
     assert scene_app.find_app("", which_none, "L", isfile) == \
         os.path.join("L", "Programs", "Isoliner Scene", "isoliner-scene.exe")
-    assert scene_app.find_app("", which_none, "M", isfile) == ""
+    # архив программы кладёт exe в bin\ папки установки
+    files.add(os.path.join("M", "Programs", "Isoliner Scene", "bin",
+                           "isoliner-scene.exe"))
+    assert scene_app.find_app("", which_none, "M", isfile) == \
+        os.path.join("M", "Programs", "Isoliner Scene", "bin",
+                     "isoliner-scene.exe")
+    assert scene_app.find_app("", which_none, "N", isfile) == ""
     assert scene_app.find_app("", which_none, "", isfile) == ""
 
 
