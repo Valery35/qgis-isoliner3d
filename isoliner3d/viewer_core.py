@@ -806,6 +806,110 @@ def boundary_crossing(tv, flat, edges, chunk=4000):
     return out
 
 
+def z_cut(verts, faces, zlo=None, zhi=None):
+    """Грани, обрезанные горизонтальными плоскостями z = zlo и z = zhi.
+
+    Обрезка по отметке выбрасывала грань целиком, если хоть одна её
+    вершина вне диапазона: тело оставалось с рваным краем, и крышку
+    на срезе ставить было не на что. Здесь грань режется точно:
+    многоугольник пересечения грани с полосой zlo..zhi выпуклый
+    и разбивается веером. Точка на ребре считается от его концов,
+    взятых в одном порядке, и получает отметку плоскости ровно,
+    поэтому соседние грани ставят её в одно место и вершины сшиваются.
+
+    Возвращает (вершины, грани): нетронутые грани со старыми
+    вершинами плюс куски резаных граней со своими.
+    """
+    import numpy as np
+    v = np.asarray(verts, dtype=float)
+    f = np.asarray(faces, dtype=np.int64).reshape(-1, 3)
+    if (zlo is None and zhi is None) or not len(f):
+        return v, f
+    z = v[:, 2]
+    lo = -np.inf if zlo is None else float(zlo)
+    hi = np.inf if zhi is None else float(zhi)
+    zf = z[f]
+    inside = ((zf >= lo) & (zf <= hi)).all(axis=1)
+    below = (zf < lo).all(axis=1)
+    above = (zf > hi).all(axis=1)
+    cut = ~inside & ~below & ~above
+    out_v, out_f, base = [v], [f[inside]], len(v)
+
+    def meet(a, b, plane):
+        # концы в одном порядке: общее ребро соседей даёт ту же точку
+        if tuple(a) > tuple(b):
+            a, b = b, a
+        t = (plane - a[2]) / (b[2] - a[2])
+        p = a + t * (b - a)
+        p[2] = plane
+        return p
+
+    def clip(poly, plane, keep_above):
+        res = []
+        n = len(poly)
+        for i in range(n):
+            a, b = poly[i], poly[(i + 1) % n]
+            ina = a[2] >= plane if keep_above else a[2] <= plane
+            inb = b[2] >= plane if keep_above else b[2] <= plane
+            if ina:
+                res.append(a)
+            # Конец ребра на самой плоскости - уже точка среза: вторая
+            # такая же дала бы нулевой треугольник и рваное кольцо.
+            if ina != inb and a[2] != plane and b[2] != plane:
+                res.append(meet(a, b, plane))
+        return res
+
+    for k in np.nonzero(cut)[0]:
+        poly = [v[i].copy() for i in f[k]]
+        if np.isfinite(lo):
+            poly = clip(poly, lo, True)
+        if len(poly) >= 3 and np.isfinite(hi):
+            poly = clip(poly, hi, False)
+        if len(poly) < 3:
+            continue
+        pv = np.asarray(poly, dtype=float)
+        # подряд идущие совпадающие точки снимаются
+        same = np.r_[False, (np.abs(np.diff(pv, axis=0)) < 1e-12).all(
+            axis=1)]
+        pv = pv[~same]
+        if len(pv) > 1 and (np.abs(pv[0] - pv[-1]) < 1e-12).all():
+            pv = pv[:-1]
+        n = len(pv)
+        if n < 3:
+            continue
+        tri = np.column_stack([np.zeros(n - 2, dtype=np.int64),
+                               np.arange(1, n - 1), np.arange(2, n)])
+        out_v.append(pv)
+        out_f.append(tri + base)
+        base += n
+    return np.vstack(out_v), np.vstack(out_f).astype(np.int64)
+
+
+def plane_border_segments(verts, faces, plane, tol):
+    """Краевые рёбра, лежащие на плоскости z = plane: отрезки в плане.
+
+    После резки тела плоскостью отверстие в оболочке - это рёбра,
+    принадлежащие одной грани, с обоими концами на плоскости. По ним
+    строится горизонтальная крышка.
+    """
+    import collections
+    import numpy as np
+    v = np.asarray(verts, dtype=float)
+    f = np.asarray(faces, dtype=np.int64).reshape(-1, 3)
+    cnt = collections.Counter()
+    for t in f:
+        for a, b in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
+            cnt[(a, b) if a < b else (b, a)] += 1
+    out = []
+    for (a, b), n in cnt.items():
+        if n != 1:
+            continue
+        if abs(v[a, 2] - plane) <= tol and abs(v[b, 2] - plane) <= tol:
+            out.append(((float(v[a, 0]), float(v[a, 1])),
+                        (float(v[b, 0]), float(v[b, 1]))))
+    return out
+
+
 def ring_start_shift(positions, length, spans=()):
     """Сдвиг начала отсчёта вдоль замкнутой границы: в пустой промежуток.
 

@@ -663,7 +663,10 @@ def test_elevation_clip_reaches_every_source():
     assert "def _z_kept" in src and "def _z_bounds" in src
     start = src.index("def _clip_tris")
     body = src[start:src.index("\n        def ", start + 20)]
-    assert "self._z_kept(v[:, 2], v[:, 0], v[:, 1])" in body
+    # Поверхности и маска - по вершинам, плоскости z≥ и z≤ режут
+    # грани точно, в _z_cut_mesh: отбор по вершинам терял грани.
+    assert "self._z_kept(v[:, 2], v[:, 0], v[:, 1], planes=False)" in body
+    assert "def _z_cut_mesh" in src
     scene = src[src.index("def _rebuild_scene"):]
     assert "self._z_kept(top)" in scene and "self._z_kept(arr)" in scene
     vox = src[src.index("        def _vox_mesh"):]
@@ -902,7 +905,9 @@ def test_clip_mismatch_is_named():
     i = src.index("def _clip_ctx")
     body = src[i:i + 1400]
     assert 'side == "corridor" and rings and not lines' in body
-    assert 'side != "corridor" and lines and not rings' in body
+    # у линии нет внутренности: предупреждение только для «оставить»
+    # и «убрать внутри», стороны линии с ней работают
+    assert 'side in ("in", "out") and lines and not rings' in body
 
 
 def test_fence_is_a_scene_switch():
@@ -1783,7 +1788,7 @@ def test_clip_makes_no_holes_inside_the_body():
         def _points_kept(self, xs, ys):
             return np.asarray(xs) < 40.0
 
-        def _z_kept(self, zs, xs=None, ys=None):
+        def _z_kept(self, zs, xs=None, ys=None, planes=True):
             return np.ones(np.asarray(zs).shape, dtype=bool)
 
     _Dlg._clip_tris = clip
@@ -1833,7 +1838,7 @@ def test_voxel_wall_is_not_lost_by_the_corridor():
         def _points_kept(self, xs, ys):
             return np.asarray(xs) <= 10.0
 
-        def _z_kept(self, zs, xs=None, ys=None):
+        def _z_kept(self, zs, xs=None, ys=None, planes=True):
             return np.ones(np.asarray(zs).shape, dtype=bool)
 
     _Dlg._clip_tris = clip
@@ -3071,6 +3076,31 @@ def test_export_uses_the_frame_of_this_build():
     keep = src[src.index("def _keep_for_export"):]
     keep = keep[:keep.index("\n    def ", 10)]
     assert "self._export_frame" in keep and "if not real" in keep
+
+
+def test_sides_and_heights_are_cut_and_capped():
+    """Стороны линии и отметки режут тела точно и закрывают крышкой.
+
+    Для сторон линии область обрезки не строилась, и грани поперёк
+    линии выбрасывались. По отметке грань с вершиной вне диапазона
+    выбрасывалась целиком. Тела в обоих режимах оставались открытыми.
+    Живая проверка - tools/qgis_check/run_clip.py.
+    """
+    src = _viewer_src()
+    geom = src[src.index("def _clip_geom"):]
+    geom = geom[:geom.index("\n    def ", 10)]
+    assert 'mode in ("left", "right")' in geom and "_side_region(" in geom
+    clip = src[src.index("def _clip_tris"):]
+    clip = clip[:clip.index("\n    def ", 10)]
+    assert "planes=False" in clip
+    cut = src[src.index("def _z_cut_mesh"):]
+    cut = cut[:cut.index("\n    def ", 10)]
+    assert "z_cut(" in cut and "plane_border_segments(" in cut
+    assert "_tessellate(" in cut
+    body = src[src.index("def _vec_bodies"):] if "def _vec_bodies" in src \
+        else src
+    assert "self._z_cut_mesh(v, f, cap=True)" in body
+    assert "self._z_cut_mesh(v, f, cap=False)" in src
 
 
 def test_clip_rings_come_only_from_polygons():

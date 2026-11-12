@@ -23,7 +23,19 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
 
 from isoliner3d.viewer_core import (  # noqa: E402
-    boundary_crossing, cut_z, ring_start_shift)
+    boundary_crossing, cut_z, plane_border_segments, ring_start_shift,
+    walk_rings, z_cut)
+from isoliner3d.cleanup import mesh_volume, shell_defects  # noqa: E402
+from isoliner3d.iso3d import weld  # noqa: E402
+
+
+def _cube(s=10.0):
+    v = np.array([[0, 0, 0], [s, 0, 0], [s, s, 0], [0, s, 0],
+                  [0, 0, s], [s, 0, s], [s, s, s], [0, s, s]], float)
+    f = np.array([[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7],
+                  [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],
+                  [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]], np.int64)
+    return v, f
 
 
 def _square(x0, x1, y0, y1):
@@ -132,6 +144,88 @@ def test_ring_start_does_not_split_a_long_edge():
     # то же ребро, но идущее через начало кольца: середина на 480 м
     s0 = ring_start_shift(s, 500.0, [(10.0, 400.0, 480.0)])
     assert 10.0 < s0 < 400.0
+
+
+def test_z_cut_keeps_exactly_the_slab():
+    """Куб 10 м, полоса 2..7 м: грани режутся, а не выбрасываются.
+    Срез шва не даёт: соседние грани ставят точку в одно место."""
+    v, f = _cube()
+    cv, cf = z_cut(v, f, 2.0, 7.0)
+    wv, wf = weld(cv, cf)
+    used = wv[np.unique(wf)]
+    assert abs(used[:, 2].min() - 2.0) < 1e-12
+    assert abs(used[:, 2].max() - 7.0) < 1e-12
+    # Без крышек тело открыто ровно по двум квадратам среза: по одному
+    # кольцу на плоскость. Диагональ боковой грани тоже пересекает
+    # плоскость, поэтому на стороне квадрата два отрезка.
+    lo = plane_border_segments(wv, wf, 2.0, 1e-9)
+    hi = plane_border_segments(wv, wf, 7.0, 1e-9)
+    assert len(lo) == 8 and len(hi) == 8
+    assert len(walk_rings(lo)) == 1 and len(walk_rings(hi)) == 1
+    holes, _p = shell_defects(wv, wf)
+    assert holes == len(lo) + len(hi)
+
+
+def test_z_cut_one_side_and_noop():
+    v, f = _cube()
+    cv, cf = z_cut(v, f, None, 4.0)
+    assert abs(cv[np.unique(cf)][:, 2].max() - 4.0) < 1e-12
+    same_v, same_f = z_cut(v, f)
+    assert same_v is v or np.array_equal(same_v, v)
+    assert np.array_equal(same_f, f)
+    gone_v, gone_f = z_cut(v, f, 20.0, None)
+    assert len(gone_f) == 0
+
+
+def test_z_cut_face_spanning_the_whole_slab():
+    """Грань от низа до верха через всю полосу, без вершин внутри:
+    раньше она пропадала, теперь остаётся её средняя часть."""
+    tri = np.array([[0, 0, -5.0], [10, 0, 15.0], [0, 10, 15.0]])
+    cv, cf = z_cut(tri, [[0, 1, 2]], 0.0, 10.0)
+    assert len(cf) >= 2
+    zs = cv[np.unique(cf)][:, 2]
+    assert abs(zs.min()) < 1e-12 and abs(zs.max() - 10.0) < 1e-12
+
+
+def test_z_cut_through_vertices_leaves_no_degenerate_faces():
+    """Плоскость ровно через вершины: точка среза совпадает с концом
+    ребра. Вторая такая же давала нулевой треугольник, и кольцо
+    крышки рвалось."""
+    v, f = _cube()
+    v = v.copy()
+    v[[1, 5], 2] += [2.0, 0.0]          # вершина 1 поднята ровно на 2 м
+    cv, cf = z_cut(v, f, 2.0, None)
+    wv, wf = weld(cv, cf)
+    tri = wv[wf]
+    area = 0.5 * np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0],
+                                         tri[:, 2] - tri[:, 0]), axis=1)
+    assert (area > 1e-9).all()
+    assert len(walk_rings(plane_border_segments(wv, wf, 2.0, 1e-9))) == 1
+
+
+def test_z_cut_volume_with_caps_by_hand():
+    """Куб, срезанный полосой 2..7, с крышками по кольцам среза: 500 м3.
+
+    Крышка строится по вершинам самого кольца: на сторонах среза есть
+    промежуточные точки, и крышка из четырёх углов с ними бы не
+    сошлась."""
+    from isoliner3d.viewer_core import ear_clip
+    v, f = _cube()
+    cv, cf = z_cut(v, f, 2.0, 7.0)
+    wv, wf = weld(cv, cf)
+    parts_v, parts_f, base = [wv], [wf], len(wv)
+    for plane in (2.0, 7.0):
+        for ring in walk_rings(plane_border_segments(wv, wf, plane, 1e-9)):
+            r = np.asarray(ring, float)
+            if len(r) > 1 and np.allclose(r[0], r[-1]):
+                r = r[:-1]
+            tri = ear_clip(r[:, 0], r[:, 1])
+            parts_v.append(np.column_stack([r, np.full(len(r), plane)]))
+            parts_f.append(np.asarray(tri) + base)
+            base += len(r)
+    wv, wf = weld(np.vstack(parts_v), np.vstack(parts_f))
+    assert shell_defects(wv, wf)[0] == 0
+    assert abs(abs(mesh_volume(wv, wf)) - 500.0) < 1e-6
 
 
 if __name__ == "__main__":

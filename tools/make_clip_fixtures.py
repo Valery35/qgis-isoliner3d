@@ -101,7 +101,8 @@ class Window(_Base):
 
 
 def body(win, v, f):
-    """Путь окна для тела: резка, сшивка, крышка на срезе."""
+    """Путь окна для тела: резка в плане, сшивка, крышка на срезе,
+    затем резка плоскостями отметок с горизонтальной крышкой."""
     v, f = win._clip_tris(v, f)
     if len(f):
         v, f = weld(v, f)
@@ -109,12 +110,17 @@ def body(win, v, f):
     if len(cf):
         f = np.vstack([f, cf + len(v)])
         v = np.vstack([v, cv])
+    if len(f):
+        v, f = win._z_cut_mesh(v, f, cap=True)
     return v, f
 
 
 def belt(win, v, f):
     """Путь окна для поясов и поверхностей: только резка граней."""
-    return win._clip_tris(v, f)
+    v, f = win._clip_tris(v, f)
+    if len(f):
+        v, f = win._z_cut_mesh(v, f, cap=False)
+    return v, f
 
 
 def describe(v, f):

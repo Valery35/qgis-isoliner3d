@@ -35,7 +35,8 @@ from .viewer3d import (    # noqa: F401
     _import_gl, _layer_budget, _layer_has_z, _log, _map_order, _parts_xyz,
     _prism, _ramp_from_renderer, _read_raster, _tessellate, _tool_icon,
     _tri_cached, bed_to_mesh_arrays, boundary_crossing, clip_wall,
-    colormap, cut_z, cylinder, ring_start_shift,
+    colormap, cut_z, cylinder, plane_border_segments, ring_start_shift,
+    z_cut,
     draw_depth, field_color, flat_marker_mesh, grid_to_mesh_arrays,
     layer_lift, polygon_mask, polyline_dist_side, ramp_colors,
     sample_bilinear, shade_colors, split_by_alpha, symbol_alpha,
@@ -4109,6 +4110,11 @@ class ViewerDialog(QDialog):
                             elif not closed:
                                 self._cap_open += 1
                                 self._cap_border += int(open_edges)
+                            # Отметка режется после плана: тело к этому
+                            # месту уже закрыто по контуру, и плоскость
+                            # режет замкнутую оболочку, а не дырявую.
+                            if len(f):
+                                v, f = self._z_cut_mesh(v, f, cap=True)
                             if not len(f):
                                 continue
                             k += 1
@@ -4132,6 +4138,8 @@ class ViewerDialog(QDialog):
                     # Пояса это открытые поверхности, крышка на срезе
                     # им не нужна: режем сами грани по контуру.
                     v, f = self._clip_tris(v, f)
+                    if len(f):
+                        v, f = self._z_cut_mesh(v, f, cap=False)
                     if not len(f):
                         continue
                 k += 1
@@ -4744,11 +4752,11 @@ class ViewerDialog(QDialog):
         import numpy as np
         cg = self._clip_geom()
         side = self.clip_side.currentData()
-        # Отбор по отметке идёт вместе с плановым: треугольник,
-        # у которого хоть одна вершина вне диапазона, целиком
-        # выбрасывается. Резать его по горизонтали было бы точнее,
-        # но грани тут мельче шага уровней, и разница не видна.
-        z_v = self._z_kept(v[:, 2], v[:, 0], v[:, 1])
+        # Плоскости z≥ и z≤ здесь не участвуют: грани по ним режет
+        # _z_cut_mesh точно. Отбор по вершинам выбрасывал грань целиком,
+        # если хоть одна вершина вне диапазона, и тело оставалось
+        # с рваным краем без крышки. Поверхности и маска - как прежде.
+        z_v = self._z_kept(v[:, 2], v[:, 0], v[:, 1], planes=False)
         inside_v = self._points_kept(v[:, 0], v[:, 1]) & z_v
         tri_in = inside_v[f]
         n_in = tri_in.sum(axis=1)
@@ -4925,6 +4933,97 @@ class ViewerDialog(QDialog):
                 for a, b in zip(pl[:-1], pl[1:]):
                     segs.append(((a.x(), a.y()), (b.x(), b.y())))
         return np.asarray(segs, dtype=float).reshape(-1, 2, 2)
+
+    @staticmethod
+    def _side_region(lines, mode, far=1e5):
+        """Полоса по сторону от ломаных шириной `far` метров.
+
+        Концы ломаной продлеваются вдоль крайних отрезков: отбор
+        вершин считает сторону и за концами линии, по продолжению
+        крайнего отрезка. Сторона - как у _points_kept: слева по ходу
+        линии там, где векторное произведение положительно.
+        """
+        import numpy as np
+        from qgis.core import QgsGeometry, QgsPointXY
+        try:
+            from qgis.core import Qgis
+            side = Qgis.BufferSide.Left if mode == "left" \
+                else Qgis.BufferSide.Right
+            join = Qgis.JoinStyle.Round
+        except AttributeError:  # старые QGIS 3
+            side = QgsGeometry.SideLeft if mode == "left" \
+                else QgsGeometry.SideRight
+            join = QgsGeometry.JoinStyleRound
+        geom = None
+        for pts in lines:
+            p = np.asarray(pts, dtype=float)[:, :2]
+            keep = np.r_[True, (np.abs(np.diff(p, axis=0)) > 0).any(axis=1)]
+            p = p[keep]
+            if len(p) < 2:
+                continue
+            d0 = p[0] - p[1]
+            d1 = p[-1] - p[-2]
+            p = np.vstack([p[0] + d0 / np.hypot(*d0) * 2 * far, p,
+                           p[-1] + d1 / np.hypot(*d1) * 2 * far])
+            ln = QgsGeometry.fromPolylineXY(
+                [QgsPointXY(float(x), float(y)) for x, y in p])
+            g = ln.singleSidedBuffer(far, 8, side, join)
+            if g is None or g.isEmpty():
+                continue
+            geom = g if geom is None else geom.combine(g)
+        return geom
+
+    def _z_cut_mesh(self, v, f, cap):
+        """Резка граней плоскостями z≥ и z≤, у тел - с крышкой.
+
+        Раньше грань с вершиной вне диапазона выбрасывалась целиком,
+        тело оставалось с рваным краем, и крышку ставить было не на
+        что. Теперь грани режутся точно (viewer_core.z_cut), а у тела
+        отверстие на плоскости закрывается горизонтальной крышкой:
+        кольца по краевым рёбрам на плоскости, дыры по правилу
+        чёт-нечет, разбивка - той же триангуляцией, что и прочие
+        полигоны сцены. Поверхности отсечки (кровля, подошва) режут,
+        как и прежде, по вершинам.
+        """
+        import numpy as np
+        lo, hi = self._z_bounds()
+        if lo is None and hi is None:
+            return v, f
+        v, f = z_cut(v, f, lo, hi)
+        if not cap or not len(f):
+            return v, f
+        from qgis.core import QgsGeometry, QgsPointXY
+        v, f = weld(v, f)
+        span = float(np.ptp(v, axis=0).max()) if len(v) else 0.0
+        tol = 1e-7 * span + 1e-9
+        out_v, out_f, base = [v], [f], len(v)
+        for plane in (lo, hi):
+            if plane is None:
+                continue
+            rings = walk_rings(plane_border_segments(v, f, plane, tol))
+            geom = None
+            for ring in rings:
+                if len(ring) < 3:
+                    continue
+                pts = [QgsPointXY(float(x), float(y)) for x, y in ring]
+                if pts[0] != pts[-1]:
+                    pts.append(pts[0])
+                g = QgsGeometry.fromPolygonXY([pts])
+                if not g.isGeosValid():
+                    g = g.makeValid()
+                geom = g if geom is None else geom.symDifference(g)
+            if geom is None or geom.isEmpty():
+                continue
+            cv, cf = _tessellate(geom, float(plane))
+            if not len(cf):
+                self._cap_bad += 1
+                continue
+            cv = np.asarray(cv, dtype=float).copy()
+            cv[:, 2] = float(plane)
+            out_v.append(cv)
+            out_f.append(np.asarray(cf, dtype=np.int64) + base)
+            base += len(cv)
+        return np.vstack(out_v), np.vstack(out_f).astype(np.int64)
 
     def _build_box_controls(self):
         """Настройки координатного короба: рёбра, деления, охват.
@@ -5357,8 +5456,13 @@ class ViewerDialog(QDialog):
             return empty
 
         from qgis.core import QgsGeometry, QgsPointXY
-        tol = max(cg.boundingBox().width(),
-                  cg.boundingBox().height()) * 1e-4 + 1e-6
+        # Допуск от меньшего из охватов: у стороны линии область
+        # на сотню километров, и допуск от неё брал бы в срез вершины
+        # за десятки метров от границы.
+        span_cg = max(cg.boundingBox().width(), cg.boundingBox().height())
+        span_v = float(np.ptp(np.asarray(v, dtype=float)[:, :2],
+                              axis=0).max()) if len(v) else span_cg
+        tol = min(span_cg, span_v) * 1e-4 + 1e-6
         spos = {}
 
         def on_cut(i):
@@ -5570,6 +5674,12 @@ class ViewerDialog(QDialog):
                 geom = parts[0]
                 for g2 in parts[1:]:
                     geom = geom.combine(g2)
+            elif lines and mode in ("left", "right"):
+                # Сторона линии - полоса по эту сторону от ломаной,
+                # продлённой за концы: так, как отбирает вершины
+                # _points_kept. Без области грани поперёк линии
+                # выбрасывались, а крышку ставить было не по чему.
+                geom = self._side_region(lines, mode)
         except Exception:  # nosec
             geom = None
         if geom is not None:
@@ -5745,7 +5855,7 @@ class ViewerDialog(QDialog):
                     "с полигонами. Поставьте «Что оставить» "
                     "на внутренность или наружное, либо выберите "
                     "линейный слой."))
-            elif side != "corridor" and lines and not rings:
+            elif side in ("in", "out") and lines and not rings:
                 self._warn(tr(
                     "Выбран линейный слой: у линии нет внутренности. "
                     "Поставьте «Что оставить» на коридор вдоль "
@@ -5819,17 +5929,19 @@ class ViewerDialog(QDialog):
         self._z_surf_now = tuple(out)
         return self._z_surf_now
 
-    def _z_kept(self, zs, xs=None, ys=None):
+    def _z_kept(self, zs, xs=None, ys=None, planes=True):
         """Отбор вершин по отметке и по поверхностям.
 
         Отметка плоская, а кровля и подошва меняются по площади,
         поэтому поверхности отсекают точнее. Без координат в плане
         поверхности не применяются: отсечь по ним нечем.
+        planes=False - без плоскостей z≥ и z≤: грани ими режет
+        _z_cut_mesh, а отбирать по вершинам значит терять грани.
         """
         import numpy as np
         from .flatten import keep_between
         zs = np.asarray(zs, dtype=float)
-        lo, hi = self._z_bounds()
+        lo, hi = self._z_bounds() if planes else (None, None)
         keep = (z_range_mask(zs, lo, hi)
                 if (lo is not None or hi is not None)
                 else np.ones(zs.shape, dtype=bool))
@@ -7755,6 +7867,9 @@ class ViewerDialog(QDialog):
                     # и без этого она оставалась целой.
                     if clip or clip_lines or self._z_active():
                         v_i, f_i = self._clip_tris(v_i, f_i)
+                        if len(f_i):
+                            v_i, f_i = self._z_cut_mesh(v_i, f_i,
+                                                        cap=False)
                         if not len(f_i):
                             continue
                         try:

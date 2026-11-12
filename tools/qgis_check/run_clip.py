@@ -95,6 +95,47 @@ h = 0.3                       # сегмент круга за хордой на
 seg = r * r * np.arccos(h / r) - h * np.sqrt(r * r - h * h)
 check("ствол", v, f, seg * 310.0, tol=0.05)
 
+# Стороны линии и отметки: тела режутся и закрываются крышкой.
+# Объём сверяется со случайными точками: доля точек внутри исходного
+# тела и внутри области (сторона в плане - отбором окна, отметки -
+# диапазоном), умноженная на объём охвата.
+from isoliner3d import boolean3d  # noqa: E402
+rng = np.random.default_rng(7)
+for name in ("Штрек", "Ствол", "Сбойка"):
+    src = parts[name]
+    sv, sf = weld(np.asarray(src["verts"], float),
+                  np.asarray(src["faces"], np.int64))
+    lo, hi = sv.min(axis=0), sv.max(axis=0)
+    pts = lo + rng.random((150000, 3)) * (hi - lo)
+    box = float(np.prod(hi - lo))
+    in_src = boolean3d.points_inside(sv, sf, pts)
+    for tag, kw in (("слева", dict(lines=[mc.LINE], side="left")),
+                    ("справа", dict(lines=[mc.LINE], side="right")),
+                    ("z>=-301.5", dict(zlo=-301.5)),
+                    ("z<=-301.5", dict(zhi=-301.5)),
+                    ("z -303..-299", dict(zlo=-303.0, zhi=-299.0)),
+                    ("коридор и z", dict(lines=[mc.LINE], side="corridor",
+                                         width=6.0, zlo=-302.0))):
+        win = mc.Window(**kw)
+        keep = win._points_kept(pts[:, 0], pts[:, 1])
+        zlo, zhi = kw.get("zlo"), kw.get("zhi")
+        if zlo is not None:
+            keep &= pts[:, 2] >= zlo
+        if zhi is not None:
+            keep &= pts[:, 2] <= zhi
+        want = box * float((in_src & keep).mean())
+        v, f = mc.body(win, src["verts"], src["faces"])
+        label = "%s %s" % (name, tag)
+        if want < 0.01 * box * float(in_src.mean()):
+            if len(f):
+                wv, wf = weld(v, f)
+                if abs(mesh_volume(wv, wf)) > 0.05 * box * in_src.mean():
+                    bad.append("%s: ждали пусто, осталось %.1f м3"
+                               % (label, abs(mesh_volume(wv, wf))))
+            print("%-22s пусто, как и ждали" % label)
+            continue
+        check(label, v, f, want, tol=0.04)
+
 mc.app.exitQgis()
 if bad:
     print("\n".join(["РАСХОЖДЕНИЯ:"] + bad))
