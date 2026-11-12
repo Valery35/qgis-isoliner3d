@@ -675,6 +675,14 @@ def _tool_icon(kind, size=18):
         p.setBrush(QColor("#0E7C66"))
         tri = [(0.90, 0.10), (0.92, 0.40), (0.62, 0.34)]
         p.drawPolygon(*[QPointF(x * s, y * s) for x, y in tri])
+    elif kind == "scene":         # окно программы и треугольник пуска
+        p.drawRect(int(0.08 * s), int(0.16 * s),
+                   int(0.84 * s), int(0.66 * s))
+        p.drawLine(QPointF(0.08 * s, 0.30 * s),
+                   QPointF(0.92 * s, 0.30 * s))
+        p.setBrush(QColor("#0E7C66"))
+        tri = [(0.40, 0.40), (0.40, 0.74), (0.68, 0.57)]
+        p.drawPolygon(*[QPointF(x * s, y * s) for x, y in tri])
     elif kind == "clear":         # перечёркнутый контур: снять обрезку
         pts = [(0.22, 0.30), (0.62, 0.22), (0.78, 0.58), (0.36, 0.74)]
         poly = [QPointF(x * s, y * s) for x, y in pts]

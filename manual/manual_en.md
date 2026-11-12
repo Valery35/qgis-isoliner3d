@@ -441,6 +441,17 @@ way the window draws them: round markers as points with a size, flat
 markers and tubes as a mesh, lines as lines. The clipping in the
 package is the same as on screen.
 
+The **Open in Isoliner Scene** button next to the export opens the
+scene in the separate Isoliner Scene program. The scene package is
+written to the temporary folder (`isoliner3d/<project name>.i3dscene`)
+and the program starts with it. While it is open, pressing the button
+again only rewrites the package, and the program rereads it by itself
+without moving the camera. The program is looked up in the plugin
+settings, in PATH and in the install folder
+`%LOCALAPPDATA%\Programs\Isoliner Scene`. When it is missing, the plugin gives a link to the
+releases page and offers to point to the program file, and the path is
+remembered.
+
 ## Spin and video
 
 The spin button walks the camera around the model, and pressing it

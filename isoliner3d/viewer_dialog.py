@@ -472,6 +472,7 @@ class ViewerDialog(QDialog):
         self._layer_colors_cache = {}   # цвета из стиля слоя
         self._export = []        # части сцены для выгрузки в GLB
         self._export_frame = None    # центр и vex сборки для выгрузки
+        self._scene_proc = None      # процесс Isoliner Scene от кнопки
         self._vox_colors = {}    # цвета граней вокселей по слою
         self._dirty = False      # сцена отстала от настроек
         self._style_ramp = {}    # цвета вершин по шкале слоя
@@ -1190,6 +1191,10 @@ class ViewerDialog(QDialog):
         btn_export = tool(
             "export", tr("Выгрузить сцену в файл: GLB, STL или OBJ"),
             self._export_scene)
+        btn_scene_app = tool(
+            "scene", tr("Открыть в Isoliner Scene: сцена в отдельной "
+                        "программе. Повторное нажатие обновляет её там"),
+            self._open_in_scene_app)
         self.btn_spin = tool(
             "spin", tr("Вращать сцену (ещё раз - остановить)"),
             self._spin_toggle)
@@ -1326,7 +1331,7 @@ class ViewerDialog(QDialog):
                   self.btn_undo,
                   self.btn_done, self.btn_line, self.btn_sketch,
                   btn_clip_off,
-                  btn_draw_save, btn_shells, btn_export,
+                  btn_draw_save, btn_shells, btn_export, btn_scene_app,
                   self.btn_spin, btn_views, btn_turn,
                   btn_copy, btn_png):
             b.setParent(self.tools)
@@ -1783,19 +1788,8 @@ class ViewerDialog(QDialog):
         координатах (scene_package.py).
         """
         from . import scene_package
-        from .about import read_metadata
         try:
-            self._state_save()
-            crs = self._scene_crs()
-            pk = self._pick or {}
-            frame = {k: pk.get(k, 0.0) for k in ("cx", "cy", "cz")}
-            frame["vex"] = pk.get("vex", float(self.vex.value())) or 1.0
-            size = scene_package.write(
-                fn, self._export, self._state_dict(),
-                name=self._scene_name or "", frame=frame,
-                crs=crs.authid() if crs.isValid() else "",
-                wkt=crs.toWkt() if crs.isValid() else "",
-                version=read_metadata().get("version", ""))
+            size = self._write_package(fn)
         except Exception as err:  # nosec - выгрузка не удалась
             self.info.setText(tr("Выгрузка не удалась: %s") % err)
             _log(tr("Выгрузка не удалась: %s") % err)
@@ -1805,6 +1799,107 @@ class ViewerDialog(QDialog):
                "файл %.1f МБ.")
             % (len(scene_package.describe(self._export)),
                len(self._fly_views), size / (1024.0 * 1024.0)))
+
+    def _write_package(self, fn):
+        """Пакет сцены в файл fn, размер в байтах. Ошибка уходит наверх:
+        выгрузка и кнопка Isoliner Scene сообщают её по-своему."""
+        from . import scene_package
+        from .about import read_metadata
+        self._state_save()
+        crs = self._scene_crs()
+        pk = self._pick or {}
+        frame = {k: pk.get(k, 0.0) for k in ("cx", "cy", "cz")}
+        frame["vex"] = pk.get("vex", float(self.vex.value())) or 1.0
+        return scene_package.write(
+            fn, self._export, self._state_dict(),
+            name=self._scene_name or "", frame=frame,
+            crs=crs.authid() if crs.isValid() else "",
+            wkt=crs.toWkt() if crs.isValid() else "",
+            version=read_metadata().get("version", ""))
+
+    def _open_in_scene_app(self):
+        """Открыть сцену в Isoliner Scene, отдельной программе на Rust.
+
+        Пакет сцены пишется в постоянное место во временной папке:
+        сначала рядом, потом переименованием на место, чтобы окно
+        сцены не застало его недописанным. Первое нажатие запускает
+        программу с этим пакетом. Пока она открыта, нажатие только
+        переписывает пакет, а программа перечитывает его сама и камеру
+        не трогает. Договор - doc/PLAN.md хранилища isoliner-scene.
+
+        Пакет пишется по кнопке, а не при каждой пересборке: так
+        решили вместе со стороной сцены, автопересылку можно добавить
+        флажком.
+        """
+        import subprocess  # nosec B404 - запуск своей программы сцены
+        import tempfile
+        from qgis.core import QgsSettings
+        from . import scene_app
+        if not self._export:
+            self.info.setText(tr("Открывать нечего: сцена пуста."))
+            return
+        settings = QgsSettings()
+        exe = scene_app.find_app(
+            str(settings.value(scene_app.SETTINGS_KEY, "") or ""))
+        if not exe:
+            exe = self._ask_scene_app(settings)
+            if not exe:
+                return
+        prj = QgsProject.instance()
+        name = prj.baseName() or prj.title() or self._scene_name or ""
+        dst = scene_app.package_path(name, tempfile.gettempdir())
+        part = scene_app.temp_path(dst)
+        try:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            self._write_package(part)
+            scene_app.replace_file(part, dst)
+        except Exception as err:  # nosec - пакет не записан
+            self.info.setText(tr("Пакет для Isoliner Scene не записан: %s")
+                              % err)
+            _log(tr("Пакет для Isoliner Scene не записан: %s") % err)
+            return
+        if scene_app.is_running(self._scene_proc):
+            self.info.setText(tr("Сцена обновлена в Isoliner Scene."))
+            return
+        try:
+            # список аргументов, без оболочки: путь программы и пакета
+            self._scene_proc = subprocess.Popen(  # nosec B603
+                [exe, dst])
+        except OSError as err:
+            self.info.setText(tr("Isoliner Scene не запустилась: %s")
+                              % err)
+            _log(tr("Isoliner Scene не запустилась: %s") % err)
+            return
+        _log(tr("Isoliner Scene: %s, пакет %s") % (exe, dst))
+        self.info.setText(tr("Сцена открыта в Isoliner Scene. Повторное "
+                             "нажатие обновит её там."))
+
+    def _ask_scene_app(self, settings):
+        """Программа не нашлась: где её взять и выбор файла вручную.
+
+        Выбранный путь запоминается в настройках модуля и дальше
+        берётся первым."""
+        from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox
+        from . import scene_app
+        btns = getattr(QMessageBox, "StandardButton", QMessageBox)
+        ans = QMessageBox.question(
+            self, tr("Isoliner Scene"),
+            tr("Программа Isoliner Scene не найдена. Её можно скачать "
+               "со страницы выпусков:\n%s\n\nЕсли она уже стоит, "
+               "укажите файл программы. Указать?")
+            % scene_app.DOWNLOAD_URL,
+            btns.Yes | btns.No)
+        if ans != btns.Yes:
+            self.info.setText(tr("Isoliner Scene не найдена: %s")
+                              % scene_app.DOWNLOAD_URL)
+            return ""
+        fn, _f = QFileDialog.getOpenFileName(
+            self, tr("Программа Isoliner Scene"), "",
+            tr("Программы (*.exe);;Все файлы (*)"))
+        if not fn:
+            return ""
+        settings.setValue(scene_app.SETTINGS_KEY, fn)
+        return fn
 
     def _write_cad_file(self, fn):
         """Записать сцену в STL или OBJ.

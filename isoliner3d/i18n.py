@@ -331,6 +331,22 @@ TRANSLATIONS = {
     '2.13 Оболочка грида пласта':
         '2.13 A shell from a bed grid',
     'Оболочка грида пласта': 'A shell from a bed grid',
+    'Открыть в Isoliner Scene: сцена в отдельной программе. Повторное нажатие обновляет её там':
+        'Open in Isoliner Scene: the scene in a separate program. Press again to update it there',
+    'Открывать нечего: сцена пуста.': 'Nothing to open: the scene is empty.',
+    'Пакет для Isoliner Scene не записан: %s':
+        'The package for Isoliner Scene was not written: %s',
+    'Сцена обновлена в Isoliner Scene.': 'The scene is updated in Isoliner Scene.',
+    'Isoliner Scene не запустилась: %s': 'Isoliner Scene did not start: %s',
+    'Isoliner Scene: %s, пакет %s': 'Isoliner Scene: %s, package %s',
+    'Сцена открыта в Isoliner Scene. Повторное нажатие обновит её там.':
+        'The scene is open in Isoliner Scene. Press again to update it there.',
+    'Isoliner Scene': 'Isoliner Scene',
+    'Программа Isoliner Scene не найдена. Её можно скачать со страницы выпусков:\n%s\n\nЕсли она уже стоит, укажите файл программы. Указать?':
+        'Isoliner Scene was not found. It can be downloaded from the releases page:\n%s\n\nIf it is already installed, point to the program file. Do it now?',
+    'Isoliner Scene не найдена: %s': 'Isoliner Scene was not found: %s',
+    'Программа Isoliner Scene': 'The Isoliner Scene program',
+    'Программы (*.exe);;Все файлы (*)': 'Programs (*.exe);;All files (*)',
     'Вершин %d, граней %d.':
         'Vertices %d, faces %d.',
     'Или мощность вниз, м':
