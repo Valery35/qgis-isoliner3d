@@ -38,6 +38,29 @@
 
 ## Журнал
 
+### 1.5.0 - 12 ноября 2026 года
+
+Обрезка с крышками во всех режимах, длинные грани, пакет сцены
+.i3dscene с точками и линиями, восемь инструментов объектами.
+Тексты постов - `site/posts_1.5.0_social.md`.
+
+| Площадка | Запись |
+|---|---|
+| GitHub | https://github.com/Valery35/qgis-isoliner3d/releases/tag/1.5.0 |
+| Каталог QGIS | архив прикреплён к форме, флажки согласия и Save ставит автор |
+| Telegram | https://t.me/qgis_isolines/209 |
+| Dropbox | `ИИ\Isoliner3D`, три архива, 1.4.14 в `arhiv\старые_сборки_1.4.14` |
+| ВК | https://vk.ru/wall-241229428_67 (запись на стене, без статьи) |
+| Mastodon | https://en.osm.town/@Vaery35/117605004632525490 |
+| X | https://x.com/Valery35/status/2120954749331608026 |
+| LinkedIn | https://www.linkedin.com/feed/update/urn:li:activity:7526721033442238465/ |
+| Facebook | https://www.facebook.com/valery35/posts/pfbid02gFomceA8Zx4gE1rEqgJYHAsFnuaJEVBLp9kXBdtZ8vqRKnsgUZPpgd2G6WXNtG8Tl |
+| linux.org.ru | https://www.linux.org.ru/news/opensource/18420037 (ждёт модератора) |
+| OSGeo Discourse | не опубликовано, в Chrome нет входа на discourse.osgeo.org |
+| Форум OSM | не публиковалось, в выпуске нет ничего про данные OSM |
+| Reddit | текст в файле постов, публикует автор |
+| Сайт informpp.ru | не публиковалось, у модуля нет страницы на сайте |
+
 ### 1.4.14 - 12 ноября 2026 года
 
 Выпуск из одного исправления: импорт сцен из другого проекта QGIS
