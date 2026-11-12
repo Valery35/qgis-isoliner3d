@@ -401,6 +401,7 @@ def tool_runs(out):
     runs += _zonal_runs()
     runs += _desurvey_runs()
     runs += _interval_runs()
+    runs += _grid_shell_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
 
 
@@ -443,6 +444,58 @@ def _interval_runs():
         runs.append({"tool": tool.name, "values": dict(vals, **meta),
                      "input": {"TRACES": traces, "TABLE": table},
                      "output": outs, "report": rep.lines})
+    return runs
+
+
+def _grid_json(g):
+    """Grid в JSON: привязка, подписи, каналы строками, пусто - null.
+
+    NaN в JSON не бывает, поэтому пустая ячейка пишется null."""
+    return {"transform": list(g.transform), "names": list(g.names),
+            "meta": dict(g.meta),
+            "bands": [[[None if x != x else float(x) for x in row]
+                       for row in band] for band in g.bands()]}
+
+
+def _grid_shell_runs():
+    """2.13: вход - растр (Grid), выход - тела. Пласт в два пласта,
+    пустые ячейки, разрыв на два тела, прореживание, отказ."""
+    tool = by_name("grid_to_shell")
+    yy, xx = np.mgrid[0:6, 0:8].astype(float)
+    top = -100.0 + 0.3 * xx - 0.2 * yy
+    bot = top - 4.0 - 0.1 * xx
+    split = top.copy()
+    split[:, 4] = np.nan
+    grids = {"two_beds": toolspec.Grid(
+                 [top, bot, top - 30.0, bot - 35.0],
+                 transform=(512000.0, 10.0, 0.0, 6401000.0, 0.0, -10.0),
+                 names=["top1", "bot1", "top2", "bot2"]),
+             "split": toolspec.Grid(
+                 [split, bot],
+                 transform=(512000.0, 10.0, 0.0, 6401000.0, 0.0, -10.0))}
+    runs = []
+    for tag, kw in (("two_beds", dict(BAND=1)), ("two_beds", dict(BAND=3)),
+                    ("two_beds", dict(BAND=1, STEP=2)),
+                    ("two_beds", dict(BAND=4)), ("split", dict(BAND=1))):
+        vals = dict(tool.defaults(), **kw)
+        del vals["INPUT"]               # растр идёт в "input"
+        rep = toolspec.Report()
+        run = {"tool": tool.name, "values": vals,
+               "input": {"INPUT": _grid_json(grids[tag])}}
+        try:
+            res = tool.run(dict(vals, INPUT=grids[tag]), rep)["OUTPUT"]
+            run["output"] = {
+                "fields": res.fields, "geometry": res.geometry,
+                "features": [{"n_verts": len(g["verts"]),
+                              "n_faces": len(g["faces"]),
+                              "values": [_plain(x) for x in row]}
+                             for g, row in res.features]}
+        except toolspec.ToolError as exc:
+            run["error"] = {"template": exc.template,
+                            "args": [_plain(a) for a in exc.args_]}
+        run["report"] = rep.lines
+        run["tolerance"] = {"volume_rel": 1e-9}
+        runs.append(run)
     return runs
 
 

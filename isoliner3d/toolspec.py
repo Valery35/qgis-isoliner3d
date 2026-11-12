@@ -35,14 +35,18 @@ QGIS подключается одной обёрткой (SpecAlgorithm в algo
 - string - строка; bool - True или False;
 - number, integer - число; enum - номер выбранного пункта, при
            multiple=True - список номеров;
+- raster - растр: Grid (ниже), каналы читаются по запросу;
+- band   - номер канала растра parent, с единицы;
 - sink   - выход. Обязательного выхода на входе run нет,
            необязательный приходит True, если его заказали.
+           Выход с geometry="raster" - растр, run отдаёт RasterResult.
 
 К каждому слою на входе обёртка добавляет values["@КЛЮЧ"] =
 {"name": имя слоя, "geometry": "point" | "line" | "polygon" | "none",
 "hasz": есть ли Z, "fields": [имена полей], "numeric": [числовые
-поля]}. Без QGIS этот словарь можно не давать. Поле field
-с multiple=True приходит списком имён.
+поля]}. У растра там {"name", "geometry": "raster", "bands": число
+каналов, "names": [подписи каналов]}. Без QGIS этот словарь можно
+не давать. Поле field с multiple=True приходит списком имён.
 
 Результат run - словарь {ключ выхода: Result}. Result несёт поля
 (имя, тип), объекты (геометрия, значения) и признак keep_source:
@@ -57,6 +61,8 @@ QGIS подключается одной обёрткой (SpecAlgorithm в algo
 Сообщения отчёта - шаблон с аргументами, тоже переводятся при показе.
 """
 
+import numpy as np
+
 
 def N_(text):
     """Метка строки для перевода: перевод делается при показе."""
@@ -64,8 +70,91 @@ def N_(text):
 
 
 KINDS = ("mesh", "meshes", "lines", "points", "features", "table",
+         "raster", "band",
          "field", "string", "bool", "number", "integer", "enum", "sink")
 SOURCE_KINDS = ("mesh", "meshes", "lines", "points", "features", "table")
+
+
+class Grid(object):
+    """Растр без GDAL: каналы, привязка, подписи.
+
+    transform - шесть чисел привязки в порядке GDAL: x0, шаг по x,
+    поворот, y0, поворот, шаг по y (обычно отрицательный). Канал -
+    массив (строки, столбцы) float, пусто - NaN. Каналы задаются
+    списком массивов или функцией read(номер) с числом count и формой
+    shape: так обёртка QGIS читает только те каналы, что спросил
+    расчёт. Номера каналов с единицы, как в QGIS и GDAL.
+
+    meta - метаданные растра строками: у куба там отметка первого
+    уровня и шаг по вертикали. crs - система координат строкой WKT,
+    расчёт её не трогает, а выход берёт как есть.
+    """
+
+    def __init__(self, bands=None, transform=(0.0, 1.0, 0.0, 0.0, 0.0,
+                                               -1.0),
+                 names=None, meta=None, read=None, count=None, shape=None,
+                 crs=""):
+        self.transform = tuple(float(x) for x in transform)
+        if len(self.transform) != 6:
+            raise ValueError("transform needs six numbers")
+        if bands is not None:
+            self._bands = [np.asarray(b, dtype=float) for b in bands]
+            if not self._bands:
+                raise ValueError("grid without bands")
+            shapes = set(b.shape for b in self._bands)
+            if len(shapes) != 1 or len(self._bands[0].shape) != 2:
+                raise ValueError("bands of different shapes")
+            self.count = len(self._bands)
+            self.shape = self._bands[0].shape
+        else:
+            if read is None or not count or shape is None:
+                raise ValueError("grid needs bands or read, count, shape")
+            self._bands = [None] * int(count)
+            self.count = int(count)
+            self.shape = tuple(int(x) for x in shape)
+        self._read = read
+        self.names = list(names) if names else [""] * self.count
+        if len(self.names) != self.count:
+            raise ValueError("names do not match bands")
+        self.meta = dict(meta or {})
+        self.crs = crs or ""
+
+    @property
+    def height(self):
+        return self.shape[0]
+
+    @property
+    def width(self):
+        return self.shape[1]
+
+    def band(self, number):
+        """Канал по номеру с единицы: массив float, пусто - NaN."""
+        if not 1 <= int(number) <= self.count:
+            raise IndexError("band %s of %d" % (number, self.count))
+        i = int(number) - 1
+        if self._bands[i] is None:
+            self._bands[i] = np.asarray(self._read(i + 1), dtype=float)
+        return self._bands[i]
+
+    def bands(self):
+        return [self.band(k) for k in range(1, self.count + 1)]
+
+
+class RasterResult(object):
+    """Выход растром: Grid и имя слоя.
+
+    Обёртка пишет его в GeoTIFF Float32, пусто - NaN, с подписями
+    каналов и метаданными. Система координат - у grid.crs, а без неё
+    берётся от первого входа.
+    """
+
+    geometry = "raster"
+
+    def __init__(self, grid, name=None):
+        if not isinstance(grid, Grid):
+            raise ValueError("RasterResult needs a Grid")
+        self.grid = grid
+        self.name = name
 
 
 class Param(object):
@@ -199,6 +288,10 @@ class Tool(object):
         keys = [p.key for p in self.params]
         if len(set(keys)) != len(keys):
             raise ValueError("duplicate field in %s" % name)
+        kinds = dict((p.key, p.kind) for p in self.params)
+        for p in self.params:
+            if p.kind == "band" and kinds.get(p.parent) != "raster":
+                raise ValueError("band %s needs a raster parent" % p.key)
 
     def display_name(self):
         """Название с кодом, как в панели Processing."""

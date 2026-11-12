@@ -5864,181 +5864,6 @@ class SectionLinesToSurfaceAlgorithm(IsolinerAlgorithm):
         return {"OUTPUT": out_path}
 
 
-HINTS_2_13 = {
-    "INPUT": "Грид пласта: канал кровли и канал подошвы. Такой даёт "
-             "1.01 из двух поверхностей или из одной, достроенной "
-             "вниз, и 2.08 по зарисовкам на разрезах.",
-    "BAND": "Канал кровли. Подошвой считается следующий за ним: так "
-            "устроен грид пласта. У многопластового грида это выбор "
-            "пласта.",
-    "STEP": "Прореживание сетки. Единица - как есть; двойка берёт "
-            "каждую вторую ячейку и даёт вчетверо меньше "
-            "треугольников. Объём при этом меняется мало, а вот "
-            "тонкие детали срезаются.",
-    "OUTPUT": "Тела пласта: полигоны с Z, объём каждого в атрибутах. "
-              "Дальше их принимают 2.11 и 2.12.",
-}
-
-
-class GridToShellAlgorithm(IsolinerAlgorithm):
-    """Оболочка тела пласта из грида, без окна просмотра.
-
-    То же самое делает кнопка в сцене, но там это ручной шаг: модель
-    обработки его не повторит, и на новых данных всё придётся кликать
-    заново. Здесь тот же меш строится инструментом, поэтому цепочка
-    «поверхность - тело - вычитание отработки - подсчёт запаса»
-    собирается целиком и запускается одной кнопкой.
-    """
-
-    def name(self):
-        return "grid_to_shell"
-
-    def displayName(self):
-        return self.tr("2.13 Оболочка грида пласта")
-
-    def group(self):
-        return self.tr(GROUP5)
-
-    def groupId(self):
-        return GROUP5_ID
-
-    def helpUrl(self):
-        return _help_url()
-
-    def createInstance(self):
-        return GridToShellAlgorithm()
-
-    def shortHelpString(self):
-        return _help_version(self.tr(
-            "Строит замкнутую оболочку тела пласта по гриду: кровля, "
-            "подошва и бортик между ними.\n\n"
-            "То же самое делает кнопка оболочек в окне просмотра, "
-            "но там это ручной шаг. Инструментом он становится частью "
-            "модели обработки, и цепочка «поверхность - тело - "
-            "вычитание отработанного - подсчёт запаса» запускается "
-            "целиком.\n\n"
-            "Оболочка замкнута, поэтому её принимают 2.11 и 2.12, "
-            "а объём считается точной формулой по самой оболочке.\n\n"
-            "Объём здесь и объём из 1.02 расходятся примерно "
-            "на процент: оболочка идёт по центрам ячеек, а 1.02 "
-            "считает ячейки целиком. Это разные границы одной области, "
-            "а не спор методов.") + _credit())
-
-    def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterRasterLayer(
-            "INPUT", self.tr("Грид пласта")))
-        self.addParameter(QgsProcessingParameterBand(
-            "BAND", self.tr("Канал кровли"), defaultValue=1,
-            parentLayerParameterName="INPUT"))
-        self.addParameter(_advanced(QgsProcessingParameterNumber(
-            "STEP", self.tr("Прореживание сетки"),
-            QgsProcessingParameterNumber.Type.Integer,
-            defaultValue=1, minValue=1, maxValue=50)))
-        self.addParameter(QgsProcessingParameterFeatureSink(
-            "OUTPUT", self.tr("Тела пласта"),
-            QgsProcessing.SourceType.TypeVectorPolygon))
-        _hints(self, HINTS_2_13)
-
-    def _process(self, parameters, context, feedback):
-        from qgis.core import (QgsFields, QgsFeature, QgsGeometry,
-                               QgsPoint, QgsLineString, QgsPolygon,
-                               QgsMultiPolygon, QgsWkbTypes)
-        from .mesh3d import bed_to_mesh_arrays
-        from .cleanup import mesh_volume, shell_defects, split_bodies
-
-        lyr = self.parameterAsRasterLayer(parameters, "INPUT", context)
-        band = self.parameterAsInt(parameters, "BAND", context)
-        step = max(self.parameterAsInt(parameters, "STEP", context), 1)
-
-        ds = gdal.Open(lyr.source())
-        if ds is None:
-            raise QgsProcessingException(self.tr("Грид не открылся."))
-        if band + 1 > ds.RasterCount:
-            raise QgsProcessingException(self.tr(
-                "После канала %d нет канала подошвы. У грида пласта "
-                "каналы идут парами: кровля, подошва.") % band)
-        gt = ds.GetGeoTransform()
-
-        def read(b):
-            rb = ds.GetRasterBand(b)
-            arr = rb.ReadAsArray().astype(float)
-            nd = rb.GetNoDataValue()
-            if nd is not None:
-                arr = np.where(arr == nd, np.nan, arr)
-            return arr
-
-        top, bot = read(band), read(band + 1)
-        ds = None
-        thick = top - bot
-        fin = thick[np.isfinite(thick)]
-        if not fin.size:
-            raise QgsProcessingException(self.tr(
-                "Мощность нигде не считается: в каналах нет "
-                "перекрывающихся данных."))
-        feedback.pushInfo(self.tr("Мощность: %.2f .. %.2f м.")
-                          % (float(fin.min()), float(fin.max())))
-        if float(fin.min()) < 0:
-            feedback.pushWarning(self.tr(
-                "Местами подошва выше кровли: таких ячеек %d. Тела "
-                "там нет, и они выброшены.")
-                % int(np.sum(fin < 0)))
-        feedback.setProgress(30)
-
-        verts, faces = bed_to_mesh_arrays(top, bot, gt, zscale=1.0,
-                                          zoffset=0.0, step=step)
-        if not len(faces):
-            raise QgsProcessingException(self.tr(
-                "Оболочка не построилась: проверьте каналы."))
-        feedback.pushInfo(self.tr("Вершин %d, граней %d.")
-                          % (len(verts), len(faces)))
-        feedback.setProgress(60)
-
-        fields = QgsFields()
-        fields.append(_field("body", QVariant.Int))
-        fields.append(_field("band", QVariant.Int))
-        fields.append(_field("volume", QVariant.Double))
-        fields.append(_field("faces", QVariant.Int))
-        fields.append(_field("closed", QVariant.Int))
-        sink, dest = self.parameterAsSink(
-            parameters, "OUTPUT", context, fields,
-            QgsWkbTypes.Type.MultiPolygonZ, lyr.crs())
-        if sink is None:
-            raise QgsProcessingException(self.tr(
-                "Не удалось создать слой тел."))
-        total = 0.0
-        n_body = n_open = 0
-        for bv, bf, _tag in split_bodies(verts, faces):
-            holes, _pinch = shell_defects(bv, bf)
-            vol = mesh_volume(bv, bf)
-            total += vol
-            n_body += 1
-            if holes:
-                n_open += 1
-            mp = QgsMultiPolygon()
-            for tri in bf:
-                ls = QgsLineString()
-                for vi in (tri[0], tri[1], tri[2], tri[0]):
-                    p = bv[vi]
-                    ls.addVertex(QgsPoint(float(p[0]), float(p[1]),
-                                          float(p[2])))
-                poly = QgsPolygon()
-                poly.setExteriorRing(ls)
-                mp.addGeometry(poly)
-            ft = QgsFeature(fields)
-            ft.setGeometry(QgsGeometry(mp))
-            ft.setAttributes([n_body, band, float(vol), int(len(bf)),
-                              1 if holes == 0 else 0])
-            sink.addFeature(ft)
-        _set_output_name(context, dest, self.tr("Тела пласта"))
-        feedback.pushInfo(self.tr("Тел: %d, объём всего %.1f м3.")
-                          % (n_body, total))
-        if n_open:
-            feedback.pushWarning(self.tr(
-                "Незамкнутых тел: %d. Их не примут 2.11 и 2.12, "
-                "и объём по ним считать нельзя.") % n_open)
-        return {"OUTPUT": dest}
-
-
 HINTS_2_15 = {
     "INPUTS": "Слои контуров: полигоны с настоящими Z, в любых "
               "плоскостях. Вертикальные разрезы, карта толщ на дневной "
@@ -7564,6 +7389,20 @@ class SpecAlgorithm(IsolinerAlgorithm):
             elif p.kind == "bool":
                 prm = QgsProcessingParameterBoolean(
                     p.key, label, defaultValue=bool(p.default))
+            elif p.kind == "raster":
+                prm = QgsProcessingParameterRasterLayer(
+                    p.key, label, optional=p.optional)
+            elif p.kind == "band":
+                prm = QgsProcessingParameterBand(
+                    p.key, label, defaultValue=p.default,
+                    parentLayerParameterName=p.parent,
+                    optional=p.optional)
+            elif p.geometry == "raster":
+                kw = {}
+                if p.optional:
+                    kw = {"optional": True, "createByDefault": False}
+                prm = QgsProcessingParameterRasterDestination(
+                    p.key, label, **kw)
             else:
                 geo = {"lines": "TypeVectorLine",
                        "line": "TypeVectorLine",
@@ -7662,9 +7501,30 @@ class SpecAlgorithm(IsolinerAlgorithm):
         # Геометрия объектов по id: выход «как источник» кладёт её
         # обратно без изменений, в run она не ходит.
         self._geoms = {}
+        # Система координат первого входа, вектор он или растр:
+        # в ней пишутся выходы.
+        self._crs = None
         for p in self.spec().params:
             k = p.key
-            if p.kind in self._SOURCES:
+            if p.kind == "raster":
+                lyr = self.parameterAsRasterLayer(parameters, k, context)
+                if lyr is None:
+                    if p.optional:
+                        values[k] = None
+                        continue
+                    raise QgsProcessingException(self.tr(
+                        "Не удалось открыть слой %s.") % self.tr(p.label))
+                if self._crs is None:
+                    self._crs = lyr.crs()
+                grid = self._grid(lyr)
+                values[k] = grid
+                values["@" + k] = {"name": lyr.name() or "",
+                                   "geometry": "raster",
+                                   "bands": grid.count,
+                                   "names": list(grid.names)}
+            elif p.kind == "band":
+                values[k] = self.parameterAsInt(parameters, k, context)
+            elif p.kind in self._SOURCES:
                 src = self.parameterAsSource(parameters, k, context)
                 if src is None:
                     if p.optional:
@@ -7673,6 +7533,8 @@ class SpecAlgorithm(IsolinerAlgorithm):
                     raise QgsProcessingException(self.tr(
                         "Не удалось открыть слой %s.") % self.tr(p.label))
                 sources[k] = src
+                if self._crs is None:
+                    self._crs = src.sourceCrs()
                 values["@" + k] = self._layer_meta(src)
                 if p.kind == "meshes":
                     geoms = self._geoms.setdefault(k, {})
@@ -7708,6 +7570,44 @@ class SpecAlgorithm(IsolinerAlgorithm):
                 # необязательный выход: run узнаёт, заказан ли он
                 values[k] = bool(parameters.get(k))
         return values, sources
+
+    def _grid(self, lyr):
+        """Растр слоя как toolspec.Grid: каналы читаются по запросу.
+
+        Пусто (nodata канала) становится NaN. Читает GDAL по пути
+        источника, как прежние инструменты группы.
+        """
+        from .toolspec import Grid
+        ds = gdal.Open(lyr.source())
+        if ds is None:
+            raise QgsProcessingException(self.tr("Грид не открылся."))
+
+        def read(b):
+            rb = ds.GetRasterBand(b)
+            arr = rb.ReadAsArray().astype(float)
+            nd = rb.GetNoDataValue()
+            if nd is not None:
+                arr = np.where(arr == nd, np.nan, arr)
+            return arr
+
+        names = [ds.GetRasterBand(b).GetDescription() or ""
+                 for b in range(1, ds.RasterCount + 1)]
+        return Grid(read=read, count=ds.RasterCount,
+                    shape=(ds.RasterYSize, ds.RasterXSize),
+                    transform=ds.GetGeoTransform(), names=names,
+                    meta=ds.GetMetadata() or {}, crs=lyr.crs().toWkt())
+
+    def _write_raster(self, parameters, key, context, res):
+        """Выход растром: GeoTIFF Float32, пусто - NaN."""
+        path = self.parameterAsOutputLayer(parameters, key, context)
+        g = res.grid
+        wkt = g.crs or (self._crs.toWkt() if self._crs is not None else "")
+        names = [self.tr(n) for n in g.names] if any(g.names) else None
+        _write_grid_tiff(path, g.bands(), g.transform, wkt, float("nan"),
+                         g.width, g.height, names, meta=g.meta or None)
+        if res.name:
+            _set_output_name(context, path, self.tr(res.name))
+        return path
 
     @staticmethod
     def _layer_meta(src):
@@ -7824,8 +7724,7 @@ class SpecAlgorithm(IsolinerAlgorithm):
         except ToolError as exc:
             raise QgsProcessingException(
                 _SpecReport(self, feedback)._text(exc.template, exc.args_))
-        crs = next(iter(sources.values())).sourceCrs() if sources \
-            else None
+        crs = self._crs
         rows = {}
         for k in sources:
             items = values.get(k)
@@ -7836,6 +7735,10 @@ class SpecAlgorithm(IsolinerAlgorithm):
             if p.kind != "sink" or p.key not in results:
                 continue
             res = results[p.key]
+            if res.geometry == "raster":
+                out[p.key] = self._write_raster(parameters, p.key, context,
+                                                res)
+                continue
             keep = res.keep_source
             fields = QgsFields(sources[keep].fields()) if keep \
                 else QgsFields()
@@ -7962,6 +7865,21 @@ class HoleIntervalsAlgorithm(SpecAlgorithm):
 
     def displayName(self):
         return self.tr("2.18 Интервалы по стволу скважины")
+
+    def groupId(self):
+        return GROUP5_ID
+
+
+class GridToShellAlgorithm(SpecAlgorithm):
+    """2.13 Оболочка грида пласта (tools/grid_to_shell.py)."""
+
+    SPEC = "grid_to_shell"
+
+    def name(self):
+        return "grid_to_shell"
+
+    def displayName(self):
+        return self.tr("2.13 Оболочка грида пласта")
 
     def groupId(self):
         return GROUP5_ID

@@ -45,6 +45,8 @@ def test_registry_is_consistent():
                                          for i in picks)
             if p.kind == "field":
                 assert t.param(p.parent).kind in toolspec.SOURCE_KINDS
+            if p.kind == "band":
+                assert t.param(p.parent).kind == "raster"
         assert any(p.kind == "sink" for p in t.params), t.code
     with pytest.raises(KeyError):
         by_name("no_such_tool")
@@ -59,7 +61,12 @@ def test_description_goes_to_json():
 
 def test_param_refuses_unknown_kind():
     with pytest.raises(ValueError):
-        toolspec.Param("X", "raster", "a", "b")
+        toolspec.Param("X", "grid", "a", "b")
+    with pytest.raises(ValueError):
+        # канал без растра-родителя
+        toolspec.Tool("9.99", "t", "t", "9", "", [
+            toolspec.Param("A", "number", "a", "b"),
+            toolspec.Param("B", "band", "a", "b", parent="A")], None)
     with pytest.raises(ValueError):
         toolspec.Result([], geometry="points")
     with pytest.raises(ValueError):
@@ -519,6 +526,98 @@ def test_intervals_refusals():
     with pytest.raises(toolspec.ToolError) as err:
         tool.run(vals, toolspec.Report())
     assert "номера скважины в стволах" in err.value.template
+
+
+def test_grid_reads_bands_on_demand():
+    """Grid: каналы с единицы, ленивое чтение, проверки формы."""
+    asked = []
+
+    def read(b):
+        asked.append(b)
+        return np.full((2, 3), float(b))
+    g = toolspec.Grid(read=read, count=3, shape=(2, 3),
+                      transform=(100, 10, 0, 500, 0, -10),
+                      names=["a", "b", "c"])
+    assert (g.width, g.height, g.count) == (3, 2, 3)
+    assert g.band(2)[0, 0] == 2.0 and asked == [2]
+    g.band(2)
+    assert asked == [2]                      # второй раз из памяти
+    with pytest.raises(IndexError):
+        g.band(4)
+    with pytest.raises(IndexError):
+        g.band(0)
+    with pytest.raises(ValueError):
+        toolspec.Grid([np.zeros((2, 2)), np.zeros((3, 2))])
+    with pytest.raises(ValueError):
+        toolspec.Grid([np.zeros((2, 2))], names=["a", "b"])
+    with pytest.raises(ValueError):
+        toolspec.Grid()
+    with pytest.raises(ValueError):
+        toolspec.RasterResult(np.zeros((2, 2)))
+    res = toolspec.RasterResult(toolspec.Grid([np.zeros((2, 2))]), "x")
+    assert res.geometry == "raster" and res.grid.count == 1
+
+
+def _bed_grid(nx=8, ny=6, cell=10.0, top=-100.0, thick=5.0):
+    """Плоский пласт: кровля top, подошва на thick ниже, второй
+    пласт каналами 3 и 4 ещё на 20 м ниже."""
+    t = np.full((ny, nx), top)
+    b = t - thick
+    return toolspec.Grid([t, b, t - 20.0, b - 20.0 - thick],
+                         transform=(1000.0, cell, 0.0, 2000.0, 0.0, -cell))
+
+
+def test_grid_to_shell_volume_of_a_flat_bed():
+    """2.13: плоский пласт 8 x 6 ячеек по 10 м, мощность 5 м.
+
+    Оболочка идёт по центрам ячеек: 70 x 50 м, объём 17500 м3."""
+    tool = by_name("grid_to_shell")
+    vals = dict(tool.defaults(), INPUT=_bed_grid())
+    rep = toolspec.Report()
+    out = tool.run(vals, rep)["OUTPUT"]
+    assert out.geometry == "mesh" and out.keep_source is None
+    assert [n for n, _t in out.fields] == ["body", "band", "volume",
+                                           "faces", "closed"]
+    (geom, row), = out.features
+    assert row[0] == 1 and row[1] == 1 and row[4] == 1
+    assert abs(abs(row[2]) - 70 * 50 * 5.0) < 1e-6
+    assert row[3] == len(geom["faces"])
+    assert shell_defects(geom["verts"], geom["faces"])[0] == 0
+    assert abs(geom["verts"][:, 2].max() + 100.0) < 1e-9
+    text = "\n".join(t for _k, t in rep.lines)
+    assert "Мощность: 5.00 .. 5.00 м." in text
+    assert "Тел: 1, объём всего" in text
+    # второй пласт: каналы 3 и 4, мощность 10 м
+    out = tool.run(dict(vals, BAND=3), toolspec.Report())["OUTPUT"]
+    (_g, row), = out.features
+    assert row[1] == 3 and abs(abs(row[2]) - 70 * 50 * 10.0) < 1e-6
+
+
+def test_grid_to_shell_two_bodies_and_negative_thickness():
+    tool = by_name("grid_to_shell")
+    g = _bed_grid(nx=9)
+    top, bot = g.band(1).copy(), g.band(2).copy()
+    top[:, 4] = np.nan                     # пустой столбец делит тело
+    bot[0, 0] = top[0, 0] + 1.0            # подошва выше кровли
+    rep = toolspec.Report()
+    out = tool.run(dict(tool.defaults(), INPUT=toolspec.Grid(
+        [top, bot], transform=g.transform)), rep)["OUTPUT"]
+    assert len(out.features) == 2
+    assert [r[0] for _g, r in out.features] == [1, 2]
+    assert any(k == "warn" and "таких ячеек 1" in t for k, t in rep.lines)
+
+
+def test_grid_to_shell_refusals():
+    tool = by_name("grid_to_shell")
+    g = _bed_grid()
+    with pytest.raises(toolspec.ToolError) as err:
+        tool.run(dict(tool.defaults(), INPUT=g, BAND=4), toolspec.Report())
+    assert "нет канала подошвы" in err.value.template
+    assert err.value.args_ == (4,)
+    empty = toolspec.Grid([np.full((3, 3), np.nan)] * 2)
+    with pytest.raises(toolspec.ToolError) as err:
+        tool.run(dict(tool.defaults(), INPUT=empty), toolspec.Report())
+    assert "нигде не считается" in err.value.template
 
 
 def test_report_cancel_stops_the_sweep():

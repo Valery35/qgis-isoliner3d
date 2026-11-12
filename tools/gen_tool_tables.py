@@ -125,7 +125,15 @@ _KIND_NAMES = {"mesh": "FeatureSource", "lines": "FeatureSource",
                "field": "Field",
                "string": "String", "bool": "Boolean",
                "number": "Number", "integer": "Number", "enum": "Enum",
+               "raster": "RasterLayer", "band": "Band",
                "sink": "FeatureSink"}
+
+
+def _kind_name(p):
+    """Вид поля как в таблицах классов: растровый выход отдельно."""
+    if p.kind == "sink" and p.geometry == "raster":
+        return "RasterDestination"
+    return _KIND_NAMES[p.kind]
 
 
 def collect():
@@ -160,7 +168,7 @@ def collect():
                 # как у классов: справка с версией и подписью
                 # в таблицы не идёт, руководство пишет свой текст
                 "help": "",
-                "params": [(p.key, p.label, _KIND_NAMES[p.kind], p.hint)
+                "params": [(p.key, p.label, _kind_name(p), p.hint)
                            for p in tool.params],
             })
             continue

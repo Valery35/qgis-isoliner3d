@@ -330,6 +330,7 @@ TRANSLATIONS = {
 
     '2.13 Оболочка грида пласта':
         '2.13 A shell from a bed grid',
+    'Оболочка грида пласта': 'A shell from a bed grid',
     'Вершин %d, граней %d.':
         'Vertices %d, faces %d.',
     'Или мощность вниз, м':

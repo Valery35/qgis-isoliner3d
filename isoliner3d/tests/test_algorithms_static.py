@@ -348,7 +348,7 @@ def test_every_tool_has_field_hints():
              ("SectionLinesToSurfaceAlgorithm", "HINTS_2_10"),
              ("BooleanShellsAlgorithm", None),
              ("SelectByShellAlgorithm", None),
-             ("GridToShellAlgorithm", "HINTS_2_13"),
+             ("GridToShellAlgorithm", None),
              ("ZonalShellStatsAlgorithm", None),
              ("FormationBodiesAlgorithm", "HINTS_2_15"),
              ("DemoRiversAlgorithm", "HINTS_2_16"),
@@ -1021,10 +1021,8 @@ def test_grid_to_shell_repeats_the_scene_button():
     Ручной шаг модель обработки не повторит, и цепочка до запаса
     не собирается целиком.
     """
-    src = open(os.path.join(PKG, "algorithms.py"),
+    seg = open(os.path.join(PKG, "tools", "grid_to_shell.py"),
                encoding="utf-8").read()
-    i = src.index("class GridToShellAlgorithm")
-    seg = src[i:src.index("\nclass ", i + 10)]
     assert "bed_to_mesh_arrays(" in seg and "zscale=1.0" in seg
     assert "split_bodies(" in seg and "mesh_volume(" in seg
     # незамкнутое тело называется прямо: его не примут 2.11 и 2.12
