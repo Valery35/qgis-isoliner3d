@@ -32,7 +32,7 @@ def _b(key, icon, ru, where="both", **kw):
 
 
 ITEMS = [
-    _b("rebuild", "rebuild", "Обновить сцену", "pro"),
+    _b("rebuild", "rebuild", "Обновить сцену"),
     SEP,
     _b("params", "params",
        "Параметры сцены: вид, камера, оформление, короб, обрезка"),
@@ -55,7 +55,10 @@ ITEMS = [
        "pro"),
     _b("shells", "shell", "Оболочки выбранного слоя в слой проекта",
        "pro"),
-    _b("export", "export", "Выгрузить сцену в файл: GLB, STL или OBJ"),
+    _b("export", "export", "Выгрузить сцену в файл: GLB, STL или OBJ",
+       "pro"),
+    _b("export_package", "export",
+       "Сохранить сцену в файл пакета .i3dscene", "lite"),
     _b("scene_app", "scene",
        "Открыть в Isoliner Scene: сцена в отдельной программе. "
        "Повторное нажатие обновляет её там", "pro"),

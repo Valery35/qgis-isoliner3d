@@ -53,7 +53,8 @@ def _bar_order():
 
 def test_every_bar_button_is_in_the_list_in_order():
     got = _bar_order()
-    want = [(b["icon"], b["ru"]) for b in toolbar.buttons()]
+    want = [(b["icon"], b["ru"]) for b in toolbar.buttons()
+            if b["where"] != "lite"]
     assert got == want, (got, want)
 
 
