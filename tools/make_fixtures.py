@@ -40,6 +40,7 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, HERE)
 
 from isoliner3d import flight, scene_package, sweep, toolspec  # noqa: E402
+from isoliner3d import scene_params  # noqa: E402
 from isoliner3d.cleanup import mesh_volume, shell_defects  # noqa: E402
 from isoliner3d.tools import by_name  # noqa: E402
 from isoliner3d.viewer_core import vector_export_parts  # noqa: E402
@@ -614,6 +615,11 @@ def tools_json(out):
     _dump(out, "tools.json", export_tools.build())
 
 
+def scene_params_json(out):
+    """Список окна «Параметры сцены» для Isoliner Scene."""
+    _dump(out, "scene_params.json", scene_params.as_json())
+
+
 def _dump(out, name, data):
     with open(os.path.join(out, name), "w", encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False, indent=1,
@@ -629,6 +635,7 @@ def main(argv):
     sweeps(out)
     tool_runs(out)
     tools_json(out)
+    scene_params_json(out)
     for name in sorted(os.listdir(out)):
         sys.stderr.write("%-28s %8d\n" % (name, os.path.getsize(
             os.path.join(out, name))))

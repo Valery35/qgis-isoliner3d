@@ -42,7 +42,7 @@ v3.2.0`, домен codeload из контейнера доступен.
 | Версия | 1.5.2 |
 | `experimental` | False |
 | Инструментов Processing | 32: группа 1 (1.01-1.08), группа 2 (2.01-2.24) |
-| Файлов тестов | 60 |
+| Файлов тестов | 61 |
 | `libs/` | 7 МБ |
 
 Размеры ключевых файлов, строк:
@@ -183,6 +183,7 @@ v3.2.0`, домен codeload из контейнера доступен.
 | `tools/` | описания и расчёты инструментов-объектов (`boolean_shells.py` 2.11, `select_by_shell.py` 2.12, `grid_to_shell.py` 2.13, `zonal_shell_stats.py` 2.14, `desurvey_holes.py` 2.17, `hole_intervals.py` 2.18, `fill_volume.py` 2.23, `sweep_body.py` 2.24), реестр `TOOLS`. Без QGIS, обёртка `SpecAlgorithm` в `algorithms.py` |
 | `scene_package.py` | пакет сцены `.i3dscene`: GLB плюс `scene.json`, камера в настоящих координатах, чтение GLB обратно. Без QGIS |
 | `scene_app.py` | кнопка «Открыть в Isoliner Scene»: путь пакета во временной папке, поиск программы (настройки, PATH, `%LOCALAPPDATA%\Programs`), подмена файла с повторами. Без QGIS, договор в `doc/PLAN.md` хранилища isoliner-scene |
+| `scene_params.py` | общий с Isoliner Scene список окна «Параметры сцены»: вкладки, группы, поля, ключи пакета. Выгружается в `scene_params.json` (`tools/make_fixtures.py`), сверяется с окном `test_scene_params.py`, описание в `doc/SCENE_PARAMS.md`. Без Qt и QGIS |
 | `icon.svg`, `icon_3d.svg` | иконки панели и меню |
 | `libs/` | вложенные pyqtgraph 0.14.0 и PyOpenGL 3.1.10, заморожены |
 | `doc/` | `Isoliner3D.pdf` и `Isoliner3D_en.pdf`, открываются кнопкой Справка и кнопкой справки в диалогах инструментов |
