@@ -643,13 +643,17 @@ explanation.
 
 ## 1.09 Bench report
 
-Cuts the block model into horizontal benches and computes for each: rock mass, ore and waste, mean ore grade, metal, stripping ratio, revenue, cost and margin. The last row is the total. The report runs top down, the way a pit is mined.
+Cuts the block model into horizontal benches and computes for each: rock mass, ore and waste, mean ore grade, metal, stripping ratio, revenue, cost and margin. The last row is the total.
 
-A block crossing a bench boundary is split between benches by the share of its height. The block height comes from the top and bottom fields (`z_from` and `z_to` of 1.03), otherwise from the `dz` field of 2.03 around the point elevation. The volume and density fields are guessed by the names `vol` and `dens`.
+Benches go from the base elevation with the bench height step, the report runs top down, the way a pit is mined. A block crossing a bench boundary is split between benches by the share of its height. The block height comes from the top and bottom fields (z_from and z_to of 1.03), otherwise from the dz field (of 2.03) around the point elevation, otherwise the whole block goes to the bench of its centre.
 
-Ore is blocks with a grade not below the cut-off, a block without grade counts as waste. Metal depends on the grade unit: for percent it is in tonnes, for g/t in grams, and the price is set per the same unit. Zero economics gives only tonnage and metal.
+Ore is blocks with a grade not below the cut-off. A block without grade counts as waste, and their number goes to the log.
 
-The idea comes from the QGIS 3D Studio plugin, the computation is our own.
+Metal depends on the grade unit: for percent it is in tonnes, for g/t in grams. The price is per the same metal unit. Revenue is metal with recovery at the price, cost is mining of all rock plus processing of ore. Zero economics gives only tonnage and metal.
+
+The volume and density fields are guessed by the names vol and dens, as 1.03 and 2.03 write them. A foreign Micromine, Datamine or Surpac model goes first to a cube with 2.20, then to blocks with 2.03, or set the fields yourself.
+
+The idea comes from the QGIS 3D Studio plugin.
 
 | Field | What it sets |
 |---|---|
@@ -1072,12 +1076,11 @@ The shell must be closed: one that is not has no inside.
 | **What to select (features with Z)** | What to select: points, lines or polygons with height. A block model from 2.03 and 1.03, samples, traces of workings, shells of other bodies - as long as the geometry has Z. |
 | **The shell (polygons with Z)** | The closed shell the selection is made by: an ore body, a mined-out zone, a block of reserves. The shells button in the viewer, 2.04 and 2.11 give such shells. |
 | **What to keep** | Entirely inside - every vertex of the feature is inside the shell. Crosses - at least one is: that is how holes and workings going right through the body are caught. Outside - the remainder, everything that does not cross. |
+| **Sampling step along lines, m (0 - vertices)** | The sampling step along lines and around the edge of polygons. Without it only the vertices are looked at, and a segment that goes right through the body between two of its own vertices will not be found. Zero - vertices only. |
 | **Field of the block volume** | The field of the block volume, if a block model is being selected. With it the volume of the selection is computed and checked against the volume of the shell itself: the difference shows how coarse the model is for this body. |
 | **Field of the grade** | The field of the grade. The mean over the selection is weighted by volume rather than plain: blocks come in different sizes, and a plain mean gives the small ones too much say. |
-| **Selected features** | The selected features with all their own fields. The summary goes to the log. |
-| **Sampling step along lines, m (0 - vertices)** | The sampling step along lines and around the edge of polygons. Without it only the vertices are looked at, and a segment that goes right through the body between two of its own vertices will not be found. Zero - vertices only. |
 | **Density, t/m3 (0 - no tonnage)** | The density of the ore. With it the volume turns into tonnes and the grade into the tonnage of metal. |
-
+| **Selected features** | The selected features with all their own fields. The summary goes to the log. |
 
 ### What it is for
 
@@ -1128,8 +1131,8 @@ The volume here and the volume from 1.02 differ by about one per cent: the shell
 |---|---|
 | **Bed grid** | A bed grid: a roof band and a floor band. 1.01 gives one from two surfaces or from a single one built downwards, and 2.08 from the drawings on sections. |
 | **Roof band** | The roof band. The next one counts as the floor: that is how a bed grid is built. In a multi-bed grid this is the choice of bed. |
-| **Bodies of the bed** | The bodies of the bed: polygons with Z, the volume of each in the attributes. 2.11 and 2.12 take them next. |
 | **Thinning of the mesh** | Thinning of the mesh. One means as it is, two takes every second cell and gives four times fewer triangles. The volume changes little, but fine detail is cut away. |
+| **Bodies of the bed** | The bodies of the bed: polygons with Z, the volume of each in the attributes. 2.11 and 2.12 take them next. |
 
 ### What comes out
 
@@ -1174,7 +1177,6 @@ The second, optional result is the objects themselves with the body they fell in
 | **Bodies with statistics** | The bodies with all their previous fields and the new count fields. To accumulate several runs, give the result of the previous run as the layer of bodies to the next. |
 | **Body field for the objects (empty - number)** | The body field written to the objects: the name or code of the body. Empty - the number of the body feature in the layer. |
 | **Objects with a body** | The objects themselves with the body they fell into: zone is the first body, zone_ids all of them separated by semicolons, zone_n how many bodies. An object outside the bodies gets empty and zero. Without this layer only the total per body is seen, not which samples gave it. |
-
 
 ### What it is for
 
@@ -1274,6 +1276,8 @@ The output is lines with Z. The length of each equals the depth along the hole, 
 |---|---|
 | **Collars** | Collars: a point layer or a table with coordinates. A point layer gives the coordinates from the geometry, a table from the X and Y fields. |
 | **Hole ID field** | The hole ID field in the collars. It matches a collar with its survey. Empty - recognised by name: HOLE, HOLEID, BHID. |
+| **X field (without geometry)** | The X field when the collar layer has no geometry. Not needed for a point layer. |
+| **Y field (without geometry)** | The Y field when the collar layer has no geometry. Not needed for a point layer. |
 | **Collar elevation field (empty - Z of the geometry)** | The collar elevation field. Empty - the elevation comes from the Z of the geometry. Without it the trace starts at zero, with a warning. |
 | **Hole depth field** | The field of the hole depth (end of hole). Empty - recognised by name (EOH, DEPTH), and without such a field the trace ends at the last survey station. |
 | **Collar azimuth field (empty - by name)** | The hole azimuth at the collar from the passport. An inclined hole follows it from the collar to the first station. Empty - recognised by name (AZIMUTH, AZI, BRG). |
@@ -1284,10 +1288,8 @@ The output is lines with Z. The length of each equals the depth along the hole, 
 | **Azimuth field** | The azimuth field, degrees clockwise from grid north. The meridian convergence is not applied. |
 | **Angle field** | The inclination angle field, in the convention chosen below. |
 | **How the angle is recorded** | How the angle is recorded. A wrong convention sends the trace upwards or lays it flat, so check it on one known hole. |
-| **Borehole traces** | Borehole traces: lines with true Z from the collar to the end of hole. The line length equals the depth along the hole, so 2.18 cuts it into intervals without a depth table. |
-| **X field (without geometry)** | The X field when the collar layer has no geometry. Not needed for a point layer. |
-| **Y field (without geometry)** | The Y field when the collar layer has no geometry. Not needed for a point layer. |
 | **Trace node step, m** | The step of trace nodes along the arc, metres. The trace is drawn by the nodes, and 2.18 finds points at depths by them too. |
+| **Borehole traces** | Borehole traces: lines with true Z from the collar to the end of hole. The line length equals the depth along the hole, so 2.18 cuts it into intervals without a depth table. |
 
 ## 2.18 Intervals along a borehole
 
@@ -1470,15 +1472,17 @@ at the bend.
 
 ## 2.25 3D density
 
-Builds a cube whose cell holds a count, not an estimate: how many features fall into the cell, the sum or mean of their attribute, the length of lines inside the cell. A cluster of finds in an excavation, sampling density, metres of workings per block.
+Builds a cube whose cell holds a count, not an estimate: how many features fall into the cell, the sum or mean of their attribute, the length of lines inside the cell.
 
-A feature is counted once: a point at its position, a line at its middle along the length, a polygon at the centre of its ring. Line length is split between cells exactly, at the crossings of each segment with the cell faces, so the sum over the cells equals the line length inside the grid. Both lengths go to the log.
+A feature is counted once: a point at its position, a line at its middle along the length, a polygon at the centre of its ring. Line length is split between cells exactly, at the crossings of each segment with the cell faces, and the sum over the cells equals the line length inside the grid. This is printed to the log.
 
-An empty cell is zero, not a gap: zero finds is a measured fact too. Only for the mean a cell without features is empty.
+An empty cell is zero, not a gap: zero finds is a measured fact too. Only for the mean a cell without features is empty: there is no mean of an empty set.
 
-The cube carries elevation marks like every cube of the plugin. The scene window builds an isosurface or voxels from it, 2.03 turns it into a block model, 2.04 into a voxel body. So a zone of higher density becomes a body by a threshold.
+The cube carries the elevation marks (Z0, DZ) like every cube of the plugin: the scene window builds an isosurface and voxels from it, 2.03 turns it into a block model, 2.04 into a voxel body. So a cluster of finds or a dense net of workings becomes a body by a density threshold.
 
-The idea comes from the QGIS 3D Studio plugin, the computation is our own.
+A grid step of zero takes a round step from the data extent: about fifty cells along the long side of the plan and twenty along the height.
+
+The idea comes from the QGIS 3D Studio plugin.
 
 | Field | What it sets |
 |---|---|
@@ -1494,13 +1498,15 @@ The idea comes from the QGIS 3D Studio plugin, the computation is our own.
 
 Builds a closed body for each outline in plan: a flat floor, walls and a crown over them. A chamber, a lens, a dome, a dump over its base outline.
 
-The floor is a plane through the outline elevations, so a small tilt and scatter are allowed. An outline without elevation takes the floor from a field or a constant elevation.
+The floor is a least-squares plane through the outline elevations, so a small tilt and scatter are allowed. An outline without elevation takes the floor from a field or a constant elevation.
 
-The crown height at a point grows with the distance to the outline. A narrow part of the body comes out low, a wide part high, and the crest follows the middle line of the shape: an L-shaped outline gets a crown along both arms. A linear crown is a gable roof, a rounded one is an arc of the same height, like a chamber vault. The rise limit cuts the crest, and a wide body gets a flat roof over its middle.
+The crown height at a point grows with the distance to the outline. A narrow part of the body comes out low, a wide part high, and the crest follows the middle line of the shape rather than one axis: an L-shaped outline gets a crown along both arms. A linear crown is a gable roof with the rise "steepness per metre from the outline", a rounded one is an arc of the same height, like a chamber vault. The rise limit cuts the crest: a wide body gets a flat roof over its middle.
 
-The body is built on a grid, and the boundary runs through the centres of the cells inside the outline, so the volume is a little less than the outline area times the height. The bodies are closed, 2.11, 2.12, 2.14 and 2.23 take them.
+The body is built on a grid with the cell step, and the boundary runs through the centres of the cells inside the outline, so the volume is a little less than the outline area times the height. A finer cell is closer to the outline.
 
-The idea comes from the QGIS 3D Studio plugin, the computation is our own.
+The bodies are closed: 2.11, 2.12, 2.14 and 2.23 compute the volume, the samples inside and the water filling.
+
+The idea comes from the QGIS 3D Studio plugin.
 
 | Field | What it sets |
 |---|---|
@@ -1803,6 +1809,99 @@ matters is the ratio and how it changes as the grid gets denser.
 | Stars and rays across the field of interpolation | The split into sectors on samples that lie in plan | Leave zero in the field of sectors, it is taken from the data |
 | The shell came out coarse | The cube has few levels down the vertical | Set the vertical step in 2.02 by hand |
 | The layer is refused at the input of a tool | A mesh of triangles is never a valid multipolygon | Nothing, the tools of the module do not require that check |
+
+<!-- rustgis:begin -->
+
+# Isoliner3D in RustGIS
+
+Isoliner3D for RustGIS is a RustGIS plugin with the same scene and the
+same tools as the QGIS plugin. It runs in RustGIS for Windows from
+version 0.5.
+
+## Installation
+
+1. Download `isoliner3d-0.3.0.rgplugin` from the release page.
+2. In RustGIS open the Plugins tab and click Install from File.
+3. Choose the package and confirm the installation.
+
+RustGIS warns that the plugin is a program on the computer and not a
+sandboxed module. All process plugins of RustGIS work this way.
+
+After installation the Plugins tab has an Isoliner3D group with the
+Isoliner3D Scene and About Isoliner3D buttons and a button per tool.
+The same tools are in the RustGIS Tools pane, in the Isoliner3D
+group.
+
+Installation from the command line.
+
+```
+rustgis-cli plugins install isoliner3d-0.3.0.rgplugin
+```
+
+Removal is in the Plugin Manager, on the Isoliner3D row.
+
+## Scene
+
+The Isoliner3D Scene button opens the scene window with the visible
+vector layers of the map. The window is the one of the Isoliner Scene
+program and of the QGIS plugin's view window - the toolbar, Scene
+Settings, fly-through views, video and export. The View Window chapter
+describes it.
+
+When the layers change, Isoliner3D Scene builds the scene again. An
+open window reloads it by itself, a second window does not open.
+
+A scene package `.i3dscene` written by the QGIS plugin opens with the
+Open… button of the scene window.
+
+## Tools
+
+RustGIS has two tools now.
+
+- 2.24 Body along a mine working.
+- 2.17 Borehole traces from survey.
+
+Their fields, hints and messages are those of the QGIS plugin. The tool
+pages of the Tools chapter are common to QGIS and RustGIS.
+
+The result goes to the project as a new layer. Undo in RustGIS
+(Ctrl+Z) removes it.
+
+## How RustGIS differs from QGIS
+
+- A RustGIS layer keeps its coordinate system, but a plugin gets its
+  features in WGS 84 degrees and without Z. The degrees go to metres of
+  the UTM zone at the middle of the input layers for the run, and the
+  result goes back to degrees. The run messages name the zone.
+- The scene is built in metres of the first visible layer's system when
+  that system is in metres. RustGIS brings the other layers to the same
+  system. Layers in degrees give a scene in metres of a UTM zone.
+- Heights come from fields. For 2.24 it is the axis elevation field or
+  the constant elevation. For 2.17 it is the collar elevation field.
+- A 2.24 body goes to the project as an outline in plan, the top faces
+  of the body, with the length, section area and volume fields. The
+  scene shows this layer as a body with heights.
+- 2.17 takes collars as a point layer or as a table with X and Y in
+  metres. Points go through the UTM zone. A table without points gives
+  X and Y from its fields, and the Coordinate system of X and Y (EPSG)
+  field takes their code, for example EPSG:28410. The traces then go
+  to the project in that system, and RustGIS puts them in place.
+- Tools with bodies on input (2.11, 2.12, 2.14, 2.23) and 2.18 with
+  traces in Z stay in the QGIS plugin. A RustGIS layer holds neither
+  bodies nor lines with Z.
+- The scene follows the layers at the press of the button. A RustGIS
+  with plugin sessions will let it follow them by itself.
+
+## Checking without installation
+
+A single run checks the package, RustGIS installs nothing.
+
+```
+rustgis-cli run --plugin isoliner3d-0.3.0.rgplugin --data axes.geojson ^
+  --cmd "gp.run={\"tool\":\"plugin:isoliner3d/sweep-body\",\"params\":{\"input\":\"axes\",\"elev\":-300}}"
+```
+
+<!-- rustgis:end -->
 
 # Neighbouring plugins
 

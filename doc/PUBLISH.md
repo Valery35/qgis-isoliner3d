@@ -48,7 +48,7 @@
 |---|---|
 | GitHub | https://github.com/Valery35/qgis-isoliner3d/releases/tag/1.5.5 |
 | Каталог QGIS | https://plugins.qgis.org/plugins/isoliner3d/version/1.5.5/ (загрузила основная сессия 13.11 по разрешению автора, идёт проверка) |
-| Telegram | бот поста не выложил (как и для 1.5.4) |
+| Telegram | бот поста не выложил (как и для 1.5.4), пост выкладывает автор сам |
 | Dropbox | `ИИ\Isoliner3D`, три архива, 1.5.4 в `arhiv\старые_сборки_1.5.4` |
 | ВК | https://vk.ru/wall-241229428_72 (запись на стене) |
 | Mastodon | https://en.osm.town/@Vaery35/117608677075122552 |
