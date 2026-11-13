@@ -403,7 +403,167 @@ def tool_runs(out):
     runs += _desurvey_runs()
     runs += _interval_runs()
     runs += _grid_shell_runs()
+    runs += _density_runs()
+    runs += _bench_runs()
+    runs += _crown_runs()
     _dump(out, "tool_runs.json", {"runs": runs})
+
+
+def _rows(res):
+    """Выход Result в JSON: поля, геометрия, объекты с числами."""
+    feats = []
+    for g, row in res.features:
+        item = {"values": [_plain(x) for x in row]}
+        if res.geometry == "mesh":
+            item.update(source=g.get("source"), n_verts=len(g["verts"]),
+                        n_faces=len(g["faces"]))
+        elif res.geometry == "point":
+            item["xyz"] = [float(x) for x in g["xyz"]]
+        feats.append(item)
+    return {"fields": res.fields, "geometry": res.geometry,
+            "features": feats}
+
+
+def _spec_run(tool, vals, inputs, feed, meta=None, tol=None):
+    """Прогон инструмента-объекта: входы, выходы или отказ, отчёт.
+
+    inputs - входы для JSON, feed - те же входы для расчёта (NumPy).
+    Растровый выход пишется Grid в JSON, табличный и телами - _rows."""
+    meta = meta or {}
+    rep = toolspec.Report()
+    run = {"tool": tool.name, "values": dict(vals, **meta),
+           "input": inputs}
+    try:
+        res = tool.run(dict(vals, **dict(feed, **meta)), rep)
+        outs = {}
+        for key, r in res.items():
+            if isinstance(r, toolspec.RasterResult):
+                outs[key] = {"geometry": "raster",
+                             "grid": _grid_json(r.grid)}
+            else:
+                outs[key] = _rows(r)
+        run["output"] = outs
+    except toolspec.ToolError as exc:
+        run["error"] = {"template": exc.template,
+                        "args": [_plain(a) for a in exc.args_]}
+    run["report"] = rep.lines
+    if tol:
+        run["tolerance"] = tol
+    return run
+
+
+def _feats(items):
+    """Объекты с частями-списками в JSON и в NumPy для расчёта."""
+    js = [{"id": it["id"], "attrs": it["attrs"], "parts": it["parts"]}
+          for it in items]
+    np_ = [dict(it, parts=[np.array([[np.nan if c is None else c
+                                      for c in p] for p in part],
+                                    dtype=float)
+                           for part in it["parts"]]) for it in items]
+    return js, np_
+
+
+def _density_runs():
+    """2.25: точки (число, сумма, среднее), линии (длина), отказ."""
+    tool = by_name("density_3d")
+    pts = [{"id": i + 1, "attrs": {"au": a}, "parts": [[list(xyz)]]}
+           for i, (xyz, a) in enumerate(
+               [((5, 5, 5), 1.0), ((6, 4, 3), 2.0), ((15, 5, 15), 4.0),
+                ((5, 25, 5), None), ((35, 25, 15), 8.0)])]
+    lines = [{"id": 1, "attrs": {}, "parts": [[[0, 5, 5], [40, 5, 5]]]},
+             {"id": 2, "attrs": {}, "parts": [[[5, 0, 2], [5, 30, 18]]]}]
+    cases = [(pts, "point", dict(METRIC=0, CELL_XY=10.0, CELL_Z=10.0,
+                                 OUTPUT_CELLS=True)),
+             (pts, "point", dict(METRIC=1, ATTR="au", CELL_XY=10.0,
+                                 CELL_Z=10.0)),
+             (pts, "point", dict(METRIC=2, ATTR="au", CELL_XY=10.0,
+                                 CELL_Z=10.0, OUTPUT_CELLS=True)),
+             (lines, "line", dict(METRIC=3, CELL_XY=10.0, CELL_Z=10.0,
+                                  OUTPUT_CELLS=True)),
+             (pts, "point", dict(METRIC=3)),
+             (pts, "point", dict(METRIC=0))]
+    runs = []
+    for items, geom, kw in cases:
+        vals = dict(tool.defaults(), **kw)
+        del vals["INPUT"]
+        js, feed = _feats(items)
+        meta = {"@INPUT": {"name": "objects", "geometry": geom,
+                           "fields": ["au"]}}
+        runs.append(_spec_run(tool, vals, {"INPUT": js}, {"INPUT": feed},
+                              meta))
+    return runs
+
+
+def _bench_runs():
+    """1.09: блоки по 10 м, уступы 10 и 15 м, г/т и проценты,
+    плотность полем и постоянной, высота из z_from/z_to и из dz."""
+    tool = by_name("bench_report")
+    blocks = []
+    n = 0
+    for z in (5.0, 15.0, 25.0, 35.0):
+        for x, g in ((5.0, 0.4), (15.0, 1.2), (25.0, 2.5), (35.0, None)):
+            n += 1
+            blocks.append({"id": n, "xyz": [x, 5.0, z],
+                           "attrs": {"au": g, "vol": 1000.0,
+                                     "dens": 2.7 if x < 30 else None,
+                                     "z_from": z + 5.0, "z_to": z - 5.0,
+                                     "dz": 10.0}})
+    feed = [dict(b, xyz=np.array(b["xyz"], dtype=float)) for b in blocks]
+    full = ["au", "vol", "dens", "z_from", "z_to", "dz"]
+    cases = [
+        (full, dict(GRADE="au", UNIT=1, CUTOFF=1.0, HEIGHT=10.0,
+                    BASE=0.0, DENSITY=2.6, PRICE=60.0, RECOVERY=90.0,
+                    MINE_COST=3.0, PROC_COST=20.0)),
+        (full, dict(GRADE="au", UNIT=1, CUTOFF=1.0, HEIGHT=15.0,
+                    BASE=2.0, DENSITY=2.6)),
+        (full, dict(GRADE="au", UNIT=0, CUTOFF=0.5, HEIGHT=20.0,
+                    BASE=0.0, DENS="", DENSITY=2.5, PRICE=8000.0,
+                    RECOVERY=85.0, MINE_COST=2.5, PROC_COST=15.0)),
+        (["au", "vol", "dz"], dict(GRADE="au", UNIT=1, CUTOFF=2.0,
+                                   HEIGHT=10.0, BASE=5.0,
+                                   DENSITY=2.7)),
+    ]
+    runs = []
+    for fields, kw in cases:
+        vals = dict(tool.defaults(), **kw)
+        del vals["BLOCKS"]
+        meta = {"@BLOCKS": {"name": "blocks", "geometry": "point",
+                            "hasz": True, "fields": fields}}
+        keep = [dict(b, attrs={k: v for k, v in b["attrs"].items()
+                               if k in fields}) for b in blocks]
+        keep_np = [dict(b, attrs={k: v for k, v in b["attrs"].items()
+                                  if k in fields}) for b in feed]
+        runs.append(_spec_run(tool, vals, {"BLOCKS": keep},
+                              {"BLOCKS": keep_np}, meta))
+    return runs
+
+
+def _crown_runs():
+    """2.26: квадрат с Z, Г-образный контур без Z с полем пола,
+    округлый свод, потолок подъёма, отказ на линиях."""
+    tool = by_name("contour_crown")
+    sq = [[0, 0, 100.0], [20, 0, 100.0], [20, 20, 100.0], [0, 20, 100.0],
+          [0, 0, 100.0]]
+    ell = [[0, 0, None], [30, 0, None], [30, 10, None], [10, 10, None],
+           [10, 30, None], [0, 30, None], [0, 0, None]]
+    items = [{"id": 7, "attrs": {"fz": None}, "parts": [sq]},
+             {"id": 8, "attrs": {"fz": -50.0}, "parts": [ell]}]
+    cases = [("polygon", dict(STEEP=0.5, CELL=1.0)),
+             ("polygon", dict(WALL=3.0, STEEP=0.5, SHAPE=1, CELL=1.0,
+                              FLOOR_FIELD="fz")),
+             ("polygon", dict(STEEP=1.0, RISE_MAX=4.0, CELL=0.5,
+                              FLOOR=10.0)),
+             ("line", dict(STEEP=0.5))]
+    runs = []
+    js, feed = _feats(items)
+    for geom, kw in cases:
+        vals = dict(tool.defaults(), **kw)
+        del vals["INPUT"]
+        meta = {"@INPUT": {"name": "outlines", "geometry": geom,
+                           "fields": ["fz"]}}
+        runs.append(_spec_run(tool, vals, {"INPUT": js}, {"INPUT": feed},
+                              meta, {"volume_rel": 1e-9}))
+    return runs
 
 
 def _interval_runs():
