@@ -98,7 +98,7 @@ GROUPS = [
                        "Three axes from the corner"),
                     _c("none", "Без рёбер", "No edges")]),
              _p("box_near", "подписи к ближним", "labels to the near edges",
-                "bool", default=True),
+                "bool", default=True, row_with="box_edges"),
              _p("grid_planes", "Сетка", "Grid", "choice", default="",
                 choices=[
                     _c("", "Только короб", "Box only"),

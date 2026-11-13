@@ -85,6 +85,24 @@ def test_english_labels_match_the_translations():
             assert g["en"] == TRANSLATIONS[g["ru"]], g["ru"]
 
 
+def test_row_with_matches_the_window():
+    """Поле row_with стоит в одной строке с полем в той же секции.
+
+    В модуле галка подписей к ближним рёбрам - вторая половина строки
+    «Рёбра», поэтому и подпись у неё со строчной.
+    """
+    src = _dialog()
+    for g in sp.GROUPS:
+        for s in g["sections"]:
+            keys = [p["key"] for p in s["params"]]
+            for p in s["params"]:
+                if "row_with" in p:
+                    assert p["row_with"] in keys, p["key"]
+    assert "self._pair(self.box_edge_mode," in src
+    near = [p for p in sp.params() if p["key"] == "box_near"][0]
+    assert near["row_with"] == "box_edges"
+
+
 def test_keys_are_unique_and_json_is_plain():
     keys = [p["key"] for p in sp.params()]
     assert len(keys) == len(set(keys))
