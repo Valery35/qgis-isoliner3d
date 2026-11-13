@@ -48,7 +48,7 @@
 | Площадка | Запись |
 |---|---|
 | GitHub | https://github.com/Valery35/qgis-isoliner3d/releases/tag/1.5.6 |
-| Каталог QGIS | Chrome не открыл plugins.qgis.org (вкладка возвращалась на пустую), архив `isoliner3d_upload.zip` из Dropbox загружает автор |
+| Каталог QGIS | архив прикреплён к форме, флажки согласия и Save ставит автор |
 | Dropbox | `ИИ\Isoliner3D`, три архива, 1.5.5 в `arhiv\старые_сборки_1.5.5` |
 | Telegram, ВК, Mastodon, X, LinkedIn, Facebook | пропущены по слову автора |
 | Сайт informpp.ru | страницу обновляет основная сессия |
