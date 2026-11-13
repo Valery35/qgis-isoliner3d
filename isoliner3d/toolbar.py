@@ -56,7 +56,7 @@ ITEMS = [
     _b("shells", "shell", "Оболочки выбранного слоя в слой проекта",
        "pro"),
     _b("export", "export", "Выгрузить сцену в файл: GLB, STL или OBJ"),
-    _b("export_package", "export",
+    _b("export_package", "save",
        "Сохранить пакет сцены (.i3dscene)", "lite"),
     _b("scene_app", "scene",
        "Открыть в Isoliner Scene: сцена в отдельной программе. "
