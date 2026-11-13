@@ -134,6 +134,9 @@ LABELS = {
     "revenue": "Выручка",
     "cost": "Затраты",
     "margin": "Маржа",
+    # 2.26: тела по контуру со сводом
+    "plan_area": "Площадь в плане, м²",
+    "rise": "Подъём свода, м",
 }
 
 # Поля с переменной приставкой: 2.14 называет их по слою, который
@@ -162,7 +165,7 @@ METRIC = {
     "x", "y", "z", "top", "bot", "z_from", "z_to", "thick",
     "dx", "dy", "dz", "from_m", "to_m", "zmin", "zmax", "length_m",
     "eoh", "depth", "top_depth", "bottom_depth", "len_m",
-    "z_top", "z_bot",
+    "z_top", "z_bot", "rise",
 }
 METRIC_SUFFIX = ("_len",)
 METRIC_DECIMALS = 2

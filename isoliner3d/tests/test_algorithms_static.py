@@ -55,6 +55,7 @@ EXPECTED = {
     "SweepBodyAlgorithm": ("sweep_body", "2.24"),
     "Density3DAlgorithm": ("density_3d", "2.25"),
     "BenchReportAlgorithm": ("bench_report", "1.09"),
+    "ContourCrownAlgorithm": ("contour_crown", "2.26"),
 }
 
 
@@ -363,7 +364,8 @@ def test_every_tool_has_field_hints():
              ("FillToVolumeAlgorithm", None),
              ("SweepBodyAlgorithm", None),
              ("Density3DAlgorithm", None),
-             ("BenchReportAlgorithm", None))
+             ("BenchReportAlgorithm", None),
+             ("ContourCrownAlgorithm", None))
     tree = ast.parse(src)
     classes = _classes(tree)
     specs = _specs()

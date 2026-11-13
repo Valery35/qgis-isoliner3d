@@ -653,22 +653,22 @@ The idea comes from the QGIS 3D Studio plugin, the computation is our own.
 
 | Field | What it sets |
 |---|---|
-| **Блочная модель (точки с Z)** | Центры блоков точками с высотой: выход 1.03 или 2.03, либо своя модель с полями объёма и содержания. |
-| **Поле содержания** | Содержание полезного компонента в блоке. Единица - в поле ниже, от неё зависит единица металла. |
-| **Единица содержания** | Проценты - металл в тоннах. Г/т - металл в граммах. Цена металла ниже задаётся за эту же единицу. |
-| **Бортовое содержание** | Блоки с содержанием не ниже этого - руда, остальные вскрыша. |
-| **Высота уступа, м** | Высота уступа в метрах. Мельче уступ - подробнее отчёт, но больше строк и дробнее блоки. |
-| **Базовая отметка уступов, м** | Отметка, от которой отсчитываются уступы: границы уступов лежат на ней и через высоту уступа вверх и вниз. |
-| **Поле объёма блока (пусто - vol)** | Объём блока, м³. Пусто - поле vol или volume, если оно есть. |
-| **Поле плотности (пусто - dens)** | Плотность блока, т/м³. Пусто - поле dens или density, если оно есть, иначе постоянная ниже. |
-| **Плотность, т/м³, если поля нет** | Плотность для блоков, у которых нет поля плотности или оно пустое. |
-| **Поле верха блока (пусто - z_from)** | Отметка верха блока. Пусто - поле z_from, если оно есть. Без верха и низа высота блока берётся из поля dz вокруг отметки точки. |
-| **Поле низа блока (пусто - z_to)** | Отметка низа блока. Пусто - поле z_to, если оно есть. |
-| **Цена единицы металла** | Цена тонны металла для процентов или грамма для г/т. Ноль - без выручки. |
-| **Извлечение, %** | Доля металла, которая доходит до продукта. |
-| **Выемка, за тонну горной массы** | Стоимость выемки тонны горной массы: руды и вскрыши. |
-| **Переработка, за тонну руды** | Стоимость переработки тонны руды. Вскрыша её не несёт, только выемку. |
-| **Отчёт по горизонтам** | Таблица без геометрии: строка на уступ сверху вниз и итог. |
+| **Block model (points with Z)** | Block centres as points with elevation: the output of 1.03 or 2.03, or your own model with volume and grade fields. |
+| **Field of the grade** | The grade of the useful component in the block. The unit is in the field below, the metal unit depends on it. |
+| **Grade unit** | Percent gives metal in tonnes, g/t gives metal in grams. The metal price below is set per the same unit. |
+| **Cut-off grade** | Blocks with a grade not below this are ore, the rest is waste. |
+| **Bench height, m** | Bench height in metres. A smaller bench gives a finer report, but more rows and more split blocks. |
+| **Bench base elevation, m** | The elevation benches are counted from: bench boundaries lie on it and every bench height up and down. |
+| **Block volume field (empty - vol)** | Block volume, m³. Empty takes the vol or volume field when present. |
+| **Density field (empty - dens)** | Block density, t/m³. Empty takes the dens or density field when present, otherwise the constant below. |
+| **Density, t/m³, if no field** | Density for blocks that have no density field or an empty one. |
+| **Block top field (empty - z_from)** | Block top elevation. Empty takes the z_from field when present. Without top and bottom the block height comes from the dz field around the point elevation. |
+| **Block bottom field (empty - z_to)** | Block bottom elevation. Empty takes the z_to field when present. |
+| **Price per metal unit** | The price of a tonne of metal for percent or of a gram for g/t. Zero gives no revenue. |
+| **Recovery, %** | The share of metal that reaches the product. |
+| **Mining, per tonne of rock** | The cost of mining a tonne of rock: ore and waste. |
+| **Processing, per tonne of ore** | The cost of processing a tonne of ore. Waste does not carry it, only mining. |
+| **Bench report** | A table without geometry: a row per bench top down and the total. |
 
 ## 2.01 Demonstration boreholes in three dimensions
 
@@ -1482,13 +1482,37 @@ The idea comes from the QGIS 3D Studio plugin, the computation is our own.
 
 | Field | What it sets |
 |---|---|
-| **Объекты с Z** | Точки, линии или полигоны с высотой: находки, пробы, интервалы опробования, выработки. Объекты без Z пропускаются, их число пишется в журнал. |
-| **Что считать в ячейке** | Число объектов - плотность находок или проб. Сумма и среднее - по атрибуту ниже. Длина линий, м - сколько метров выработок или интервалов проходит через ячейку. |
-| **Атрибут для суммы и среднего** | Числовой атрибут: металл, масса, вес находки. Пустые значения не участвуют. |
-| **Ячейка в плане, м (0 - от охвата)** | Размер ячейки по x и y в метрах. Ноль - круглый шаг от охвата данных, около пятидесяти ячеек по длинной стороне. |
-| **Ячейка по высоте, м (0 - от охвата)** | Размер ячейки по высоте в метрах. Ноль - около двадцати слоёв на размах отметок. |
-| **Куб плотности** | Куб плотности: канал на уровень по высоте, разметка Z0 и DZ в метаданных. Открывается в окне сцены изоповерхностью или вокселями. |
-| **Ячейки плотности (точки)** | Непустые ячейки точками в центрах, со всеми счётами сразу: n, sum, mean, len_m и объём ячейки vol. |
+| **Features with Z** | Points, lines or polygons with elevation: finds, samples, sampling intervals, workings. Features without Z are skipped and their count goes to the log. |
+| **What to count in a cell** | Feature count is the density of finds or samples. Sum and mean use the attribute below. Line length, m is how many metres of workings or intervals pass through the cell. |
+| **Attribute for the sum and mean** | A numeric attribute: metal, mass, weight of a find. Empty values do not take part. |
+| **Cell in plan, m (0 - from extent)** | Cell size along x and y in metres. Zero takes a round step from the data extent, about fifty cells along the long side. |
+| **Cell along height, m (0 - from extent)** | Cell size along the height in metres. Zero takes about twenty levels over the elevation range. |
+| **Density cube** | The density cube: a band per elevation level, Z0 and DZ in the metadata. It opens in the scene window as an isosurface or voxels. |
+| **Density cells (points)** | Non-empty cells as points at their centres, with all counts at once: n, sum, mean, len_m and the cell volume vol. |
+
+## 2.26 Crowned bodies from outlines
+
+Builds a closed body for each outline in plan: a flat floor, walls and a crown over them. A chamber, a lens, a dome, a dump over its base outline.
+
+The floor is a plane through the outline elevations, so a small tilt and scatter are allowed. An outline without elevation takes the floor from a field or a constant elevation.
+
+The crown height at a point grows with the distance to the outline. A narrow part of the body comes out low, a wide part high, and the crest follows the middle line of the shape: an L-shaped outline gets a crown along both arms. A linear crown is a gable roof, a rounded one is an arc of the same height, like a chamber vault. The rise limit cuts the crest, and a wide body gets a flat roof over its middle.
+
+The body is built on a grid, and the boundary runs through the centres of the cells inside the outline, so the volume is a little less than the outline area times the height. The bodies are closed, 2.11, 2.12, 2.14 and 2.23 take them.
+
+The idea comes from the QGIS 3D Studio plugin, the computation is our own.
+
+| Field | What it sets |
+|---|---|
+| **Body outlines (polygons)** | Body outlines in plan: polygons with or without elevation. A vertical outline, as on a section, is skipped: it has no area in plan. |
+| **Floor elevation field** | Floor elevation from a field. When set, the floor is level at this elevation even if the outline has its own Z. |
+| **Floor elevation for outlines without Z, m** | Floor elevation for outlines without elevation and without an elevation field. Outlines with Z keep the floor on their own elevations. |
+| **Wall height, m** | Height of the vertical walls from the floor to the start of the crown. Zero starts the crown right at the floor, like a lens. |
+| **Crown profile** | Linear is a gable roof whose rise grows evenly. Rounded is an arc from the wall to a crest of the same height, like a chamber vault, with a larger volume. |
+| **Crown steepness, m per metre from the outline** | Crown rise per metre of distance from the outline. 0.45 gives a crest of about 24 degrees, one gives 45 degrees. |
+| **Crown rise at most, m (0 - no limit)** | The limit of the crown rise above the walls. Zero means no limit, and a wide body then gets a high crown. |
+| **Cell, m (0 - from outline size)** | The body grid step. Zero takes about one hundred twenty cells along the long side of the outline. Finer gives a more exact boundary but more faces. |
+| **Bodies from outlines** | Bodies, one per outline, with all outline fields and the fields of volume, area, elevations and crown rise. The bodies are closed, 2.11, 2.12, 2.14 and 2.23 take them. |
 
 # Typical tasks
 

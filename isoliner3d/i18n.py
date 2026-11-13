@@ -364,6 +364,64 @@ TRANSLATIONS = {
     'Короб': 'Box',
     # освещение: одно Солнце на отмывку и тени (shadow.py)
     'Освещение': 'Lighting',
+    '2.26 Тела по контуру со сводом':
+        '2.26 Crowned bodies from outlines',
+    'Тела по контуру со сводом':
+        'Crowned bodies from outlines',
+    'Тела по контуру':
+        'Bodies from outlines',
+    'Высота отвесных стенок от пола до начала свода. Ноль - свод начинается сразу от пола, как у линзы.':
+        'Height of the vertical walls from the floor to the start of the crown. Zero starts the crown right at the floor, like a lens.',
+    'Контуры тел (полигоны)':
+        'Body outlines (polygons)',
+    'Контуры тел в плане: полигоны с высотой или без неё. Отвесный контур, как на разрезе, пропускается: площади в плане у него нет.':
+        'Body outlines in plan: polygons with or without elevation. A vertical outline, as on a section, is skipped: it has no area in plan.',
+    'Крутизна свода должна быть больше нуля.':
+        'The crown steepness must be above zero.',
+    'Крутизна свода, м на метр от контура':
+        'Crown steepness, m per metre from the outline',
+    'Линейный':
+        'Linear',
+    'Округлый':
+        'Rounded',
+    'Линейный - двускатная кровля, подъём растёт ровно. Округлый - дуга от стенки к гребню той же высоты, как свод камеры, объём больше.':
+        'Linear is a gable roof whose rise grows evenly. Rounded is an arc from the wall to a crest of the same height, like a chamber vault, with a larger volume.',
+    'Незамкнутых тел: %d. Их не примут 2.11 и 2.12.':
+        'Open bodies: %d. 2.11 and 2.12 will not take them.',
+    'Ни одного тела не построилось: нужны контуры в плане с площадью.':
+        'No body was built: outlines in plan with an area are needed.',
+    'Нужен слой полигонов: контуры тел в плане.':
+        'A polygon layer is needed: body outlines in plan.',
+    'Отметка пола для контуров без Z, м':
+        'Floor elevation for outlines without Z, m',
+    'Отметка пола для контуров без высоты и без поля отметки. У контуров с Z пол идёт по их отметкам.':
+        'Floor elevation for outlines without elevation and without an elevation field. Outlines with Z keep the floor on their own elevations.',
+    'Отметка пола из поля. Задана - пол горизонтален на этой отметке, даже если у контура есть своя Z.':
+        'Floor elevation from a field. When set, the floor is level at this elevation even if the outline has its own Z.',
+    'Подъём свода на метр расстояния от контура. 0.45 даёт гребень около 24 градусов, единица - 45 градусов.':
+        'Crown rise per metre of distance from the outline. 0.45 gives a crest of about 24 degrees, one gives 45 degrees.',
+    'Подъём свода не выше, м (0 - без предела)':
+        'Crown rise at most, m (0 - no limit)',
+    'Поле отметки пола':
+        'Floor elevation field',
+    'Предел подъёма свода над стенками. Ноль - без предела: у широкого тела свод тогда поднимается высоко.':
+        'The limit of the crown rise above the walls. Zero means no limit, and a wide body then gets a high crown.',
+    'Пропущено контуров: %d. Вырожденный контур или отвесный, как на разрезе: свода в плане у него нет.':
+        'Outlines skipped: %d. A degenerate or vertical outline, as on a section, has no crown in plan.',
+    'Профиль свода':
+        'Crown profile',
+    'Строит замкнутое тело на каждый контур в плане: плоский пол, стенки и свод над ними. Камера, линза, купол, отвал по контуру основания.\n\nПол - плоскость по отметкам контура наименьшими квадратами, поэтому небольшой наклон и разброс отметок допустимы. У контура без высоты пол берётся из поля или постоянной отметки.\n\nВысота свода в точке растёт с расстоянием до контура. Узкое место тела выходит низким, широкое высоким, гребень идёт по средней линии фигуры, а не по одной оси: у контура буквой Г свод вдоль обеих полок. Линейный свод - двускатная кровля с подъёмом «крутизна на метр от контура», округлый - дуга той же высоты, как свод камеры. Потолок подъёма срезает гребень: у широкого тела над серединой плоская кровля.\n\nТело строится на сетке с шагом ячейки, граница идёт по центрам ячеек внутри контура, поэтому объём немного меньше площади контура на высоту. Мельче ячейка - ближе к контуру.\n\nТела замкнуты: объём, пробы внутри, заполнение водой считают 2.11, 2.12, 2.14 и 2.23.\n\nИдея из модуля QGIS 3D Studio.':
+        'Builds a closed body for each outline in plan: a flat floor, walls and a crown over them. A chamber, a lens, a dome, a dump over its base outline.\n\nThe floor is a least-squares plane through the outline elevations, so a small tilt and scatter are allowed. An outline without elevation takes the floor from a field or a constant elevation.\n\nThe crown height at a point grows with the distance to the outline. A narrow part of the body comes out low, a wide part high, and the crest follows the middle line of the shape rather than one axis: an L-shaped outline gets a crown along both arms. A linear crown is a gable roof with the rise "steepness per metre from the outline", a rounded one is an arc of the same height, like a chamber vault. The rise limit cuts the crest: a wide body gets a flat roof over its middle.\n\nThe body is built on a grid with the cell step, and the boundary runs through the centres of the cells inside the outline, so the volume is a little less than the outline area times the height. A finer cell is closer to the outline.\n\nThe bodies are closed: 2.11, 2.12, 2.14 and 2.23 compute the volume, the samples inside and the water filling.\n\nThe idea comes from the QGIS 3D Studio plugin.',
+    'Тела, по одному на контур, со всеми полями контура и полями объёма, площади, отметок и подъёма свода. Тела замкнуты, их принимают 2.11, 2.12, 2.14 и 2.23.':
+        'Bodies, one per outline, with all outline fields and the fields of volume, area, elevations and crown rise. The bodies are closed, 2.11, 2.12, 2.14 and 2.23 take them.',
+    'Шаг сетки тела. Ноль - около ста двадцати ячеек по длинной стороне контура. Мельче - точнее граница, но больше граней.':
+        'The body grid step. Zero takes about one hundred twenty cells along the long side of the outline. Finer gives a more exact boundary but more faces.',
+    'Ячейка, м (0 - от размера контура)':
+        'Cell, m (0 - from outline size)',
+    'Площадь в плане, м²':
+        'Area in plan, m²',
+    'Подъём свода, м':
+        'Crown rise, m',
     'Проценты':
         'Percent',
     'Граммы на тонну':

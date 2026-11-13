@@ -7950,6 +7950,21 @@ class BenchReportAlgorithm(SpecAlgorithm):
         return GROUP4_ID
 
 
+class ContourCrownAlgorithm(SpecAlgorithm):
+    """2.26 Тела по контуру со сводом (tools/crown_body.py)."""
+
+    SPEC = "contour_crown"
+
+    def name(self):
+        return "contour_crown"
+
+    def displayName(self):
+        return self.tr("2.26 Тела по контуру со сводом")
+
+    def groupId(self):
+        return GROUP5_ID
+
+
 ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
@@ -7985,4 +8000,5 @@ ALGORITHMS = [
     SweepBodyAlgorithm,
     Density3DAlgorithm,
     BenchReportAlgorithm,
+    ContourCrownAlgorithm,
 ]
