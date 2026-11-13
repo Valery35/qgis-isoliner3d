@@ -675,6 +675,11 @@ def _tool_icon(kind, size=18):
         p.setBrush(QColor("#0E7C66"))
         tri = [(0.90, 0.10), (0.92, 0.40), (0.62, 0.34)]
         p.drawPolygon(*[QPointF(x * s, y * s) for x, y in tri])
+    elif kind == "params":        # три ползунка: параметры сцены
+        p.setBrush(QColor("#0E7C66"))
+        for y, x in ((0.26, 0.34), (0.50, 0.64), (0.74, 0.44)):
+            p.drawLine(QPointF(0.12 * s, y * s), QPointF(0.88 * s, y * s))
+            p.drawEllipse(QPointF(x * s, y * s), 0.09 * s, 0.09 * s)
     elif kind == "scene":         # окно программы и треугольник пуска
         p.drawRect(int(0.08 * s), int(0.16 * s),
                    int(0.84 * s), int(0.66 * s))

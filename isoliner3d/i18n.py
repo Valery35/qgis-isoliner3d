@@ -334,6 +334,34 @@ TRANSLATIONS = {
     'Открыть в Isoliner Scene: сцена в отдельной программе. Повторное нажатие обновляет её там':
         'Open in Isoliner Scene: the scene in a separate program. Press again to update it there',
     'Открывать нечего: сцена пуста.': 'Nothing to open: the scene is empty.',
+    # окно «Параметры сцены», общее с Isoliner Scene (doc/SCENE_PARAMS.md)
+    'Параметры сцены': 'Scene settings',
+    'Параметры сцены: вид, камера, оформление, короб, обрезка':
+        'Scene settings: view, camera, look, box, clipping',
+    'Масштаб': 'Scale',
+    'Разнос по Z, м': 'Z spacing, m',
+    'Прозрачность, %': 'Transparency, %',
+    'Камера': 'Camera',
+    'Азимут, °': 'Azimuth, °',
+    'Наклон, °': 'Elevation, °',
+    'Удаление, м': 'Distance, m',
+    'Угол обзора, °': 'Field of view, °',
+    'Параллельная проекция': 'Orthographic projection',
+    'Азимут взгляда камеры в градусах.':
+        'Camera view azimuth in degrees.',
+    'Наклон камеры над горизонтом в градусах. 90 - взгляд отвесно сверху.':
+        'Camera elevation above the horizon in degrees. 90 looks straight down.',
+    'Удаление камеры от центра вращения в единицах карты.':
+        'Camera distance from the rotation centre in map units.',
+    'Угол обзора перспективы в градусах. В параллельной проекции задаёт масштаб кадра вместе с удалением.':
+        'Perspective field of view in degrees. In orthographic projection it sets the frame scale together with the distance.',
+    'Показывать разметку': 'Show sketch',
+    'Нарисованный контур и линия разреза поверх сцены. Обрезка по ним остаётся и при снятой галке.':
+        'The drawn polygon and section line over the scene. Clipping by them stays when the box is cleared.',
+    'Нагрузка': 'Load',
+    'Текстура, пикс.': 'Texture, px',
+    'Предел вершин, тыс.': 'Vertex limit, thousands',
+    'Короб': 'Box',
     'Пакет для Isoliner Scene не записан: %s':
         'The package for Isoliner Scene was not written: %s',
     'Сцена обновлена в Isoliner Scene.': 'The scene is updated in Isoliner Scene.',

@@ -2172,7 +2172,7 @@ def test_props_title_is_set_first():
     start = src.index("def _sync_props")
     body = src[start:src.index("\n        def ", start + 20)]
     assert (body.index("self._props.setWindowTitle(title)")
-            < body.index("self.scene_box.setVisible(scene)"))
+            < body.index("self.opt_box.setVisible(raster)"))
 
 
 def test_source_switch_only_while_loading():
@@ -2494,7 +2494,7 @@ def test_budget_message_names_the_numbers():
 def test_vertex_cap_is_a_setting():
     """Предел вершин задаётся в свойствах сцены и живёт в проекте."""
     src = _viewer_src()
-    assert 'tr("Предел вершин в сцене (тысяч)")' in src
+    assert 'tr("Предел вершин, тыс.")' in src
     assert '"vert_cap": int(self.vert_cap.value())' in src
     assert 'state.get(' in src and '"vert_cap"' in src
     assert "def _vert_cap" in src
@@ -2521,7 +2521,7 @@ def test_rebuild_button_comes_first_and_is_separated():
     body = src[start:end]
     at_btn = body.index("tb.addWidget(self.btn)")
     at_sep = body.index("tb.addWidget(sep)")
-    at_rest = body.index("for b in (btn_top")
+    at_rest = body.index("for b in (btn_params, btn_top")
     assert at_btn < at_sep < at_rest
 
 
@@ -3286,7 +3286,7 @@ def test_scene_properties_are_grouped():
     искать перебором.
     """
     src = _viewer_src()
-    for name in ('QGroupBox(tr("Вид"))', 'QGroupBox(tr("Обрезка"))',
+    for name in ('QGroupBox(tr("Масштаб"))', 'QGroupBox(tr("Обрезка"))',
                  'QGroupBox(tr("Координатный короб"))'):
         assert name in src, name
     # в каждой части не больше пяти строк
@@ -4011,3 +4011,60 @@ def test_section_view_has_scales():
     assert "section_scales(" in body and "_halo_text_item" in body
     i = src.index("self._rebuild_scene()")
     assert "self._section_marks()" in src[i:i + 700]
+
+
+def test_toolbar_holds_actions_only():
+    """На плашке только действия, параметры вида - в окне параметров.
+
+    Решение автора: одна кнопка «Параметры сцены», а проекция, короб,
+    показ разметки и поле преувеличения уходят с плашки в окно.
+    Список полей общий с Isoliner Scene, doc/SCENE_PARAMS.md.
+    """
+    src = _viewer_src()
+    i = src.index("btn_params = tool(")
+    loop = src[i:src.index("tb.addWidget(b)", i)]
+    for gone in ("self.btn_ortho", "self.btn_axes", "self.btn_sketch"):
+        assert gone not in loop.split("for b in (btn_params")[1], gone
+    assert "vex_bar" not in src
+    assert "self._open_scene_params" in loop
+
+
+def test_scene_params_window_is_tabbed_and_tight():
+    """Окно параметров - четыре вкладки в порядке общего списка."""
+    src = _viewer_src()
+    assert "self.scene_box = QTabWidget()" in src
+    tabs = [src.index('self.scene_box.addTab(%s, tr("%s"))' % (w, t))
+            for w, t in (("tab_view", "Вид"),
+                         ("tab_look", "Оформление"),
+                         ("tab_box", "Короб"),
+                         ("tab_clip", "Обрезка"))]
+    assert tabs == sorted(tabs)
+    for lay in ("f1 = _tight(QFormLayout(box_view))",
+                "fc = _tight(QFormLayout(box_cam))",
+                "f2 = _tight(QFormLayout(box_clip))",
+                "f5 = _tight(QFormLayout(box_mask))",
+                "f4 = _tight(QFormLayout(box_look))",
+                "f3 = _tight(QFormLayout(box_grid))",
+                "vr = _tight(QVBoxLayout(box_rng))"):
+        assert lay in src, lay
+
+
+def test_scene_row_opens_the_scene_params():
+    """Строка «Сцена» и кнопка плашки открывают одно окно."""
+    src = _viewer_src().replace("\r\n", "\n")
+    start = src.index("def _open_props(self")
+    body = src[start:src.index("\n        def ", start + 20)]
+    assert "self._open_scene_params()" in body
+    assert "self.scene_box" not in body
+
+
+def test_props_and_buttons_go_in_pairs():
+    """Галки окна и скрытые кнопки ставят друг друга."""
+    src = _viewer_src()
+    for a in ("self.cam_ortho.toggled.connect(self._ortho_from_props)",
+              "self.btn_ortho.toggled.connect(self._ortho_to_props)",
+              "self.sketch_on.toggled.connect(self._sketch_from_props)",
+              "self.btn_sketch.toggled.connect(self._sketch_to_props)",
+              "box_grid.toggled.connect(self._box_show_from_props)",
+              '"sketch_on": bool(self.btn_sketch.isChecked())'):
+        assert a in src, a

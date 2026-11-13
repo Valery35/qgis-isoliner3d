@@ -65,7 +65,18 @@ from qgis.PyQt.QtWidgets import (    # noqa: E402
     QDoubleSpinBox, QPushButton, QLabel, QFormLayout, QSplitter, QWidget,
     QComboBox, QLineEdit, QGroupBox, QSpinBox,
     QTableWidget, QTableWidgetItem,
-    QFrame, QMenu, QCheckBox, QToolButton)
+    QFrame, QMenu, QCheckBox, QToolButton, QTabWidget)
+
+def _tight(layout):
+    """Поджать раскладку окна параметров: узкие поля, частые строки.
+
+    Окно параметров сцены должно помещаться в 700 пикселей по высоте,
+    а стиль по умолчанию даёт каждой группе поля по 9-11 пикселей.
+    """
+    layout.setContentsMargins(6, 4, 6, 4)
+    layout.setSpacing(3)
+    return layout
+
 
 # Qt5/Qt6: enum'ы либо плоские, либо в scoped-подклассах
 _CHECKED = getattr(getattr(Qt, "CheckState", Qt), "Checked")
@@ -483,6 +494,7 @@ class ViewerDialog(QDialog):
         self._vopts = {}         # id векторного слоя -> его настройки
         self._loading_opts = False
         self._props = None       # окно свойств, создаётся по требованию
+        self._scene_params = None    # окно «Параметры сцены», так же
 
         # --- настройки сцены (живут в свойствах строки «Сцена»)
         self.vex = QDoubleSpinBox()
@@ -597,24 +609,35 @@ class ViewerDialog(QDialog):
         self.texside.setToolTip(tr(
             "Сторона текстуры по длинной оси охвата. Больше значение - "
             "детальнее карта на поверхности и больше видеопамяти."))
-        # Тринадцать строк подряд читаются как свалка. Делим на три
-        # части по смыслу: как показывать, что отрезать, чем мерить.
-        # В каждой не больше пяти строк, и нужное находится глазом.
-        self.scene_box = QGroupBox(tr("Сцена"))
-        sv = QVBoxLayout(self.scene_box)
-
-        box_view = QGroupBox(tr("Вид"))
-        f1 = QFormLayout(box_view)
+        # Все параметры вида живут в одном окне «Параметры сцены»,
+        # общем с Isoliner Scene: поля, порядок и ключи пакета
+        # записаны в doc/SCENE_PARAMS.md. Шесть групп одна под другой
+        # растягивали окно во весь экран, поэтому теперь четыре
+        # вкладки: вид, оформление, короб, обрезка.
+        self.scene_box = QTabWidget()
+        self._build_camera_controls()
+        tab_view = QWidget()
+        tv = _tight(QVBoxLayout(tab_view))
+        box_view = QGroupBox(tr("Масштаб"))
+        f1 = _tight(QFormLayout(box_view))
         f1.addRow(tr("Вертикальное преувеличение"), self.vex)
-        f1.addRow(tr("Разнос по Z (шаг вниз)"), self.spacing)
-        f1.addRow(tr("Прозрачность поверхностей (процентов)"),
-                  self.opacity)
-        f1.addRow(tr("Сторона текстуры (пикселей)"), self.texside)
-        f1.addRow(tr("Предел вершин в сцене (тысяч)"), self.vert_cap)
-        sv.addWidget(box_view)
+        f1.addRow(tr("Разнос по Z, м"), self.spacing)
+        f1.addRow(tr("Прозрачность, %"), self.opacity)
+        tv.addWidget(box_view)
+        box_cam = QGroupBox(tr("Камера"))
+        fc = _tight(QFormLayout(box_cam))
+        fc.addRow(tr("Азимут, °"), self.cam_az)
+        fc.addRow(tr("Наклон, °"), self.cam_el)
+        fc.addRow(tr("Удаление, м"), self.cam_dist)
+        fc.addRow(tr("Угол обзора, °"), self.cam_fov)
+        fc.addRow("", self.cam_ortho)
+        tv.addWidget(box_cam)
+        tv.addWidget(self.auto_rebuild)
+        tv.addStretch(1)
+        self.scene_box.addTab(tab_view, tr("Вид"))
 
         box_clip = QGroupBox(tr("Обрезка"))
-        f2 = QFormLayout(box_clip)
+        f2 = _tight(QFormLayout(box_clip))
         self.clip_combo.setToolTip(tr(
             "Обрезка по контуру или линии: остаётся то, что внутри. "
             "Годится любой полигональный слой проекта, а также "
@@ -667,14 +690,17 @@ class ViewerDialog(QDialog):
             "поставленный в сцену, а не поверхность, натянутая "
             "на линию. Линия берётся та же, что и для обрезки."))
         box_mask = QGroupBox(tr("Маска и заборы"))
-        f5 = QFormLayout(box_mask)
+        f5 = _tight(QFormLayout(box_mask))
         mrow = QHBoxLayout()
         mrow.addWidget(self.mask_lyr)
         mrow.addWidget(self.mask_level)
         f5.addRow(tr("По маске (растр)"), mrow)
         f5.addRow("", self.fence_all)
-        sv.addWidget(box_mask)
-        sv.addWidget(box_clip)
+        tab_clip = QWidget()
+        tcl = _tight(QVBoxLayout(tab_clip))
+        tcl.addWidget(box_clip)
+        tcl.addWidget(box_mask)
+        tcl.addStretch(1)
 
         self.light = QSpinBox()
         self.light.setRange(0, 100)
@@ -701,12 +727,27 @@ class ViewerDialog(QDialog):
             "Сглаживание краёв линий и подписей. Действует "
             "со следующего открытия окна: режим рисования выбирается "
             "при его создании."))
+        self.sketch_on = QCheckBox(tr("Показывать разметку"))
+        self.sketch_on.setChecked(True)
+        self.sketch_on.setToolTip(tr(
+            "Нарисованный контур и линия разреза поверх сцены. Обрезка "
+            "по ним остаётся и при снятой галке."))
         box_look = QGroupBox(tr("Оформление"))
-        f4 = QFormLayout(box_look)
+        f4 = _tight(QFormLayout(box_look))
         f4.addRow(tr("Отмывка"), self.light)
         f4.addRow("", self.bg_grad)
         f4.addRow("", self.smooth_edges)
-        sv.addWidget(box_look)
+        f4.addRow("", self.sketch_on)
+        box_load = QGroupBox(tr("Нагрузка"))
+        f6 = _tight(QFormLayout(box_load))
+        f6.addRow(tr("Текстура, пикс."), self.texside)
+        f6.addRow(tr("Предел вершин, тыс."), self.vert_cap)
+        tab_look = QWidget()
+        tlo = _tight(QVBoxLayout(tab_look))
+        tlo.addWidget(box_look)
+        tlo.addWidget(box_load)
+        tlo.addStretch(1)
+        self.scene_box.addTab(tab_look, tr("Оформление"))
 
         box_grid = self.box_grid = QGroupBox(tr("Координатный короб"))
         # Галка в заголовке группы - тот же выключатель, что кнопка
@@ -718,7 +759,7 @@ class ViewerDialog(QDialog):
             "Показать координатный короб: рёбра, деления и подписи. То "
             "же, что кнопка короба на панели вида."))
         box_grid.toggled.connect(self._box_show_from_props)
-        f3 = QFormLayout(box_grid)
+        f3 = _tight(QFormLayout(box_grid))
         f3.addRow(tr("Рёбра"), self._pair(self.box_edge_mode,
                                           self.box_near))
         f3.addRow(tr("Сетка"), self.grid_planes)
@@ -727,15 +768,19 @@ class ViewerDialog(QDialog):
                   self._pair(self.tick_xy, self.tick_z))
         f3.addRow(tr("Множитель подписей: план, Z"),
                   self._pair(self.mult_xy, self.mult_z))
-        sv.addWidget(box_grid)
         # охват короба отдельной группой: в одной группе не больше
         # пяти строк, иначе нужное ищется перебором
         box_rng = QGroupBox(tr("Охват короба"))
-        vr = QVBoxLayout(box_rng)
+        vr = _tight(QVBoxLayout(box_rng))
         vr.addWidget(self.box_range_on)
         vr.addWidget(self.box_range_w)
-        sv.addWidget(box_rng)
-        sv.addWidget(self.auto_rebuild)
+        tab_box = QWidget()
+        tbx = _tight(QVBoxLayout(tab_box))
+        tbx.addWidget(box_grid)
+        tbx.addWidget(box_rng)
+        tbx.addStretch(1)
+        self.scene_box.addTab(tab_box, tr("Короб"))
+        self.scene_box.addTab(tab_clip, tr("Обрезка"))
 
         self.legend_pix = QLabel()
         self.legend_txt = QLabel("")
@@ -1280,7 +1325,7 @@ class ViewerDialog(QDialog):
         self.view.setBackgroundColor((250, 250, 248))
         self._bg_apply()
         self.view.pick_cb = self._pick_at
-        self.view.camera_cb = self._axes_follow_camera
+        self.view.camera_cb = self._camera_moved
         self.view.pivot_cb = self._pivot_at
         self.view.dbl_cb = self._draw_close
         self.view.undo_cb = self._draw_undo
@@ -1325,35 +1370,33 @@ class ViewerDialog(QDialog):
         sep.setFrameShadow(getattr(getattr(QFrame, "Shadow", QFrame),
                                    "Sunken"))
         tb.addWidget(sep)
-        for b in (btn_top, btn_home, self.btn_section, self.btn_ortho,
-                  self.btn_axes,
+        # На плашке только действия. Всё, что задаёт вид (проекция,
+        # короб, показ разметки, преувеличение), живёт в окне
+        # «Параметры сцены» за одной кнопкой: так решил автор, чтобы
+        # Про и Лайт выглядели одинаково. Кнопки проекции, короба
+        # и разметки остаются объектами без места на плашке: на них
+        # держатся состояние сцены и вид по разрезу, а галки окна
+        # параметров ходят с ними парой.
+        for b in (self.btn_ortho, self.btn_axes, self.btn_sketch):
+            b.setParent(self)
+            b.hide()
+        btn_params = tool(
+            "params", tr("Параметры сцены: вид, камера, оформление, "
+                         "короб, обрезка"), self._open_scene_params)
+        for b in (btn_params, btn_top, btn_home, self.btn_section,
                   self.btn_draw,
                   self.btn_undo,
-                  self.btn_done, self.btn_line, self.btn_sketch,
+                  self.btn_done, self.btn_line,
                   btn_clip_off,
                   btn_draw_save, btn_shells, btn_export, btn_scene_app,
                   self.btn_spin, btn_views, btn_turn,
                   btn_copy, btn_png):
             b.setParent(self.tools)
             tb.addWidget(b)
-        # Вертикальное преувеличение на виду. В свойствах сцены его
-        # не находили и жаловались, что вид «сильно вытянут»: по
-        # умолчанию стоит пятикратное. Поле на плашке и поле
-        # в свойствах - одно значение, правка любого меняет другое.
-        lab_vex = QLabel(tr("Z ×"), self.tools)
-        lab_vex.setToolTip(tr("Вертикальное преувеличение. Единица - "
-                              "натуральный масштаб."))
-        self.vex_bar = QDoubleSpinBox(self.tools)
-        self.vex_bar.setRange(0.01, 10000.0)
-        self.vex_bar.setDecimals(2)
-        self.vex_bar.setSingleStep(0.5)
-        self.vex_bar.setValue(float(self.vex.value()))
-        self.vex_bar.setToolTip(lab_vex.toolTip())
-        self.vex_bar.setKeyboardTracking(False)
-        self.vex_bar.valueChanged.connect(self._vex_from_bar)
-        self.vex.valueChanged.connect(self._vex_to_bar)
-        tb.addWidget(lab_vex)
-        tb.addWidget(self.vex_bar)
+        self.cam_ortho.toggled.connect(self._ortho_from_props)
+        self.btn_ortho.toggled.connect(self._ortho_to_props)
+        self.sketch_on.toggled.connect(self._sketch_from_props)
+        self.btn_sketch.toggled.connect(self._sketch_to_props)
         # Полуширина коридора и границы отметок переехали в свойства
         # сцены, к остальной обрезке: на плашке они занимали место
         # у кнопок, которыми пользуются постоянно, а правят их редко.
@@ -1491,12 +1534,19 @@ class ViewerDialog(QDialog):
                           % (self._title(lyr), span))
 
     def _open_props(self, *_a):
-        """Открыть окно свойств для выделенной строки."""
+        """Открыть окно свойств для выделенной строки.
+
+        Строка «Сцена» открывает окно «Параметры сцены», то же, что
+        кнопка на плашке: у сцены одно окно настроек, а не два.
+        """
+        item = self.layer_list.currentItem()
+        if item is None or item.data(_USER_ROLE) == _SCENE_KEY:
+            self._open_scene_params()
+            return
         if self._props is None:
             dlg = QDialog(self)
             dlg.setWindowTitle(tr("Свойства"))
             lay = QVBoxLayout(dlg)
-            lay.addWidget(self.scene_box)
             lay.addWidget(self.opt_box)
             lay.addWidget(self.vec_box)
             lay.addWidget(self.sec_box)
@@ -1530,7 +1580,11 @@ class ViewerDialog(QDialog):
         raster = isinstance(lyr, QgsRasterLayer)
         vector = isinstance(lyr, QgsVectorLayer)
         line = vector and self._geom_kind(lyr) == "line"
-        self.scene_box.setVisible(scene)
+        if scene and self._props.isVisible():
+            # у сцены своё окно: свойства слоя уступают ему место
+            self._props.hide()
+            self._open_scene_params()
+            return
         self.opt_box.setVisible(raster)
         self.vec_box.setVisible(vector)
         self.sec_box.setVisible(line)
@@ -2127,6 +2181,7 @@ class ViewerDialog(QDialog):
             "light": int(self.light.value()),
             "bg_grad": bool(self.bg_grad.isChecked()),
             "smooth_edges": bool(self.smooth_edges.isChecked()),
+            "sketch_on": bool(self.btn_sketch.isChecked()),
             "ring": self._draw_ring,
             "path": self._draw_path,
             "fly_views": self._fly_views,
@@ -2231,6 +2286,7 @@ class ViewerDialog(QDialog):
                 combo.setCurrentIndex(max(k, 0))
             self.grid_step.setValue(float(state.get("grid_step", 0.0)))
             self.btn_axes.setChecked(bool(state.get("axes_on", False)))
+            self.btn_sketch.setChecked(bool(state.get("sketch_on", True)))
             ke = _find_data(self.box_edge_mode, state.get("box_edges"))
             self.box_edge_mode.setCurrentIndex(max(ke, 0))
             self.box_near.setChecked(bool(state.get("box_near", True)))
@@ -4531,19 +4587,111 @@ class ViewerDialog(QDialog):
                 pass
         self.view.update()
 
-    def _vex_from_bar(self, value):
-        """Поле на плашке правит преувеличение в свойствах сцены."""
-        if abs(float(self.vex.value()) - float(value)) > 1e-9:
-            self.vex.setValue(float(value))
+    def _build_camera_controls(self):
+        """Поля камеры в окне параметров: азимут, наклон, удаление.
 
-    def _vex_to_bar(self, value):
-        """Правка в свойствах сцены видна и на плашке."""
-        bar = getattr(self, "vex_bar", None)
-        if bar is None:
+        Поля показывают камеру сцены и следуют за мышью. Правка поля
+        ставит камеру сразу, без пересборки сцены.
+        """
+        self.cam_az = QDoubleSpinBox()
+        self.cam_az.setRange(-360.0, 720.0)
+        self.cam_az.setWrapping(True)
+        self.cam_el = QDoubleSpinBox()
+        self.cam_el.setRange(-90.0, 90.0)
+        self.cam_dist = QDoubleSpinBox()
+        self.cam_dist.setRange(0.01, 1e9)
+        self.cam_fov = QDoubleSpinBox()
+        self.cam_fov.setRange(1.0, 150.0)
+        for w in (self.cam_az, self.cam_el, self.cam_dist, self.cam_fov):
+            w.setDecimals(1)
+            w.setKeyboardTracking(False)
+            w.valueChanged.connect(self._camera_from_props)
+        self.cam_az.setToolTip(tr("Азимут взгляда камеры в градусах."))
+        self.cam_el.setToolTip(tr(
+            "Наклон камеры над горизонтом в градусах. 90 - взгляд "
+            "отвесно сверху."))
+        self.cam_dist.setToolTip(tr(
+            "Удаление камеры от центра вращения в единицах карты."))
+        self.cam_fov.setToolTip(tr(
+            "Угол обзора перспективы в градусах. В параллельной "
+            "проекции задаёт масштаб кадра вместе с удалением."))
+        self.cam_ortho = QCheckBox(tr("Параллельная проекция"))
+        self.cam_ortho.setToolTip(tr(
+            "Параллельная проекция вместо перспективной"))
+
+    def _camera_moved(self):
+        """Камера сдвинулась: подписи короба и поля камеры в окне."""
+        self._axes_follow_camera()
+        self._camera_to_props()
+
+    def _camera_to_props(self):
+        """Поля камеры по текущему виду. Сигналы глушатся: иначе
+        поле, тронутое мышью, ставило бы камеру обратно."""
+        if self._scene_params is None or \
+                not self._scene_params.isVisible():
             return
-        bar.blockSignals(True)
-        bar.setValue(float(value))
-        bar.blockSignals(False)
+        o = self.view.opts
+        for w, key in ((self.cam_az, "azimuth"),
+                       (self.cam_el, "elevation"),
+                       (self.cam_dist, "distance"),
+                       (self.cam_fov, "fov")):
+            w.blockSignals(True)
+            w.setValue(float(o.get(key, w.value())))
+            w.blockSignals(False)
+
+    def _camera_from_props(self, *_a):
+        """Правка поля камеры ставит камеру сцены."""
+        o = self.view.opts
+        o["azimuth"] = float(self.cam_az.value())
+        o["elevation"] = float(self.cam_el.value())
+        o["distance"] = float(self.cam_dist.value())
+        o["fov"] = float(self.cam_fov.value())
+        self.view.update()
+        self._axes_follow_camera()
+
+    @staticmethod
+    def _mirror(src, dst, on):
+        """Поставить галку dst как src, без отклика на сигнал."""
+        if bool(dst.isChecked()) == bool(on):
+            return False
+        dst.blockSignals(True)
+        dst.setChecked(bool(on))
+        dst.blockSignals(False)
+        return True
+
+    def _ortho_from_props(self, on):
+        """Галка проекции в окне жмёт прежнюю кнопку: та и ставит
+        проекцию, и снимает её в виде по разрезу."""
+        if bool(self.btn_ortho.isChecked()) != bool(on):
+            self.btn_ortho.setChecked(bool(on))
+
+    def _ortho_to_props(self, on):
+        self._mirror(self.btn_ortho, self.cam_ortho, on)
+
+    def _sketch_from_props(self, on):
+        if bool(self.btn_sketch.isChecked()) != bool(on):
+            self.btn_sketch.setChecked(bool(on))
+
+    def _sketch_to_props(self, on):
+        self._mirror(self.btn_sketch, self.sketch_on, on)
+
+    def _open_scene_params(self, *_a):
+        """Окно «Параметры сцены»: всё, что задаёт вид сцены.
+
+        Одно немодальное окно на одну кнопку, тот же набор и порядок
+        полей, что в Isoliner Scene (doc/SCENE_PARAMS.md).
+        """
+        if self._scene_params is None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle(tr("Параметры сцены"))
+            lay = QVBoxLayout(dlg)
+            lay.setContentsMargins(6, 6, 6, 6)
+            lay.addWidget(self.scene_box)
+            self._scene_params = dlg
+        self._scene_params.show()
+        self._scene_params.adjustSize()
+        self._scene_params.raise_()
+        self._camera_to_props()
 
     def _schedule_rebuild(self, delay=250):
         """Пересобрать сцену чуть погодя, если это разрешено.
