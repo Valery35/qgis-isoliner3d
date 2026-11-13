@@ -194,13 +194,15 @@ seconds, and doing it on every click is pointless.
 
 Mouse: the left button rotates, the wheel zooms, the middle one or the left with Ctrl pans. A right click puts the rotation centre at the point under the cursor. The wheel with Ctrl changes the field of view: a wide angle gives a stronger perspective, a narrow one almost a plan. The house button on the view toolbar brings back the 60 degree field of view, the angle and the framing to the scene. The same hint is shown under the scene when the window opens.
 
-**Section view.** A section in the scene is clipping with a corridor along a line: in the scene properties, group «Clipping», choose a line layer or draw a line, mode «A corridor along the line», with the half-width the task needs. The «Section view» button on the toolbar puts the camera across the line, level and in parallel projection, so that the line runs left to right from its start to its end, and locks rotation. The left button pans along the section plane, the wheel zooms. Releasing the button, the house button or the top view unlock rotation. On the left at the start of the line stands a scale of absolute elevations, on the right at its end a scale of depths from the top edge of the scene, above the middle an arrow of the line direction with its azimuth. The scales go away with the section view and come back after the scene is rebuilt. The coordinate box gives the scale along the line. A section along a bent line is not unfolded this way: the camera looks across the line from its start to its end.
+**Section view.** A section in the scene is clipping with a corridor along a line: in the scene settings, tab **Clipping**, choose a line layer or draw a line, mode «A corridor along the line», with the half-width the task needs. The «Section view» button on the toolbar puts the camera across the line, level and in parallel projection, so that the line runs left to right from its start to its end, and locks rotation. The left button pans along the section plane, the wheel zooms. Releasing the button, the house button or the top view unlock rotation. On the left at the start of the line stands a scale of absolute elevations, on the right at its end a scale of depths from the top edge of the scene, above the middle an arrow of the line direction with its azimuth. The scales go away with the section view and come back after the scene is rebuilt. The coordinate box gives the scale along the line. A section along a bent line is not unfolded this way: the camera looks across the line from its start to its end.
 
 **Project scenes.** A project can hold several scenes: each has its own set of layers, display settings, clipping, box and camera. Above the layer list there is a scene drop-down and a «Scenes» button with a menu: new scene (the current settings, no layers), duplicate, rename, delete. Switching to another scene saves the current one and builds the chosen one at once. Scenes are stored in the QGIS project and travel with it. A project saved by an earlier version opens with one scene, and the current scene is also written to the old key, so a new project is read by the earlier version too.
 
 **Importing scenes from another project.** «Scenes» - «Import scenes from a project...» reads a .qgz or .qgs file and brings its scenes over. A scene refers to layers, so every layer is looked up in the current project: by data source, by id, by name. For layers that are missing the plugin offers to add them from their description in that file: «Yes» brings the scenes together with the layers, «No» only the scenes. Temporary memory layers cannot be restored from a file, the summary line says so.
 
-The **Z ×** field on the toolbar is the vertical exaggeration, the same as in the scene properties. One means the true scale.
+**The toolbar** over the scene holds actions only: rebuild the scene, scene settings, top view, home, section view, drawing a contour, clearing the clipping, saving the contour, shells to a layer, export, open in Isoliner Scene, rotation, flight views, video, copy the frame, a PNG snapshot and, last, the **(i)** button. Everything that sets the look of the scene is gathered in the **Scene settings** window. The Isoliner Scene program has the same toolbar with the same icons.
+
+The **(i)** button opens the **About** window: the version, a couple of lines about the Isoliner3D line, Inform++ LLC, the licence and links to the website, GitHub, the QGIS catalog, the issue page, development support and our channels.
 
 ## The coordinate system
 
@@ -217,11 +219,36 @@ fence lies on the surface it was built from at any exaggeration.
 **Vertical exaggeration** stretches the elevations. It is a way of
 looking, not a property of the data.
 
-## Scene properties
+## Scene settings
 
-Opened by a button on the toolbar. The sections are **View**,
-**Clipping**, **Appearance**, **The coordinate box** and **Box
-extent**. All the settings are saved into the project.
+The window opens with the button with three sliders on the toolbar and
+with a double click on the **Scene** row of the list. The window is
+small, about 360 pixels high, and is laid out on five tabs. The set of
+fields and their order are shared with the Isoliner Scene program. All
+the settings are saved into the project.
+
+**View** holds the vertical exaggeration, the vertical spacing of
+layers, the common transparency of surfaces and the camera: azimuth,
+elevation, distance, field of view and orthographic projection. The
+camera fields follow the mouse, and editing a field moves the camera
+at once. The **Update automatically** tick is there too.
+
+**Appearance** holds the gradient background, edge smoothing, showing
+the sketch (the drawn contour and section line), the texture side and
+the vertex limit of the scene.
+
+**Lighting** holds the sun of the scene and shadows. The sun azimuth is
+counted clockwise from north, the altitude above the horizon. The
+hillshade uses the same sun, so light and shadows agree. The
+**Shadows** tick turns on shadows from terrain and objects: workings,
+bodies and boreholes cast them on each other and on surfaces. **Shadow
+strength** sets how much darker the shadow is than a lit spot. The
+lower the sun, the longer the shadows and the sharper the relief.
+Shadows are computed when the scene is built and go into the vertex
+colours. A textured surface casts a shadow but does not receive one
+yet.
+
+**Box** and **Clipping** are described below.
 
 **Clipping** hides everything outside and closes the cut of a body with
 a cap, so the section is seen rather than the inside of the shell.
@@ -230,7 +257,7 @@ left or right of a line and a band of elevations. A face the boundary
 crosses is cut along it even when all its vertices are outside, so
 a long wall of a drift does not vanish whole.
 
-**The coordinate box** is set up for the task. The tick in the group title turns the whole box on and off, edges with ticks and labels, like the box button on the view toolbar:
+**The coordinate box** is set up for the task. The tick in the group title on the **Box** tab turns the whole box on and off, edges with ticks and labels:
 
 - **Edges**: all twelve, three axes from the origin corner as on a drawing, or no edges. Three axes do not block the body.
 - **Labels to the near edges**: when the scene is rotated, ticks and labels move to the edges facing the camera and do not hide behind the model. The vertical axis is labelled along a side edge so as not to stand in front of the body. The scene is not rebuilt for this. Unticked, the labels stay at the origin, as in the GLB export.
