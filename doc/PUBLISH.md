@@ -38,6 +38,26 @@
 
 ## Журнал
 
+### 1.5.3 - 13 ноября 2026 года
+
+Тени и Солнце (вкладка **Освещение**), исправление выгрузки
+поверхностей (с 1.5.0 рельеф уезжал от тел), плашка общая
+с Isoliner Scene. Тексты постов - `site/posts_1.5.3_social.md`.
+
+| Площадка | Запись |
+|---|---|
+| GitHub | https://github.com/Valery35/qgis-isoliner3d/releases/tag/1.5.3 |
+| Каталог QGIS | архив прикреплён к форме, флажки согласия и Save ставит автор |
+| Telegram | https://t.me/qgis_isolines/213 |
+| Dropbox | `ИИ\Isoliner3D`, три архива, 1.5.2 в `arhiv\старые_сборки_1.5.2` |
+| ВК | https://vk.ru/wall-241229428_71 (запись на стене) |
+| Mastodon | https://en.osm.town/@Vaery35/117608204159773971 |
+| X | https://x.com/Valery35/status/2121159483560997100 |
+| LinkedIn | https://www.linkedin.com/feed/update/urn:li:activity:7526925919341645824/ |
+| Facebook | https://www.facebook.com/valery35/posts/pfbid0sTwGMadkReoH27hchB5ZndC6q8G5NN4wazw3GCM4X1hdz57PYTgBYzoCLzcpBHK2l |
+| OSGeo, linux.org.ru, форум OSM | не публикуются в этом выпуске |
+| Сайт informpp.ru | страницу обновляет основная сессия |
+
 ### 1.5.2 - 13 ноября 2026 года
 
 Окно **Параметры сцены** на одну кнопку, общий список полей
