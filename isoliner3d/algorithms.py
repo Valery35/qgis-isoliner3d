@@ -7915,6 +7915,21 @@ class SweepBodyAlgorithm(SpecAlgorithm):
         return GROUP5_ID
 
 
+class Density3DAlgorithm(SpecAlgorithm):
+    """2.25 3D-плотность (tools/density_3d.py)."""
+
+    SPEC = "density_3d"
+
+    def name(self):
+        return "density_3d"
+
+    def displayName(self):
+        return self.tr("2.25 3D-плотность")
+
+    def groupId(self):
+        return GROUP5_ID
+
+
 ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
@@ -7948,4 +7963,5 @@ ALGORITHMS = [
     DemoLayersAlgorithm,
     FillToVolumeAlgorithm,
     SweepBodyAlgorithm,
+    Density3DAlgorithm,
 ]

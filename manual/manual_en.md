@@ -1439,6 +1439,28 @@ widened, so the wall does not narrow on the turn. A bend sharper than
 100° makes the body intersect itself: better split such lines in two
 at the bend.
 
+## 2.25 3D density
+
+Builds a cube whose cell holds a count, not an estimate: how many features fall into the cell, the sum or mean of their attribute, the length of lines inside the cell. A cluster of finds in an excavation, sampling density, metres of workings per block.
+
+A feature is counted once: a point at its position, a line at its middle along the length, a polygon at the centre of its ring. Line length is split between cells exactly, at the crossings of each segment with the cell faces, so the sum over the cells equals the line length inside the grid. Both lengths go to the log.
+
+An empty cell is zero, not a gap: zero finds is a measured fact too. Only for the mean a cell without features is empty.
+
+The cube carries elevation marks like every cube of the plugin. The scene window builds an isosurface or voxels from it, 2.03 turns it into a block model, 2.04 into a voxel body. So a zone of higher density becomes a body by a threshold.
+
+The idea comes from the QGIS 3D Studio plugin, the computation is our own.
+
+| Field | What it sets |
+|---|---|
+| **Объекты с Z** | Точки, линии или полигоны с высотой: находки, пробы, интервалы опробования, выработки. Объекты без Z пропускаются, их число пишется в журнал. |
+| **Что считать в ячейке** | Число объектов - плотность находок или проб. Сумма и среднее - по атрибуту ниже. Длина линий, м - сколько метров выработок или интервалов проходит через ячейку. |
+| **Атрибут для суммы и среднего** | Числовой атрибут: металл, масса, вес находки. Пустые значения не участвуют. |
+| **Ячейка в плане, м (0 - от охвата)** | Размер ячейки по x и y в метрах. Ноль - круглый шаг от охвата данных, около пятидесяти ячеек по длинной стороне. |
+| **Ячейка по высоте, м (0 - от охвата)** | Размер ячейки по высоте в метрах. Ноль - около двадцати слоёв на размах отметок. |
+| **Куб плотности** | Куб плотности: канал на уровень по высоте, разметка Z0 и DZ в метаданных. Открывается в окне сцены изоповерхностью или вокселями. |
+| **Ячейки плотности (точки)** | Непустые ячейки точками в центрах, со всеми счётами сразу: n, sum, mean, len_m и объём ячейки vol. |
+
 # Typical tasks
 
 Ten chains that come round again and again in the work. Numbers with a

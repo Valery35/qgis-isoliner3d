@@ -364,6 +364,78 @@ TRANSLATIONS = {
     'Короб': 'Box',
     # освещение: одно Солнце на отмывку и тени (shadow.py)
     'Освещение': 'Lighting',
+    '2.25 3D-плотность':
+        '2.25 3D density',
+    '3D-плотность':
+        '3D density',
+    'Атрибут для суммы и среднего':
+        'Attribute for the sum and mean',
+    'Длина линий считается только по слою линий.':
+        'Line length is counted only for a line layer.',
+    'Длина линий, м':
+        'Line length, m',
+    'Длина линий: всего %.2f м, по ячейкам %.2f м.':
+        'Line length: %.2f m in total, %.2f m over the cells.',
+    'Для суммы и среднего нужен атрибут.':
+        'The sum and the mean need an attribute.',
+    'Куб плотности':
+        'Density cube',
+    'Куб плотности: канал на уровень по высоте, разметка Z0 и DZ в метаданных. Открывается в окне сцены изоповерхностью или вокселями.':
+        'The density cube: a band per elevation level, Z0 and DZ in the metadata. It opens in the scene window as an isosurface or voxels.',
+    'Непустые ячейки точками в центрах, со всеми счётами сразу: n, sum, mean, len_m и объём ячейки vol.':
+        'Non-empty cells as points at their centres, with all counts at once: n, sum, mean, len_m and the cell volume vol.',
+    'Непустых ячеек: %d из %d.':
+        'Non-empty cells: %d of %d.',
+    'Объектов без высоты: %d, они пропущены. Плотности в объёме нужна Z у каждой вершины.':
+        'Features without elevation: %d, skipped. Density in a volume needs Z at every vertex.',
+    'Объектов: %d, в сетке %d.':
+        'Features: %d, inside the grid %d.',
+    'Объекты с Z':
+        'Features with Z',
+    'Размер ячейки по x и y в метрах. Ноль - круглый шаг от охвата данных, около пятидесяти ячеек по длинной стороне.':
+        'Cell size along x and y in metres. Zero takes a round step from the data extent, about fifty cells along the long side.',
+    'Размер ячейки по высоте в метрах. Ноль - около двадцати слоёв на размах отметок.':
+        'Cell size along the height in metres. Zero takes about twenty levels over the elevation range.',
+    'Сетка %d x %d x %d, шаг %.6g x %.6g x %.6g м.':
+        'Grid %d x %d x %d, step %.6g x %.6g x %.6g m.',
+    'Сетка слишком мелкая (%s). Укрупните шаг.':
+        'The grid is too fine (%s). Use a coarser step.',
+    'Среднее атрибута':
+        'Attribute mean',
+    'Строит куб, в ячейке которого не оценка, а счёт: сколько объектов в ячейке, сумма или среднее их атрибута, длина линий внутри ячейки.\n\nОбъект считается один раз: точка своим положением, линия серединой по длине, полигон центром кольца. Длина линии делится между ячейками точно, по пересечениям отрезка с гранями сетки, и сумма по ячейкам равна длине линии внутри сетки. Это печатается в журнал.\n\nПустая ячейка - ноль, а не пропуск: ноль находок тоже измеренный факт. Только у среднего ячейка без объектов пустая: среднего по пустому множеству нет.\n\nКуб размечен по высоте (Z0, DZ), как все кубы модуля: в окне сцены по нему строится изоповерхность и воксели, 2.03 переводит его в блочную модель, 2.04 - в тело вокселями. Так скопление находок или густая сеть выработок становится телом по порогу плотности.\n\nШаг сетки ноль - круглый шаг от охвата данных: около пятидесяти ячеек по длинной стороне плана и двадцати по высоте.\n\nИдея из модуля QGIS 3D Studio.':
+        'Builds a cube whose cell holds a count, not an estimate: how many features fall into the cell, the sum or mean of their attribute, the length of lines inside the cell.\n\nA feature is counted once: a point at its position, a line at its middle along the length, a polygon at the centre of its ring. Line length is split between cells exactly, at the crossings of each segment with the cell faces, and the sum over the cells equals the line length inside the grid. This is printed to the log.\n\nAn empty cell is zero, not a gap: zero finds is a measured fact too. Only for the mean a cell without features is empty: there is no mean of an empty set.\n\nThe cube carries the elevation marks (Z0, DZ) like every cube of the plugin: the scene window builds an isosurface and voxels from it, 2.03 turns it into a block model, 2.04 into a voxel body. So a cluster of finds or a dense net of workings becomes a body by a density threshold.\n\nA grid step of zero takes a round step from the data extent: about fifty cells along the long side of the plan and twenty along the height.\n\nThe idea comes from the QGIS 3D Studio plugin.',
+    'Сумма атрибута':
+        'Attribute sum',
+    'Точки, линии или полигоны с высотой: находки, пробы, интервалы опробования, выработки. Объекты без Z пропускаются, их число пишется в журнал.':
+        'Points, lines or polygons with elevation: finds, samples, sampling intervals, workings. Features without Z are skipped and their count goes to the log.',
+    'Число объектов':
+        'Feature count',
+    'Число объектов - плотность находок или проб. Сумма и среднее - по атрибуту ниже. Длина линий, м - сколько метров выработок или интервалов проходит через ячейку.':
+        'Feature count is the density of finds or samples. Sum and mean use the attribute below. Line length, m is how many metres of workings or intervals pass through the cell.',
+    'Числовой атрибут: металл, масса, вес находки. Пустые значения не участвуют.':
+        'A numeric attribute: metal, mass, weight of a find. Empty values do not take part.',
+    'Что считать в ячейке':
+        'What to count in a cell',
+    'Ячейка в плане, м (0 - от охвата)':
+        'Cell in plan, m (0 - from extent)',
+    'Ячейка по высоте, м (0 - от охвата)':
+        'Cell along height, m (0 - from extent)',
+    'Ячейки плотности':
+        'Density cells',
+    'Ячейки плотности (точки)':
+        'Density cells (points)',
+    'длина линий, м':
+        'line length, m',
+    'среднее атрибута':
+        'attribute mean',
+    'сумма атрибута':
+        'attribute sum',
+    'число объектов':
+        'feature count',
+    'Объектов в ячейке':
+        'Features in the cell',
+    'Длина линий в ячейке, м':
+        'Line length in the cell, m',
     'О программе: кто мы и где нас найти': 'About: who we are and where to find us',
     # плашка Isoliner Scene (toolbar.py, только Лайт)
     'Сохранить пакет сцены (.i3dscene)':

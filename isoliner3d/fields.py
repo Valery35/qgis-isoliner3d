@@ -117,6 +117,11 @@ LABELS = {
     "soil_type": "Грунт",
     "top_depth": "Кровля, глубина, м",
     "bottom_depth": "Подошва, глубина, м",
+    # 2.25: ячейки 3D-плотности
+    "n": "Объектов в ячейке",
+    "sum": "Сумма атрибута",
+    "mean": "Среднее атрибута",
+    "len_m": "Длина линий в ячейке, м",
 }
 
 # Поля с переменной приставкой: 2.14 называет их по слою, который
@@ -144,7 +149,7 @@ SUFFIX_LABELS = {
 METRIC = {
     "x", "y", "z", "top", "bot", "z_from", "z_to", "thick",
     "dx", "dy", "dz", "from_m", "to_m", "zmin", "zmax", "length_m",
-    "eoh", "depth", "top_depth", "bottom_depth",
+    "eoh", "depth", "top_depth", "bottom_depth", "len_m",
 }
 METRIC_SUFFIX = ("_len",)
 METRIC_DECIMALS = 2
