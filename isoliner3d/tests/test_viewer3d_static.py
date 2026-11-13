@@ -4068,3 +4068,20 @@ def test_props_and_buttons_go_in_pairs():
               "box_grid.toggled.connect(self._box_show_from_props)",
               '"sketch_on": bool(self.btn_sketch.isChecked())'):
         assert a in src, a
+
+def test_real_vertices_are_not_moved_twice_for_export():
+    """Настоящие вершины уходят в выгрузку с real=True.
+
+    Поверхности, воксели и тела строятся в настоящих координатах,
+    а в сцену кладутся сдвинутой копией. В выгрузку шли настоящие
+    вершины без пометки, и центр сцены прибавлялся к ним второй раз:
+    рельеф в пакете сцены и в GLB уезжал на сотни километров от тел
+    (замечание сессии Isoliner Scene по shadow_demo.i3dscene).
+    """
+    import re
+    src = _viewer_src().replace("\r\n", "\n")
+    calls = re.findall(r"self\._keep_for_export\((.*?)\)\n", src, re.S)
+    real = [c for c in calls if re.search(r"\bverts\b|allmap", c)]
+    assert len(real) >= 4, real
+    for c in real:
+        assert "real=True" in c, c

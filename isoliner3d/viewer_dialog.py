@@ -8610,7 +8610,7 @@ class ViewerDialog(QDialog):
                         lyr_e.name() if lyr_e else "surface",
                         verts, faces,
                         np.tile(np.array(color[:3] + (alpha,)),
-                                (len(verts), 1)))
+                                (len(verts), 1)), real=True)
                     continue
             vox_col = self._vox_colors.get(lid)
             if vox_col is not None and len(vox_col) == len(v):
@@ -8625,7 +8625,7 @@ class ViewerDialog(QDialog):
                 lyr_e = QgsProject.instance().mapLayer(lid)
                 self._keep_for_export(
                     lyr_e.name() if lyr_e else "voxels", verts, faces,
-                    vox_col)
+                    vox_col, real=True)
                 continue
             # У оболочки свой цвет из таблицы, и раскраска по каналу
             # его перебивать не должна: человек назвал цвет,
@@ -8671,7 +8671,7 @@ class ViewerDialog(QDialog):
                                   (len(verts), 1))
             self._keep_for_export(
                 lyr_e.name() if lyr_e else "surface", verts, faces,
-                out_col)
+                out_col, real=True)
         # тела (полиэдры/полигоны с Z): плоские грани, окраска палитрой
         # Объекты собираются в один меш на сцену, а цвет каждого
         # хранится в его вершинах. Отдельный элемент на объект стоил
