@@ -734,7 +734,6 @@ class ViewerDialog(QDialog):
             "по ним остаётся и при снятой галке."))
         box_look = QGroupBox(tr("Оформление"))
         f4 = _tight(QFormLayout(box_look))
-        f4.addRow(tr("Отмывка"), self.light)
         f4.addRow("", self.bg_grad)
         f4.addRow("", self.smooth_edges)
         f4.addRow("", self.sketch_on)
@@ -748,6 +747,32 @@ class ViewerDialog(QDialog):
         tlo.addWidget(box_load)
         tlo.addStretch(1)
         self.scene_box.addTab(tab_look, tr("Оформление"))
+
+        # Одно Солнце на всю сцену: по нему и отмывка рельефа, и тени
+        # от рельефа и объектов. Тени считаются картой глубины со
+        # стороны Солнца (shadow.py) и ложатся на цвета вершин.
+        self._build_sun_controls()
+        box_sun = QGroupBox(tr("Солнце"))
+        f7 = _tight(QFormLayout(box_sun))
+        f7.addRow(tr("Азимут Солнца, °"), self.sun_az)
+        f7.addRow(tr("Высота Солнца, °"), self.sun_alt)
+        f7.addRow(tr("Отмывка"), self.light)
+        box_shadow = self.shadows_on = QGroupBox(tr("Тени"))
+        box_shadow.setCheckable(True)
+        box_shadow.setChecked(False)
+        box_shadow.setToolTip(tr(
+            "Тени от рельефа и объектов: выработки, тела и скважины "
+            "отбрасывают их друг на друга и на поверхности. Солнце то "
+            "же, что у отмывки."))
+        f8 = _tight(QFormLayout(box_shadow))
+        f8.addRow(tr("Сила тени, %"), self.shadow_k)
+        box_shadow.toggled.connect(lambda *_a: self._schedule_rebuild())
+        tab_sun = QWidget()
+        tsu = _tight(QVBoxLayout(tab_sun))
+        tsu.addWidget(box_sun)
+        tsu.addWidget(box_shadow)
+        tsu.addStretch(1)
+        self.scene_box.addTab(tab_sun, tr("Освещение"))
 
         box_grid = self.box_grid = QGroupBox(tr("Координатный короб"))
         # Галка в заголовке группы - тот же выключатель, что кнопка
@@ -2182,6 +2207,10 @@ class ViewerDialog(QDialog):
             "bg_grad": bool(self.bg_grad.isChecked()),
             "smooth_edges": bool(self.smooth_edges.isChecked()),
             "sketch_on": bool(self.btn_sketch.isChecked()),
+            "sun_az": float(self.sun_az.value()),
+            "sun_alt": float(self.sun_alt.value()),
+            "shadows_on": bool(self.shadows_on.isChecked()),
+            "shadow_k": int(self.shadow_k.value()),
             "ring": self._draw_ring,
             "path": self._draw_path,
             "fly_views": self._fly_views,
@@ -2287,6 +2316,12 @@ class ViewerDialog(QDialog):
             self.grid_step.setValue(float(state.get("grid_step", 0.0)))
             self.btn_axes.setChecked(bool(state.get("axes_on", False)))
             self.btn_sketch.setChecked(bool(state.get("sketch_on", True)))
+            from .shadow import SUN_AZIMUTH, SUN_ALTITUDE, SHADOW_STRENGTH
+            self.sun_az.setValue(float(state.get("sun_az", SUN_AZIMUTH)))
+            self.sun_alt.setValue(float(state.get("sun_alt", SUN_ALTITUDE)))
+            self.shadows_on.setChecked(bool(state.get("shadows_on", False)))
+            self.shadow_k.setValue(int(state.get("shadow_k",
+                                                 SHADOW_STRENGTH)))
             ke = _find_data(self.box_edge_mode, state.get("box_edges"))
             self.box_edge_mode.setCurrentIndex(max(ke, 0))
             self.box_near.setChecked(bool(state.get("box_near", True)))
@@ -4059,7 +4094,8 @@ class ViewerDialog(QDialog):
             return colors
         if nrm is None or len(nrm) != len(colors):
             return colors
-        return shade_colors(colors, nrm, s)
+        # одно Солнце на всё: отмывка светит оттуда же, откуда тени
+        return shade_colors(colors, nrm, s, self._sun())
 
     def _z_priority(self, lid, span_z):
         """Подъём слоя по порядку в списке, в единицах сцены.
@@ -4618,6 +4654,121 @@ class ViewerDialog(QDialog):
         self.cam_ortho = QCheckBox(tr("Параллельная проекция"))
         self.cam_ortho.setToolTip(tr(
             "Параллельная проекция вместо перспективной"))
+
+    def _build_sun_controls(self):
+        """Поля Солнца и тени. Любая правка пересобирает сцену: отмывка
+        и тени лежат в цветах вершин."""
+        from .shadow import SUN_AZIMUTH, SUN_ALTITUDE, SHADOW_STRENGTH
+        self.sun_az = QDoubleSpinBox()
+        self.sun_az.setRange(0.0, 360.0)
+        self.sun_az.setWrapping(True)
+        self.sun_az.setDecimals(0)
+        self.sun_az.setSingleStep(15.0)
+        self.sun_az.setValue(SUN_AZIMUTH)
+        self.sun_az.setToolTip(tr(
+            "Откуда светит Солнце: азимут в градусах от севера по "
+            "часовой стрелке. Тени ложатся в обратную сторону."))
+        self.sun_alt = QDoubleSpinBox()
+        self.sun_alt.setRange(1.0, 90.0)
+        self.sun_alt.setDecimals(0)
+        self.sun_alt.setSingleStep(5.0)
+        self.sun_alt.setValue(SUN_ALTITUDE)
+        self.sun_alt.setToolTip(tr(
+            "Высота Солнца над горизонтом в градусах. Чем ниже Солнце, "
+            "тем длиннее тени и резче рельеф."))
+        self.shadow_k = QSpinBox()
+        self.shadow_k.setRange(0, 100)
+        self.shadow_k.setSingleStep(5)
+        self.shadow_k.setValue(SHADOW_STRENGTH)
+        self.shadow_k.setToolTip(tr(
+            "Насколько тень темнее освещённого места. Сто - чёрная."))
+        for w in (self.sun_az, self.sun_alt, self.shadow_k):
+            w.setKeyboardTracking(False)
+            w.valueChanged.connect(lambda *_a: self._schedule_rebuild())
+
+    def _sun(self):
+        """Вектор на Солнце сцены."""
+        from .shadow import sun_vector
+        return sun_vector(self.sun_az.value(), self.sun_alt.value())
+
+    @staticmethod
+    def _item_points(item):
+        """(вершины в координатах сцены, грани, MeshData или None)
+        элемента сцены, у которого есть меш."""
+        import numpy as np
+        md = None
+        opts = getattr(item, "opts", None)
+        if isinstance(opts, dict):
+            md = opts.get("meshdata")
+        if md is not None:
+            v, f = md.vertexes(), md.faces()
+        elif getattr(item, "_inter", None) is not None:
+            v = item._inter[:, :3]
+            f = np.asarray(item._index).reshape(-1, 3)
+        else:
+            return None
+        if v is None or f is None or not len(v) or not len(f):
+            return None
+        v = np.asarray(v, dtype=float)
+        try:
+            m = np.array(item.transform().data(), dtype=float)
+            m = m.reshape(4, 4).T
+            if not np.allclose(m, np.eye(4)):
+                v = v @ m[:3, :3].T + m[:3, 3]
+        except (AttributeError, TypeError, ValueError):  # nosec
+            pass
+        return v, np.asarray(f, dtype=np.int64), md
+
+    def _apply_shadows(self):
+        """Тени от всех мешей сцены на цвета вершин.
+
+        Отбрасывают тень все меши, и с текстурой тоже. Принимают тень
+        меши с цветом вершин, граней или одним цветом: текстура
+        красится шейдером, и тень на неё не ложится. Возвращает число
+        затенённых элементов.
+        """
+        import numpy as np
+        from .shadow import ShadowMap, darken
+        if not self.shadows_on.isChecked():
+            return 0
+        meshes, recv = [], []
+        for item in self._items:
+            try:
+                if not item.visible():
+                    continue
+            except AttributeError:  # nosec
+                continue
+            got = self._item_points(item)
+            if got is None:
+                continue
+            v, f, md = got
+            meshes.append((v, f))
+            if md is not None:
+                recv.append((item, md, v, f))
+        if not meshes:
+            return 0
+        sm = ShadowMap(meshes, self._sun())
+        k = float(self.shadow_k.value()) / 100.0
+        n = 0
+        for item, md, v, f in recv:
+            if md.hasFaceColor() and not md.hasVertexColor():
+                cen = v[f].mean(axis=1)
+                s = sm.shade(cen, md.faceNormals())
+                md.setFaceColors(darken(md.faceColors(), s, k))
+            else:
+                if md.hasVertexColor():
+                    cols = md.vertexColors()
+                else:
+                    cols = np.tile(np.asarray(
+                        item.opts.get("color", (0.7, 0.7, 0.7, 1.0)),
+                        dtype=float), (len(v), 1))
+                if cols is None or len(cols) != len(v):
+                    continue
+                s = sm.shade(v, md.vertexNormals())
+                md.setVertexColors(darken(cols, s, k))
+            item.meshDataChanged()
+            n += 1
+        return n
 
     def _camera_moved(self):
         """Камера сдвинулась: подписи короба и поля камеры в окне."""
@@ -8943,6 +9094,17 @@ class ViewerDialog(QDialog):
         # заново, уже по новому центру.
         self._draw_refresh(
             closed=bool(self._draw_ring) and not self._draw_mode)
+        # Тени - последним шагом, когда в сцене уже всё, что их
+        # отбрасывает: рельеф, тела, выработки, скважины.
+        prof.add("scene")
+        try:
+            n_sh = self._apply_shadows()
+        except (ValueError, MemoryError, IndexError) as err:
+            n_sh = 0
+            _log(tr("Тени не построены: %s") % err)
+        prof.add("shadow")
+        if n_sh:
+            msg += " " + tr("Тени на %d объектах.") % n_sh
         # Фон ставится заново на каждой пересборке. Он живёт
         # в самом виде, а не в сцене, и его терял любой путь,
         # который вид пересоздавал: сцена собиралась, а градиент

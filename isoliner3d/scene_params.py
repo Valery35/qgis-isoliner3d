@@ -65,8 +65,6 @@ GROUPS = [
     ]},
     {"id": "look", "ru": "Оформление", "en": "Appearance", "sections": [
         {"ru": "Оформление", "en": "Appearance", "params": [
-            _p("light", "Отмывка", "Hillshade", "int",
-               min=0, max=100, step=5, default=55),
             _p("bg_grad", "Градиентный фон", "Gradient background",
                "bool", default=True),
             _p("smooth_edges", "Сглаживать края", "Smooth the edges", "bool",
@@ -85,6 +83,22 @@ GROUPS = [
                "Vertex limit, thousands", "int", "pro",
                min=100, max=8000, step=100),
         ]},
+    ]},
+    {"id": "light", "ru": "Освещение", "en": "Lighting", "sections": [
+        {"ru": "Солнце", "en": "Sun", "params": [
+            _p("sun_az", "Азимут Солнца, °", "Sun azimuth, °", "float",
+               min=0.0, max=360.0, step=15.0, default=218.0),
+            _p("sun_alt", "Высота Солнца, °", "Sun altitude, °", "float",
+               min=1.0, max=90.0, step=5.0, default=55.0),
+            _p("light", "Отмывка", "Hillshade", "int",
+               min=0, max=100, step=5, default=55),
+        ]},
+        {"ru": "Тени", "en": "Shadows", "toggle": "shadows_on",
+         "params": [
+             _p("shadows_on", "Тени", "Shadows", "bool", default=False),
+             _p("shadow_k", "Сила тени, %", "Shadow strength, %", "int",
+                min=0, max=100, step=5, default=50),
+         ]},
     ]},
     {"id": "box", "ru": "Короб", "en": "Box", "sections": [
         {"ru": "Координатный короб", "en": "Coordinate box",

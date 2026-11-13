@@ -109,7 +109,7 @@ def test_keys_are_unique_and_json_is_plain():
     data = json.loads(json.dumps(sp.as_json(), ensure_ascii=False))
     assert data["version"] == sp.VERSION
     assert [g["id"] for g in data["groups"]] == \
-        ["view", "look", "box", "clip"]
+        ["view", "look", "light", "box", "clip"]
 
 
 if __name__ == "__main__":

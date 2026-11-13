@@ -362,6 +362,24 @@ TRANSLATIONS = {
     'Текстура, пикс.': 'Texture, px',
     'Предел вершин, тыс.': 'Vertex limit, thousands',
     'Короб': 'Box',
+    # освещение: одно Солнце на отмывку и тени (shadow.py)
+    'Освещение': 'Lighting',
+    'Солнце': 'Sun',
+    'Тени': 'Shadows',
+    'тени': 'shadows',
+    'Азимут Солнца, °': 'Sun azimuth, °',
+    'Высота Солнца, °': 'Sun altitude, °',
+    'Сила тени, %': 'Shadow strength, %',
+    'Тени от рельефа и объектов: выработки, тела и скважины отбрасывают их друг на друга и на поверхности. Солнце то же, что у отмывки.':
+        'Shadows from terrain and objects: workings, bodies and boreholes cast them on each other and on surfaces. The sun is the same as for the hillshade.',
+    'Откуда светит Солнце: азимут в градусах от севера по часовой стрелке. Тени ложатся в обратную сторону.':
+        'Where the sun shines from: azimuth in degrees clockwise from north. Shadows fall the opposite way.',
+    'Высота Солнца над горизонтом в градусах. Чем ниже Солнце, тем длиннее тени и резче рельеф.':
+        'Sun altitude above the horizon in degrees. The lower the sun, the longer the shadows and the sharper the relief.',
+    'Насколько тень темнее освещённого места. Сто - чёрная.':
+        'How much darker the shadow is than a lit spot. One hundred is black.',
+    'Тени не построены: %s': 'Shadows were not built: %s',
+    'Тени на %d объектах.': 'Shadows on %d objects.',
     'Пакет для Isoliner Scene не записан: %s':
         'The package for Isoliner Scene was not written: %s',
     'Сцена обновлена в Isoliner Scene.': 'The scene is updated in Isoliner Scene.',

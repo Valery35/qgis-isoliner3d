@@ -1054,7 +1054,7 @@ LIGHT_DIR = (-0.35, -0.45, 0.82)
 # где освещается СПЛОШНОЙ цвет, а не шкала.
 
 
-def shade_colors(colors, normals, strength=0.55):
+def shade_colors(colors, normals, strength=0.55, light=None):
     """Притемнить цвета вершин по наклону поверхности.
 
     Поверхность, раскрашенная шкалой, рисуется одним цветом вершин
@@ -1074,7 +1074,8 @@ def shade_colors(colors, normals, strength=0.55):
     # У вырожденной грани нормали нет: такую вершину не темним,
     # иначе на месте изъяна появится чёрное пятно.
     k = np.ones(len(c))
-    d = np.asarray(LIGHT_DIR, dtype=float)
+    # light - вектор на Солнце сцены (shadow.sun_vector), иначе прежний
+    d = np.asarray(LIGHT_DIR if light is None else light, dtype=float)
     d = d / np.linalg.norm(d)
     cosang = np.zeros(len(c))
     cosang[ok] = np.abs(n[ok] @ d) / ln[ok]

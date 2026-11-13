@@ -828,7 +828,7 @@ class _Prof:
         """Подробная строка для журнала QGIS."""
         order = [("read", tr("чтение")), ("mesh", tr("меши")),
                  ("color", tr("окраска")), ("vector", tr("векторы")),
-                 ("scene", tr("сцена"))]
+                 ("scene", tr("сцена")), ("shadow", tr("тени"))]
         parts = ["%s %.2f" % (name, self.phases.get(key, 0.0))
                  for key, name in order if self.phases.get(key)]
         return tr("Перестройка сцены: всего %.2f с (%s). Треугольников %s, "
