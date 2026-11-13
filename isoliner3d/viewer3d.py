@@ -494,18 +494,24 @@ def _tool_icon(kind, size=18):
     и тёмной теме и не требовать сборки ресурсов.
     """
     from qgis.PyQt.QtGui import QIcon, QPixmap, QPainter, QColor
-    pm = QPixmap(size, size)
-    pm.fill(QColor(0, 0, 0, 0))
-    p = QPainter(pm)
-    try:
-        hint = getattr(getattr(QPainter, "RenderHint", QPainter),
-                       "Antialiasing")
+    hint = getattr(getattr(QPainter, "RenderHint", QPainter),
+                   "Antialiasing")
+    icon = QIcon()
+    # Значок рисуется под каждую плотность экрана. Одна картинка
+    # 18 на 18 на экране с масштабом 200 процентов растягивалась
+    # вдвое и мылилась, а Isoliner Scene с теми же SVG выглядела
+    # чётче (замечание автора). Рисунок в логических единицах,
+    # QIcon сам берёт картинку нужной плотности.
+    for k in (1, 2, 3):
+        pm = QPixmap(size * k, size * k)
+        pm.setDevicePixelRatio(float(k))
+        pm.fill(QColor(0, 0, 0, 0))
+        p = QPainter(pm)
         p.setRenderHint(hint)
-    except Exception:  # nosec
-        pass
-    _paint_tool(p, kind, size)
-    p.end()
-    return QIcon(pm)
+        _paint_tool(p, kind, size)
+        p.end()
+        icon.addPixmap(pm)
+    return icon
 
 
 def _paint_tool(p, kind, size=18):

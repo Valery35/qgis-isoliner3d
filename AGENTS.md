@@ -49,9 +49,9 @@ v3.2.0`, домен codeload из контейнера доступен.
 
 | Файл | Строк |
 |---|---|
-| `viewer_dialog.py` | 9169 |
+| `viewer_dialog.py` | 9177 |
 | `algorithms.py` | 7951 |
-| `viewer3d.py` | 931 |
+| `viewer3d.py` | 937 |
 | `viewer_core.py` | 1782 |
 | `i18n.py` | 4530 |
 

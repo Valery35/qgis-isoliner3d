@@ -1394,8 +1394,16 @@ class ViewerDialog(QDialog):
         sep = QFrame(self.tools)
         sep.setFrameShape(getattr(getattr(QFrame, "Shape", QFrame),
                                   "VLine"))
+        # тонкая ровная черта, как у Isoliner Scene: вдавленная
+        # двойная выглядела на плашке тяжелее самих значков
         sep.setFrameShadow(getattr(getattr(QFrame, "Shadow", QFrame),
-                                   "Sunken"))
+                                   "Plain"))
+        # Рамка окна сцены задана стилем на все QFrame внутри неё,
+        # и черта получала свою рамку в пиксель с каждой стороны:
+        # выходила двойная. Стиль черты свой, без рамки.
+        sep.setStyleSheet("QFrame { border: none; background:"
+                          " rgba(0, 0, 0, 70); }")
+        sep.setFixedWidth(1)
         tb.addWidget(sep)
         # На плашке только действия. Всё, что задаёт вид (проекция,
         # короб, показ разметки, преувеличение), живёт в окне
