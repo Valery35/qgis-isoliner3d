@@ -364,6 +364,122 @@ TRANSLATIONS = {
     'Короб': 'Box',
     # освещение: одно Солнце на отмывку и тени (shadow.py)
     'Освещение': 'Lighting',
+    'Проценты':
+        'Percent',
+    'Граммы на тонну':
+        'Grams per tonne',
+    '1.09 Отчёт по горизонтам':
+        '1.09 Bench report',
+    'Отчёт по горизонтам':
+        'Bench report',
+    'Базовая отметка уступов, м':
+        'Bench base elevation, m',
+    'Блоки с содержанием не ниже этого - руда, остальные вскрыша.':
+        'Blocks with a grade not below this are ore, the rest is waste.',
+    'Блоков без отметки или объёма: %d, они пропущены.':
+        'Blocks without elevation or volume: %d, skipped.',
+    'Блоков без содержания: %d, они считаются вскрышей.':
+        'Blocks without grade: %d, counted as waste.',
+    'Блоков с отметкой и объёмом не нашлось.':
+        'No blocks with elevation and volume were found.',
+    'Блочная модель (точки с Z)':
+        'Block model (points with Z)',
+    'Бортовое содержание':
+        'Cut-off grade',
+    'Выемка, за тонну горной массы':
+        'Mining, per tonne of rock',
+    'Выручка %.0f, затраты %.0f, маржа %.0f.':
+        'Revenue %.0f, cost %.0f, margin %.0f.',
+    'Высота уступа в метрах. Мельче уступ - подробнее отчёт, но больше строк и дробнее блоки.':
+        'Bench height in metres. A smaller bench gives a finer report, but more rows and more split blocks.',
+    'Высота уступа должна быть больше нуля.':
+        'The bench height must be above zero.',
+    'Высота уступа, м':
+        'Bench height, m',
+    'Доля металла, которая доходит до продукта.':
+        'The share of metal that reaches the product.',
+    'Единица содержания':
+        'Grade unit',
+    'Извлечение, %':
+        'Recovery, %',
+    'Итого':
+        'Total',
+    'Нет поля объёма блока (vol). Задайте его.':
+        'No block volume field (vol). Set it.',
+    'Нужно поле содержания.':
+        'A grade field is required.',
+    'Объём блока, м³. Пусто - поле vol или volume, если оно есть.':
+        'Block volume, m³. Empty takes the vol or volume field when present.',
+    'Отметка верха блока. Пусто - поле z_from, если оно есть. Без верха и низа высота блока берётся из поля dz вокруг отметки точки.':
+        'Block top elevation. Empty takes the z_from field when present. Without top and bottom the block height comes from the dz field around the point elevation.',
+    'Отметка низа блока. Пусто - поле z_to, если оно есть.':
+        'Block bottom elevation. Empty takes the z_to field when present.',
+    'Отметка, от которой отсчитываются уступы: границы уступов лежат на ней и через высоту уступа вверх и вниз.':
+        'The elevation benches are counted from: bench boundaries lie on it and every bench height up and down.',
+    'Переработка, за тонну руды':
+        'Processing, per tonne of ore',
+    'Плотность блока, т/м³. Пусто - поле dens или density, если оно есть, иначе постоянная ниже.':
+        'Block density, t/m³. Empty takes the dens or density field when present, otherwise the constant below.',
+    'Плотность для блоков, у которых нет поля плотности или оно пустое.':
+        'Density for blocks that have no density field or an empty one.',
+    'Плотность, т/м³, если поля нет':
+        'Density, t/m³, if no field',
+    'Поле верха блока (пусто - z_from)':
+        'Block top field (empty - z_from)',
+    'Поле низа блока (пусто - z_to)':
+        'Block bottom field (empty - z_to)',
+    'Поле объёма блока (пусто - vol)':
+        'Block volume field (empty - vol)',
+    'Поле плотности (пусто - dens)':
+        'Density field (empty - dens)',
+    'Поля: содержание %s, объём %s, плотность %s, высота блока %s.':
+        'Fields: grade %s, volume %s, density %s, block height %s.',
+    'Проценты - металл в тоннах. Г/т - металл в граммах. Цена металла ниже задаётся за эту же единицу.':
+        'Percent gives metal in tonnes, g/t gives metal in grams. The metal price below is set per the same unit.',
+    'Режет блочную модель горизонтальными уступами и считает по каждому: горную массу, руду и вскрышу, среднее содержание руды, металл, коэффициент вскрыши, выручку, затраты и маржу. Последняя строка - итог.\n\nУступы идут от базовой отметки с шагом высоты уступа, отчёт сверху вниз, как отрабатывают карьер. Блок, который пересекает границу уступа, делится между уступами по доле своей высоты. Высота блока берётся из полей верха и низа (z_from и z_to у 1.03), иначе из поля dz (у 2.03) вокруг отметки точки, иначе блок целиком уходит в уступ своего центра.\n\nРуда - блоки с содержанием не ниже бортового. Блок без содержания считается вскрышей, их число пишется в журнал.\n\nМеталл зависит от единицы содержания: для процентов он в тоннах, для г/т - в граммах. Цена - за ту же единицу металла. Выручка - металл с учётом извлечения по цене, затраты - выемка всей горной массы плюс переработка руды. Нули в экономике - только тоннаж и металл.\n\nПоля объёма и плотности угадываются по именам vol и dens, как их пишут 1.03 и 2.03. Чужую модель Micromine, Datamine или Surpac сначала переведите в куб 2.20, потом в блоки 2.03, или задайте поля сами.\n\nИдея из модуля QGIS 3D Studio.':
+        'Cuts the block model into horizontal benches and computes for each: rock mass, ore and waste, mean ore grade, metal, stripping ratio, revenue, cost and margin. The last row is the total.\n\nBenches go from the base elevation with the bench height step, the report runs top down, the way a pit is mined. A block crossing a bench boundary is split between benches by the share of its height. The block height comes from the top and bottom fields (z_from and z_to of 1.03), otherwise from the dz field (of 2.03) around the point elevation, otherwise the whole block goes to the bench of its centre.\n\nOre is blocks with a grade not below the cut-off. A block without grade counts as waste, and their number goes to the log.\n\nMetal depends on the grade unit: for percent it is in tonnes, for g/t in grams. The price is per the same metal unit. Revenue is metal with recovery at the price, cost is mining of all rock plus processing of ore. Zero economics gives only tonnage and metal.\n\nThe volume and density fields are guessed by the names vol and dens, as 1.03 and 2.03 write them. A foreign Micromine, Datamine or Surpac model goes first to a cube with 2.20, then to blocks with 2.03, or set the fields yourself.\n\nThe idea comes from the QGIS 3D Studio plugin.',
+    'Содержание полезного компонента в блоке. Единица - в поле ниже, от неё зависит единица металла.':
+        'The grade of the useful component in the block. The unit is in the field below, the metal unit depends on it.',
+    'Стоимость выемки тонны горной массы: руды и вскрыши.':
+        'The cost of mining a tonne of rock: ore and waste.',
+    'Стоимость переработки тонны руды. Вскрыша её не несёт, только выемку.':
+        'The cost of processing a tonne of ore. Waste does not carry it, only mining.',
+    'Таблица без геометрии: строка на уступ сверху вниз и итог.':
+        'A table without geometry: a row per bench top down and the total.',
+    'У %d блоков нет плотности: задайте поле плотности или постоянную плотность.':
+        '%d blocks have no density: set a density field or a constant density.',
+    'Уступов: %d. Горная масса %.0f т, руда %.0f т, вскрыша %.0f т, металл %.6g.':
+        'Benches: %d. Rock %.0f t, ore %.0f t, waste %.0f t, metal %.6g.',
+    'Цена единицы металла':
+        'Price per metal unit',
+    'Цена тонны металла для процентов или грамма для г/т. Ноль - без выручки.':
+        'The price of a tonne of metal for percent or of a gram for g/t. Zero gives no revenue.',
+    'Центры блоков точками с высотой: выход 1.03 или 2.03, либо своя модель с полями объёма и содержания.':
+        'Block centres as points with elevation: the output of 1.03 or 2.03, or your own model with volume and grade fields.',
+    'нет, по центру':
+        'none, by the centre',
+    'Уступ':
+        'Bench',
+    'Верх уступа, м':
+        'Bench top, m',
+    'Низ уступа, м':
+        'Bench bottom, m',
+    'Блоков':
+        'Blocks',
+    'Горная масса, т':
+        'Rock, t',
+    'Вскрыша, т':
+        'Waste, t',
+    'Металл':
+        'Metal',
+    'Коэффициент вскрыши, т/т':
+        'Stripping ratio, t/t',
+    'Выручка':
+        'Revenue',
+    'Затраты':
+        'Cost',
+    'Маржа':
+        'Margin',
     '2.25 3D-плотность':
         '2.25 3D density',
     '3D-плотность':

@@ -7407,7 +7407,8 @@ class SpecAlgorithm(IsolinerAlgorithm):
                 geo = {"lines": "TypeVectorLine",
                        "line": "TypeVectorLine",
                        "points": "TypeVectorPoint",
-                       "source": "TypeVectorAnyGeometry"}.get(
+                       "source": "TypeVectorAnyGeometry",
+                       "none": "TypeVector"}.get(
                            p.geometry, "TypeVectorPolygon")
                 kw = {}
                 if p.optional:
@@ -7755,9 +7756,11 @@ class SpecAlgorithm(IsolinerAlgorithm):
             as_source = res.geometry == "source"
             as_line = res.geometry == "line"
             as_point = res.geometry == "point"
+            as_none = res.geometry == "none"
             wkb = sources[keep].wkbType() if as_source \
                 else QgsWkbTypes.Type.LineStringZ if as_line \
                 else QgsWkbTypes.Type.PointZ if as_point \
+                else QgsWkbTypes.Type.NoGeometry if as_none \
                 else QgsWkbTypes.Type.MultiPolygonZ
             sink, dest = self.parameterAsSink(
                 parameters, p.key, context, fields, wkb, crs)
@@ -7766,7 +7769,9 @@ class SpecAlgorithm(IsolinerAlgorithm):
                     "Не удалось создать слой результата."))
             for geom, vals in res.features:
                 ft = QgsFeature(fields)
-                if as_source:
+                if as_none:
+                    pass              # таблица: строка без геометрии
+                elif as_source:
                     # объект уходит с той же геометрией, что пришёл
                     ft.setGeometry(self._geoms[keep][geom["source"]])
                 elif as_line:
@@ -7930,6 +7935,21 @@ class Density3DAlgorithm(SpecAlgorithm):
         return GROUP5_ID
 
 
+class BenchReportAlgorithm(SpecAlgorithm):
+    """1.09 Отчёт по горизонтам (tools/bench_report.py)."""
+
+    SPEC = "bench_report"
+
+    def name(self):
+        return "bench_report"
+
+    def displayName(self):
+        return self.tr("1.09 Отчёт по горизонтам")
+
+    def groupId(self):
+        return GROUP4_ID
+
+
 ALGORITHMS = [
     BedAssembleAlgorithm,
     BedCalculatorAlgorithm,
@@ -7964,4 +7984,5 @@ ALGORITHMS = [
     FillToVolumeAlgorithm,
     SweepBodyAlgorithm,
     Density3DAlgorithm,
+    BenchReportAlgorithm,
 ]

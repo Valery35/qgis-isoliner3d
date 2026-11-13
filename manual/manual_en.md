@@ -641,6 +641,35 @@ explanation.
 | **Map: graticule cells** | How many cells of the coordinate grid to draw on the map. |
 | **Map: bed fields** | How many bed fields to draw on the map. |
 
+## 1.09 Bench report
+
+Cuts the block model into horizontal benches and computes for each: rock mass, ore and waste, mean ore grade, metal, stripping ratio, revenue, cost and margin. The last row is the total. The report runs top down, the way a pit is mined.
+
+A block crossing a bench boundary is split between benches by the share of its height. The block height comes from the top and bottom fields (`z_from` and `z_to` of 1.03), otherwise from the `dz` field of 2.03 around the point elevation. The volume and density fields are guessed by the names `vol` and `dens`.
+
+Ore is blocks with a grade not below the cut-off, a block without grade counts as waste. Metal depends on the grade unit: for percent it is in tonnes, for g/t in grams, and the price is set per the same unit. Zero economics gives only tonnage and metal.
+
+The idea comes from the QGIS 3D Studio plugin, the computation is our own.
+
+| Field | What it sets |
+|---|---|
+| **Блочная модель (точки с Z)** | Центры блоков точками с высотой: выход 1.03 или 2.03, либо своя модель с полями объёма и содержания. |
+| **Поле содержания** | Содержание полезного компонента в блоке. Единица - в поле ниже, от неё зависит единица металла. |
+| **Единица содержания** | Проценты - металл в тоннах. Г/т - металл в граммах. Цена металла ниже задаётся за эту же единицу. |
+| **Бортовое содержание** | Блоки с содержанием не ниже этого - руда, остальные вскрыша. |
+| **Высота уступа, м** | Высота уступа в метрах. Мельче уступ - подробнее отчёт, но больше строк и дробнее блоки. |
+| **Базовая отметка уступов, м** | Отметка, от которой отсчитываются уступы: границы уступов лежат на ней и через высоту уступа вверх и вниз. |
+| **Поле объёма блока (пусто - vol)** | Объём блока, м³. Пусто - поле vol или volume, если оно есть. |
+| **Поле плотности (пусто - dens)** | Плотность блока, т/м³. Пусто - поле dens или density, если оно есть, иначе постоянная ниже. |
+| **Плотность, т/м³, если поля нет** | Плотность для блоков, у которых нет поля плотности или оно пустое. |
+| **Поле верха блока (пусто - z_from)** | Отметка верха блока. Пусто - поле z_from, если оно есть. Без верха и низа высота блока берётся из поля dz вокруг отметки точки. |
+| **Поле низа блока (пусто - z_to)** | Отметка низа блока. Пусто - поле z_to, если оно есть. |
+| **Цена единицы металла** | Цена тонны металла для процентов или грамма для г/т. Ноль - без выручки. |
+| **Извлечение, %** | Доля металла, которая доходит до продукта. |
+| **Выемка, за тонну горной массы** | Стоимость выемки тонны горной массы: руды и вскрыши. |
+| **Переработка, за тонну руды** | Стоимость переработки тонны руды. Вскрыша её не несёт, только выемку. |
+| **Отчёт по горизонтам** | Таблица без геометрии: строка на уступ сверху вниз и итог. |
+
 ## 2.01 Demonstration boreholes in three dimensions
 
 | Field | What it sets |

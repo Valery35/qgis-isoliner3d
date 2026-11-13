@@ -39,7 +39,8 @@ MODULES = ("algorithms.py", "viewer3d.py", "texmesh.py", "plugin.py",
            "tubes.py", "demo_rivers.py", "wells.py", "blockmodel.py", "colnames.py", "section2d.py",
            "zonal.py", "scenes.py", "flight.py", "video.py", "fill.py", "sweep.py",
            "toolspec.py", "tools/__init__.py", "tools/fill_volume.py",
-           "tools/sweep_body.py", "scene_package.py", "scene_app.py", "scene_params.py", "toolbar.py", "shadow.py", "about_info.py", "density3d.py", "tools/density_3d.py",
+           "tools/sweep_body.py", "scene_package.py", "scene_app.py", "scene_params.py", "toolbar.py", "shadow.py", "about_info.py", "density3d.py", "tools/density_3d.py", "benches.py",
+           "tools/bench_report.py",
            "__init__.py")
 
 # коды, которые считаем ошибкой сборки

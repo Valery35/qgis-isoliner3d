@@ -122,6 +122,18 @@ LABELS = {
     "sum": "Сумма атрибута",
     "mean": "Среднее атрибута",
     "len_m": "Длина линий в ячейке, м",
+    # 1.09: отчёт по горизонтам
+    "bench": "Уступ",
+    "z_top": "Верх уступа, м",
+    "z_bot": "Низ уступа, м",
+    "n_blocks": "Блоков",
+    "ton": "Горная масса, т",
+    "waste_t": "Вскрыша, т",
+    "metal": "Металл",
+    "strip": "Коэффициент вскрыши, т/т",
+    "revenue": "Выручка",
+    "cost": "Затраты",
+    "margin": "Маржа",
 }
 
 # Поля с переменной приставкой: 2.14 называет их по слою, который
@@ -150,6 +162,7 @@ METRIC = {
     "x", "y", "z", "top", "bot", "z_from", "z_to", "thick",
     "dx", "dy", "dz", "from_m", "to_m", "zmin", "zmax", "length_m",
     "eoh", "depth", "top_depth", "bottom_depth", "len_m",
+    "z_top", "z_bot",
 }
 METRIC_SUFFIX = ("_len",)
 METRIC_DECIMALS = 2
