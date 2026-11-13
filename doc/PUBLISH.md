@@ -38,6 +38,25 @@
 
 ## Журнал
 
+### 1.5.2 - 13 ноября 2026 года
+
+Окно **Параметры сцены** на одну кнопку, общий список полей
+с Isoliner Scene. Тексты постов - `site/posts_1.5.2_social.md`.
+
+| Площадка | Запись |
+|---|---|
+| GitHub | https://github.com/Valery35/qgis-isoliner3d/releases/tag/1.5.2 |
+| Каталог QGIS | https://plugins.qgis.org/plugins/isoliner3d/version/1.5.2/ (сохранена автором) |
+| Telegram | https://t.me/qgis_isolines/211 |
+| Dropbox | `ИИ\Isoliner3D`, три архива, 1.5.1 в `arhiv\старые_сборки_1.5.1` |
+| ВК | https://vk.ru/wall-241229428_69 (запись на стене) |
+| Mastodon | https://en.osm.town/@Vaery35/117607952099604449 |
+| X | https://x.com/Valery35/status/2121143381766139985 |
+| LinkedIn | https://www.linkedin.com/feed/update/urn:li:activity:7526909850488995840/ |
+| Facebook | https://www.facebook.com/valery35/posts/pfbid02CfSesDYwvDNie96cugNXA7MTesK4qse1QDWQWkwmm7yU4TzTQmBf9eKa7UQmJ47ml |
+| OSGeo, linux.org.ru, форум OSM | не публикуются в этом выпуске |
+| Сайт informpp.ru | страницу обновляет основная сессия |
+
 ### 1.5.1 - 13 ноября 2026 года
 
 Кнопка **Открыть в Isoliner Scene**. Тексты постов -
