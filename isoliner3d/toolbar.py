@@ -58,7 +58,7 @@ ITEMS = [
     _b("export", "export", "Выгрузить сцену в файл: GLB, STL или OBJ",
        "pro"),
     _b("export_package", "export",
-       "Сохранить сцену в файл пакета .i3dscene", "lite"),
+       "Сохранить пакет сцены (.i3dscene)", "lite"),
     _b("scene_app", "scene",
        "Открыть в Isoliner Scene: сцена в отдельной программе. "
        "Повторное нажатие обновляет её там", "pro"),

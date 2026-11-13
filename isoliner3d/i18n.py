@@ -365,8 +365,8 @@ TRANSLATIONS = {
     # освещение: одно Солнце на отмывку и тени (shadow.py)
     'Освещение': 'Lighting',
     # плашка Isoliner Scene (toolbar.py, только Лайт)
-    'Сохранить сцену в файл пакета .i3dscene':
-        'Save the scene to an .i3dscene package file',
+    'Сохранить пакет сцены (.i3dscene)':
+        'Save the scene package (.i3dscene)',
     'Солнце': 'Sun',
     'Тени': 'Shadows',
     'тени': 'shadows',
