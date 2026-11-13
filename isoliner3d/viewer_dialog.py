@@ -1282,6 +1282,8 @@ class ViewerDialog(QDialog):
             self._copy_png)
         btn_png = tool("png", tr("Сохранить кадр сцены в файл PNG"),
                        self._save_png)
+        btn_about = tool("about", tr("О программе: кто мы и где нас найти"),
+                         self._open_about)
         # Обновление отделено от отметок видимости. Отметка и ползунок
         # только записывают, что показывать, а считает сцену эта
         # кнопка. На тяжёлом кубе разница решающая: без неё каждый
@@ -1415,7 +1417,7 @@ class ViewerDialog(QDialog):
                   btn_clip_off,
                   btn_draw_save, btn_shells, btn_export, btn_scene_app,
                   self.btn_spin, btn_views, btn_turn,
-                  btn_copy, btn_png):
+                  btn_copy, btn_png, btn_about):
             b.setParent(self.tools)
             tb.addWidget(b)
         self.cam_ortho.toggled.connect(self._ortho_from_props)
@@ -4825,6 +4827,51 @@ class ViewerDialog(QDialog):
 
     def _sketch_to_props(self, on):
         self._mirror(self.btn_sketch, self.sketch_on, on)
+
+    def _open_about(self, *_a):
+        """Окно «О программе» за кнопкой (i): кто мы и ссылки.
+
+        Состав общий с Isoliner Scene (about_info.py, about.json),
+        номер версии свой, из metadata.txt.
+        """
+        import html
+        from .about import read_metadata
+        from .about_info import as_json, for_app
+        from .i18n import language
+        lang = "en" if language() == "en" else "ru"
+        data = for_app("pro")
+        try:
+            version = read_metadata().get("version", "")
+        except (OSError, KeyError, ValueError):  # nosec
+            version = ""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(as_json()["window"][lang])
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(6)
+        head = QLabel("<b style='font-size:13pt'>%s</b> %s" % (
+            html.escape(data["title"][0][lang]), html.escape(version)))
+        lay.addWidget(head)
+        # тексты одной надписью: отдельные надписи с переносом строк
+        # раздвигали окно пустыми промежутками
+        body = QLabel("".join("<p style='margin:0 0 6px 0'>%s</p>"
+                              % html.escape(t[lang])
+                              for t in data["text"]))
+        body.setWordWrap(True)
+        lay.addWidget(body)
+        links = "<br>".join(
+            "<a href='%s'>%s</a>" % (html.escape(x["url"], quote=True),
+                                     html.escape(x[lang]))
+            for x in data["links"])
+        lab = QLabel(links)
+        lab.setOpenExternalLinks(True)
+        lab.setTextInteractionFlags(getattr(
+            getattr(Qt, "TextInteractionFlag", Qt), "TextBrowserInteraction"))
+        lay.addSpacing(4)
+        lay.addWidget(lab)
+        dlg.setMinimumWidth(380)
+        dlg.show()
+        self._about_dlg = dlg
 
     def _open_scene_params(self, *_a):
         """Окно «Параметры сцены»: всё, что задаёт вид сцены.

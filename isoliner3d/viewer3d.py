@@ -684,6 +684,18 @@ def _paint_tool(p, kind, size=18):
         p.setBrush(QColor("#0E7C66"))
         tri = [(0.90, 0.10), (0.92, 0.40), (0.62, 0.34)]
         p.drawPolygon(*[QPointF(x * s, y * s) for x, y in tri])
+    elif kind == "about":         # (i) в круге: о программе
+        p.drawEllipse(QPointF(0.5 * s, 0.5 * s), 0.38 * s, 0.38 * s)
+        pen2 = QPen(QColor("#0E7C66"))
+        pen2.setWidthF(1.8)
+        pen2.setCapStyle(cap)
+        p.setPen(pen2)
+        p.drawLine(QPointF(0.5 * s, 0.47 * s), QPointF(0.5 * s, 0.72 * s))
+        # точка без обводки: с обводкой она сливалась с чертой,
+        # и на восемнадцати пикселях выходила стрелка вверх
+        p.setPen(getattr(getattr(_Qt, "PenStyle", _Qt), "NoPen"))
+        p.setBrush(QColor("#0E7C66"))
+        p.drawEllipse(QPointF(0.5 * s, 0.29 * s), 0.075 * s, 0.075 * s)
     elif kind == "params":        # три ползунка: параметры сцены
         p.setBrush(QColor("#0E7C66"))
         for y, x in ((0.26, 0.34), (0.50, 0.64), (0.74, 0.44)):

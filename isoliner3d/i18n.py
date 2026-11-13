@@ -364,6 +364,7 @@ TRANSLATIONS = {
     'Короб': 'Box',
     # освещение: одно Солнце на отмывку и тени (shadow.py)
     'Освещение': 'Lighting',
+    'О программе: кто мы и где нас найти': 'About: who we are and where to find us',
     # плашка Isoliner Scene (toolbar.py, только Лайт)
     'Сохранить пакет сцены (.i3dscene)':
         'Save the scene package (.i3dscene)',
