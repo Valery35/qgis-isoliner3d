@@ -38,6 +38,25 @@
 
 ## Журнал
 
+### 1.5.5 - 13 ноября 2026 года
+
+Три инструмента по идеям QGIS 3D Studio: 2.25 3D-плотность,
+1.09 Отчёт по горизонтам, 2.26 Тела по контуру со сводом.
+Руководство PDF дописано. Тексты постов - `site/posts_1.5.5_social.md`.
+
+| Площадка | Запись |
+|---|---|
+| GitHub | https://github.com/Valery35/qgis-isoliner3d/releases/tag/1.5.5 |
+| Каталог QGIS | не загружен: флажки согласия помощнику не даются, архив `isoliner3d_upload.zip` 1.5.5 лежит в Dropbox |
+| Telegram | бот поста не выложил (как и для 1.5.4) |
+| Dropbox | `ИИ\Isoliner3D`, три архива, 1.5.4 в `arhiv\старые_сборки_1.5.4` |
+| ВК | https://vk.ru/wall-241229428_72 (запись на стене) |
+| Mastodon | https://en.osm.town/@Vaery35/117608677075122552 |
+| X | https://x.com/Valery35/status/2121189754720924132 |
+| LinkedIn | https://www.linkedin.com/feed/update/urn:li:activity:7526956481460645888/ |
+| Facebook | https://www.facebook.com/valery35/posts/pfbid0dHhCevsga3GuWHMc39pAFgotTsiVZCn3rVrsZpDh2HBvWBst7PGiZH8dSE9V3dUal |
+| Сайт informpp.ru | страницу обновляет основная сессия |
+
 ### 1.5.4 - 13 ноября 2026 года
 
 Кнопка (i) и окно **О программе**, общее с Isoliner Scene, значки
