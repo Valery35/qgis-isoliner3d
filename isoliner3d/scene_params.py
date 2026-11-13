@@ -36,6 +36,19 @@ def _c(value, ru, en):
 
 GROUPS = [
     {"id": "view", "ru": "Вид", "en": "View", "sections": [
+        # Система координат сцены - для модулей (QGIS и RustGIS), Лайт
+        # её не показывает. В QGIS это система проекта, окно её только
+        # показывает, а пакет пишет её и в meta.crs.authid.
+        {"ru": "Система координат", "en": "Coordinate system", "params": [
+            _p("scene_crs", "Система координат сцены (EPSG)",
+               "Scene coordinate system (EPSG)", "string", "pro",
+               default="",
+               hint="Код EPSG системы, в метрах которой строится сцена, "
+                    "например EPSG:28410. Пусто - система проекта.",
+               hint_en="The EPSG code of the system the scene is built "
+                       "in, for example EPSG:28410. Empty takes the "
+                       "project's system."),
+        ]},
         {"ru": "Масштаб", "en": "Scale", "params": [
             _p("vex", "Вертикальное преувеличение",
                "Vertical exaggeration", "float",

@@ -618,6 +618,18 @@ class ViewerDialog(QDialog):
         self._build_camera_controls()
         tab_view = QWidget()
         tv = _tight(QVBoxLayout(tab_view))
+        # Система координат сцены общая с RustGIS (scene_crs). В QGIS
+        # это система проекта: меняется она в свойствах проекта, здесь
+        # только видна, а пакет сцены пишет её в meta.crs.authid.
+        box_crs = QGroupBox(tr("Система координат"))
+        fcrs = _tight(QFormLayout(box_crs))
+        self.scene_crs = QLineEdit()
+        self.scene_crs.setReadOnly(True)
+        self.scene_crs.setToolTip(tr(
+            "Система проекта QGIS: в её метрах строится сцена. Меняется "
+            "в свойствах проекта."))
+        fcrs.addRow(tr("Система координат сцены (EPSG)"), self.scene_crs)
+        tv.addWidget(box_crs)
         box_view = QGroupBox(tr("Масштаб"))
         f1 = _tight(QFormLayout(box_view))
         f1.addRow(tr("Вертикальное преувеличение"), self.vex)
@@ -2217,6 +2229,7 @@ class ViewerDialog(QDialog):
             "bg_grad": bool(self.bg_grad.isChecked()),
             "smooth_edges": bool(self.smooth_edges.isChecked()),
             "sketch_on": bool(self.btn_sketch.isChecked()),
+            "scene_crs": self._project_authid(),
             "sun_az": float(self.sun_az.value()),
             "sun_alt": float(self.sun_alt.value()),
             "shadows_on": bool(self.shadows_on.isChecked()),
@@ -4881,12 +4894,21 @@ class ViewerDialog(QDialog):
         dlg.show()
         self._about_dlg = dlg
 
+    @staticmethod
+    def _project_authid():
+        """Код системы координат проекта, например EPSG:28410."""
+        try:
+            return QgsProject.instance().crs().authid() or ""
+        except AttributeError:  # nosec - без проекта системы нет
+            return ""
+
     def _open_scene_params(self, *_a):
         """Окно «Параметры сцены»: всё, что задаёт вид сцены.
 
         Одно немодальное окно на одну кнопку, тот же набор и порядок
         полей, что в Isoliner Scene (doc/SCENE_PARAMS.md).
         """
+        self.scene_crs.setText(self._project_authid())
         if self._scene_params is None:
             dlg = QDialog(self)
             dlg.setWindowTitle(tr("Параметры сцены"))

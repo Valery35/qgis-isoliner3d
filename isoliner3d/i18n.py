@@ -364,6 +364,12 @@ TRANSLATIONS = {
     'Короб': 'Box',
     # освещение: одно Солнце на отмывку и тени (shadow.py)
     'Освещение': 'Lighting',
+    'Система координат':
+        'Coordinate system',
+    'Система координат сцены (EPSG)':
+        'Scene coordinate system (EPSG)',
+    'Система проекта QGIS: в её метрах строится сцена. Меняется в свойствах проекта.':
+        'The QGIS project system: the scene is built in its metres. It is changed in the project properties.',
     '2.26 Тела по контуру со сводом':
         '2.26 Crowned bodies from outlines',
     'Тела по контуру со сводом':
