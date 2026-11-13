@@ -48,10 +48,10 @@
 | Площадка | Запись |
 |---|---|
 | GitHub | https://github.com/Valery35/qgis-isoliner3d/releases/tag/1.5.6 |
-| Каталог QGIS | архив прикреплён к форме, флажки согласия и Save ставит автор |
+| Каталог QGIS | https://plugins.qgis.org/plugins/isoliner3d/version/1.5.6/ (загрузила основная сессия 13.11, сначала каталог отвечал 502, идёт проверка) |
 | Dropbox | `ИИ\Isoliner3D`, три архива, 1.5.5 в `arhiv\старые_сборки_1.5.5` |
 | Telegram, ВК, Mastodon, X, LinkedIn, Facebook | пропущены по слову автора |
-| Сайт informpp.ru | страницу обновляет основная сессия |
+| Сайт informpp.ru | лента и лендинг 1.5.6, обновила основная сессия |
 
 ### 1.5.5 - 13 ноября 2026 года
 
