@@ -4,7 +4,7 @@
 
 - выпуск https://github.com/Valery35/qgis-isoliner3d/releases/tag/1.5.1
 - страница модуля https://www.informpp.ru/главная-страница/isoliner3d/qgis-isoliner3d
-- Isoliner Scene SCENE_URL
+- Isoliner Scene https://github.com/Valery35/isoliner-scene/releases/tag/v0.2.0
 
 ## Русский (ВК, Facebook)
 
@@ -19,7 +19,7 @@ Isoliner Scene показывает сцену без QGIS, её можно от
 одним файлом .i3dscene.
 
 Модуль: https://github.com/Valery35/qgis-isoliner3d/releases/tag/1.5.1
-Isoliner Scene: SCENE_URL
+Isoliner Scene: https://github.com/Valery35/isoliner-scene/releases/tag/v0.2.0
 Страница: https://www.informpp.ru/главная-страница/isoliner3d/qgis-isoliner3d
 
 #QGIS #геология #3D #ГИС
@@ -37,7 +37,7 @@ Isoliner Scene shows the scene without QGIS, and it can be handed to
 a colleague as a single .i3dscene file.
 
 Plugin: https://github.com/Valery35/qgis-isoliner3d/releases/tag/1.5.1
-Isoliner Scene: SCENE_URL
+Isoliner Scene: https://github.com/Valery35/isoliner-scene/releases/tag/v0.2.0
 
 #QGIS #geology #mining #3D #GIS #opensource
 
@@ -47,4 +47,4 @@ Isoliner3D 1.5.1 for QGIS. One button sends the 3D scene to Isoliner
 Scene, a separate program, and updates it there on the next press.
 #QGIS #geology #3D
 https://github.com/Valery35/qgis-isoliner3d/releases/tag/1.5.1
-SCENE_URL
+https://github.com/Valery35/isoliner-scene/releases/tag/v0.2.0
