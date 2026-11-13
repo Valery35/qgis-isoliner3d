@@ -1015,7 +1015,8 @@ class BedAssembleAlgorithm(IsolinerAlgorithm):
             arr, g2 = self._read_band(lyr.source(), band)
             if arr is None:
                 return None
-            if arr.shape == roof.shape and np.allclose(g2, gt):
+            if arr.shape == roof.shape and np.allclose(
+                    g2, gt, rtol=0.0, atol=1e-6 * abs(gt[1])):
                 return arr
             return sample_bilinear(arr, g2, XX.ravel(), YY.ravel()) \
                 .reshape(roof.shape)
@@ -6110,7 +6111,7 @@ class FormationBodiesAlgorithm(IsolinerAlgorithm):
                     if not np.isfinite(pts).all():
                         n_flat += 1
                         continue
-                    rings.append(pts[:-1] if np.allclose(pts[0], pts[-1])
+                    rings.append(pts[:-1] if np.array_equal(pts[0], pts[-1])
                                  else pts)
                     codes.append(code)
         if n_flat:
@@ -7450,7 +7451,8 @@ class SpecAlgorithm(IsolinerAlgorithm):
             pts = np.array([(ring.xAt(k), ring.yAt(k), ring.zAt(k))
                             for k in range(ring.numPoints())],
                            dtype=float)
-            if len(pts) > 1 and np.allclose(pts[0], pts[-1]):
+            if len(pts) > 1 and np.array_equal(pts[0], pts[-1],
+                                                  equal_nan=True):
                 pts = pts[:-1]
             if len(pts) < 3 or not np.isfinite(pts).all():
                 continue

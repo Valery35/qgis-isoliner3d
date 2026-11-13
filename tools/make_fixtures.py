@@ -563,6 +563,20 @@ def _crown_runs():
                            "fields": ["fz"]}}
         runs.append(_spec_run(tool, vals, {"INPUT": js}, {"INPUT": feed},
                               meta, {"volume_rel": 1e-9}))
+    # те же контуры в метрах проекции и без замыкающей вершины: тело
+    # обязано совпасть с первым прогоном (концы кольца сравниваются
+    # точно, allclose с относительным допуском путал их на метры)
+    far = [{"id": it["id"], "attrs": it["attrs"],
+            "parts": [[[p[0] + 435000.0, p[1] + 6062000.0, p[2]]
+                       for p in part[:-1]] for part in it["parts"]]}
+           for it in items]
+    js, feed = _feats(far)
+    vals = dict(tool.defaults(), STEEP=0.5, CELL=1.0)
+    del vals["INPUT"]
+    meta = {"@INPUT": {"name": "outlines", "geometry": "polygon",
+                       "fields": ["fz"]}}
+    runs.append(_spec_run(tool, vals, {"INPUT": js}, {"INPUT": feed},
+                          meta, {"volume_rel": 1e-9}))
     return runs
 
 

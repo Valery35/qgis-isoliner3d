@@ -262,7 +262,7 @@ def _prism(geom, cap_v, cap_f, zbot, ztop):
         pts = np.asarray([(x, y) for x, y, _z in ring], dtype=float)
         if len(pts) < 2:
             continue
-        if not np.allclose(pts[0], pts[-1]):
+        if not np.array_equal(pts[0], pts[-1]):
             pts = np.vstack([pts, pts[:1]])
         m = len(pts)
         wall_top = np.column_stack([pts, np.full(m, ztop)])
@@ -294,7 +294,7 @@ def _tessellate_ring3d(pts):
     """
     import numpy as np
     p = np.asarray(pts, dtype=float)
-    if len(p) >= 2 and np.allclose(p[0], p[-1]):
+    if len(p) >= 2 and np.array_equal(p[0], p[-1], equal_nan=True):
         p = p[:-1]
     if len(p) < 3:
         return np.zeros((0, 3)), np.zeros((0, 3), dtype=np.int64)

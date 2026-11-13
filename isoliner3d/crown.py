@@ -52,7 +52,7 @@ def boundary_distance(xs, ys, ring, chunk=20000):
     """Расстояние от точек (xs, ys) до ломаной кольца, точно по
     отрезкам. Порциями: память не растёт с числом точек."""
     p = np.asarray(ring, dtype=float)[:, :2]
-    if not np.allclose(p[0], p[-1]):
+    if not np.array_equal(p[0], p[-1], equal_nan=True):
         p = np.vstack([p, p[:1]])
     a, b = p[:-1], p[1:]
     ab = b - a
@@ -77,7 +77,7 @@ def crown_grids(ring, floor=None, wall=0.0, steep=0.45, rise_max=0.0,
     вырожден.
     """
     p = np.asarray(ring, dtype=float)
-    if len(p) > 1 and np.allclose(p[0], p[-1]):
+    if len(p) > 1 and np.array_equal(p[0], p[-1], equal_nan=True):
         p = p[:-1]
     if len(p) < 3 or ring_area(p) <= 0:
         raise ValueError("degenerate ring")

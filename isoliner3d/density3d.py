@@ -150,7 +150,8 @@ def _anchor(geom, parts):
         return p[k] + t * (p[k + 1] - p[k])
     if geom == "polygon":
         ring = pts[0]
-        if len(ring) > 1 and np.allclose(ring[0], ring[-1]):
+        if len(ring) > 1 and np.array_equal(ring[0], ring[-1],
+                                            equal_nan=True):
             ring = ring[:-1]
         return ring.mean(axis=0)
     return np.vstack(pts).mean(axis=0)
