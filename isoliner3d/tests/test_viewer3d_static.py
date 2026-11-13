@@ -3231,7 +3231,7 @@ def test_icons_are_not_lookalikes():
     """
     import re
     src = _viewer_src()
-    start = src.index("def _tool_icon")
+    start = src.index("def _paint_tool")
     body = src[start:src.index("\ndef ", start + 20)]
     parts = re.split(r'(?:el)?if kind == ["\'](\w+)["\']:', body)
     sig = {}
@@ -3258,7 +3258,7 @@ def test_every_button_kind_has_an_icon():
     src = _viewer_src()
     kinds = set(re.findall(r'tool\(\s*"(\w+)"', src))
     kinds |= set(re.findall(r"tool\(\s*'(\w+)'", src))
-    start = src.index("def _tool_icon")
+    start = src.index("def _paint_tool")
     body = src[start:src.index("\ndef ", start + 20)]
     known = set(re.findall(r'kind == ["\'](\w+)["\']', body))
     missing = sorted(kinds - known)

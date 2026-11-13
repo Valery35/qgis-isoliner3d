@@ -493,8 +493,7 @@ def _tool_icon(kind, size=18):
     Файлов нет намеренно: значки должны одинаково выглядеть в светлой
     и тёмной теме и не требовать сборки ресурсов.
     """
-    from qgis.PyQt.QtGui import QIcon, QPixmap, QPainter, QPen, QColor
-    from qgis.PyQt.QtCore import Qt as _Qt, QPointF
+    from qgis.PyQt.QtGui import QIcon, QPixmap, QPainter, QColor
     pm = QPixmap(size, size)
     pm.fill(QColor(0, 0, 0, 0))
     p = QPainter(pm)
@@ -504,6 +503,16 @@ def _tool_icon(kind, size=18):
         p.setRenderHint(hint)
     except Exception:  # nosec
         pass
+    _paint_tool(p, kind, size)
+    p.end()
+    return QIcon(pm)
+
+
+def _paint_tool(p, kind, size=18):
+    """Рисунок значка на любом холсте: плашка окна и SVG для Isoliner
+    Scene (tools/export_icons.py) рисуются одним кодом."""
+    from qgis.PyQt.QtGui import QPen, QColor
+    from qgis.PyQt.QtCore import Qt as _Qt, QPointF
     pen = QPen(QColor("#1d2b28"))
     pen.setWidthF(1.6)
     cap = getattr(getattr(_Qt, "PenCapStyle", _Qt), "RoundCap")
@@ -760,8 +769,6 @@ def _tool_icon(kind, size=18):
         p.setBrush(QColor("#1d2b28"))
         tri = [(0.78, 0.20), (0.90, 0.44), (0.64, 0.42)]
         p.drawPolygon(*[QPointF(x * s, y * s) for x, y in tri])
-    p.end()
-    return QIcon(pm)
 
 
 class _Prof:
