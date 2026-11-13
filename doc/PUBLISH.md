@@ -41,16 +41,20 @@
 ### 1.5.1 - 13 ноября 2026 года
 
 Кнопка **Открыть в Isoliner Scene**. Тексты постов -
-`site/posts_1.5.1_social.md`. Посты в соцсетях ждут выпуска
+`site/posts_1.5.1_social.md`. Посты в соцсетях вышли после выпуска
 Isoliner Scene 0.2.0: в 0.1.0 нет перечитывания пакета.
 
 | Площадка | Запись |
 |---|---|
 | GitHub | https://github.com/Valery35/qgis-isoliner3d/releases/tag/1.5.1 |
-| Каталог QGIS | архив прикреплён к форме, флажки согласия и Save ставит автор |
+| Каталог QGIS | https://plugins.qgis.org/plugins/isoliner3d/version/1.5.1/ (сохранена автором) |
 | Telegram | https://t.me/qgis_isolines/210 |
 | Dropbox | `ИИ\Isoliner3D`, три архива, 1.5.0 в `arhiv\старые_сборки_1.5.0` |
-| ВК, Mastodon, X, LinkedIn, Facebook | ждут Isoliner Scene 0.2.0 |
+| ВК | https://vk.ru/wall-241229428_68 (запись на стене) |
+| Mastodon | https://en.osm.town/@Vaery35/117607754675085301 |
+| X | https://x.com/Valery35/status/2121130761717981473 |
+| LinkedIn | https://www.linkedin.com/feed/update/urn:li:activity:7526897373273403392/ |
+| Facebook | https://www.facebook.com/valery35/posts/pfbid0as2mbtmxpz8szGBnHVTwjvGrqzpvsc4qe4oT4TujML73H3d11jaKA4qbDZ5PshE5l |
 | OSGeo, linux.org.ru, форум OSM | не публикуются в этом выпуске |
 | Сайт informpp.ru | страницу обновляет основная сессия |
 
