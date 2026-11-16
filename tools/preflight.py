@@ -38,7 +38,9 @@ REQUIRED = ("name", "qgisMinimumVersion", "qgisMaximumVersion",
             "description", "version", "author", "email", "about",
             "repository", "tracker", "icon")
 URL_FIELDS = ("homepage", "repository", "tracker")
-VERSION = re.compile(r"\b(\d+\.\d+\.\d+)\b")
+# Прежний \b(...)\b пропускал номер с приставкой «v1.5.7» молча: между
+# буквой и цифрой нет границы слова. Четыре части - не номер модуля.
+VERSION = re.compile(r"(?<![\d.])(\d+\.\d+\.\d+)(?!\.?\d)")
 README = ("README.md", "README.ru.md", "README.en.md")
 TAG = re.compile(r"v?(\d+\.\d+\.\d+)")
 

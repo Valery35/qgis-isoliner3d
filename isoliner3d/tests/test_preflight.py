@@ -101,6 +101,40 @@ def test_number_below_last_release_compares_as_numbers():
     assert _tags(["1.9.0"], "a", "b", "1.10.0") == []
 
 
+def _numbers(text):
+    return [m.group(1) for m in preflight.VERSION.finditer(text)]
+
+
+def test_prefixed_number_is_found():
+    """Номер с приставкой «v» прежний шаблон \\b...\\b пропускал молча."""
+    if not HAVE:
+        return
+    assert _numbers("Isoliner3D v1.5.7") == ["1.5.7"]
+    assert _numbers("## [v0.5.4] - 2026") == ["0.5.4"]
+
+
+def test_plain_and_archive_names():
+    if not HAVE:
+        return
+    assert _numbers("Версия 1.5.7.") == ["1.5.7"]
+    assert _numbers("isoliner3d-1.5.7.zip") == ["1.5.7"]
+    # четыре части - не номер версии модуля
+    assert _numbers("сборка 1.5.7.2") == []
+
+
+def test_prefixed_mention_is_compared():
+    """README с номером «v» - расхождение видно, а не пропущено."""
+    if not HAVE:
+        return
+    import tempfile
+    with tempfile.TemporaryDirectory() as root:
+        with open(os.path.join(root, "README.md"), "w",
+                  encoding="utf-8") as fh:
+            fh.write("Isoliner3D v0.0.1\n")
+        found = preflight.version_mentions(root)
+    assert found == [("README.md:1", "0.0.1")], found
+
+
 def test_our_metadata_passes_offline():
     if not HAVE:
         return
